@@ -172,7 +172,7 @@
   manual: null
   ```
 
-- [ ] 3.4 Implement reconciliation-driven recovery across OpenSpec, Git, worktree, evidence, child, lease, and checkpoint state; verify source writes are not duplicated after interruption.
+- [x] 3.4 Implement reconciliation-driven recovery across OpenSpec, Git, worktree, evidence, child, lease, and checkpoint state; verify source writes are not duplicated after interruption.
 
   ```yaml harness-task
   id: "3.4"
@@ -186,7 +186,7 @@
   manual: null
   ```
 
-- [ ] 3.5 Add deterministic fault injection at every supported interruption point; verify recovery state transitions and immutable evidence with `bun test tests/recovery/fault-matrix.test.ts`.
+- [x] 3.5 Add deterministic fault injection at every supported interruption point; verify recovery state transitions and immutable evidence with `bun test tests/recovery/fault-matrix.test.ts`.
 
   ```yaml harness-task
   id: "3.5"
@@ -202,7 +202,7 @@
 
 ## 4. Implement Review Freshness and Lifecycle Control
 
-- [ ] 4.1 Implement canonical reviewed-artifact discovery and SHA-256 streaming over sorted paths, lengths, and bytes; verify path-order, line-ending, content, and runtime-file cases.
+- [x] 4.1 Implement canonical reviewed-artifact discovery and SHA-256 streaming over sorted paths, lengths, and bytes; verify path-order, line-ending, content, and runtime-file cases.
 
   ```yaml harness-task
   id: "4.1"
@@ -216,7 +216,7 @@
   manual: null
   ```
 
-- [ ] 4.2 Define, parse, validate, and atomically write the durable binary `review.md` contract; verify required findings produce `REVISE` and unsupported verdicts are rejected.
+- [x] 4.2 Define, parse, validate, and atomically write the durable binary `review.md` contract; verify required findings produce `REVISE` and unsupported verdicts are rejected.
 
   ```yaml harness-task
   id: "4.2"
@@ -230,7 +230,7 @@
   manual: null
   ```
 
-- [ ] 4.3 Implement fresh read-only planning reviewer dispatch with author-session isolation and different-model preference; verify tool denial and model assignment evidence.
+- [x] 4.3 Implement fresh read-only planning reviewer dispatch with author-session isolation and different-model preference; verify tool denial and model assignment evidence.
 
   ```yaml harness-task
   id: "4.3"
@@ -244,7 +244,7 @@
   manual: null
   ```
 
-- [ ] 4.4 Implement `ChangeSnapshot` collection and the controller lifecycle state machine with freshness invalidation; verify legal/illegal transitions and mixed-state snapshots.
+- [x] 4.4 Implement `ChangeSnapshot` collection and the controller lifecycle state machine with freshness invalidation; verify legal/illegal transitions and mixed-state snapshots.
 
   ```yaml harness-task
   id: "4.4"
@@ -258,7 +258,7 @@
   manual: null
   ```
 
-- [ ] 4.5 Implement auditable direct/bounded/architectural classification and optional-reasoning policy; verify deterministic signals, overrides, and mandatory-gate preservation.
+- [x] 4.5 Implement auditable direct/bounded/architectural classification and optional-reasoning policy; verify deterministic signals, overrides, and mandatory-gate preservation.
 
   ```yaml harness-task
   id: "4.5"
@@ -274,7 +274,7 @@
 
 ## 5. Compile Structured Tasks into a Runtime DAG
 
-- [ ] 5.1 Replace regex task parsing with Markdown AST plus fenced YAML association; verify headings, checkboxes, adjacency, duplicate blocks, and source locations.
+- [x] 5.1 Replace regex task parsing with Markdown AST plus fenced YAML association; verify headings, checkboxes, adjacency, duplicate blocks, and source locations.
 
   ```yaml harness-task
   id: "5.1"
@@ -288,7 +288,7 @@
   manual: null
   ```
 
-- [ ] 5.2 Validate task metadata identifiers, roles, normalized scopes, requirement/scenario links, verification commands, and manual contracts; verify field-specific failures before dispatch.
+- [x] 5.2 Validate task metadata identifiers, roles, normalized scopes, requirement/scenario links, verification commands, and manual contracts; verify field-specific failures before dispatch.
 
   ```yaml harness-task
   id: "5.2"
@@ -302,7 +302,7 @@
   manual: null
   ```
 
-- [ ] 5.3 Compile and persist an immutable DAG snapshot tied to the tasks digest; verify cycles, unknown dependencies, removed tasks, dependency closure, and deterministic ordering.
+- [x] 5.3 Compile and persist an immutable DAG snapshot tied to the tasks digest; verify cycles, unknown dependencies, removed tasks, dependency closure, and deterministic ordering.
 
   ```yaml harness-task
   id: "5.3"
@@ -316,7 +316,7 @@
   manual: null
   ```
 
-- [ ] 5.4 Implement dependency-ready scheduling, read concurrency, write queuing hooks, branch blocking, retries, and cancellation; verify ordering and no dependent dispatch after failure.
+- [x] 5.4 Implement dependency-ready scheduling, read concurrency, write queuing hooks, branch blocking, retries, and cancellation; verify ordering and no dependent dispatch after failure.
 
   ```yaml harness-task
   id: "5.4"
@@ -330,7 +330,7 @@
   manual: null
   ```
 
-- [ ] 5.5 Implement structured completed/blocked/awaiting-user/design-conflict outcomes and evidence-gated task checkbox synchronization; verify conflicts invalidate affected review and claims alone never complete tasks.
+- [x] 5.5 Implement structured completed/blocked/awaiting-user/design-conflict outcomes and evidence-gated task checkbox synchronization; verify conflicts invalidate affected review and claims alone never complete tasks.
 
   ```yaml harness-task
   id: "5.5"
@@ -346,7 +346,7 @@
 
 ## 6. Introduce Worktrees and Durable Writer Ownership
 
-- [ ] 6.1 Implement a cross-platform Git adapter for repository identity, common directory, status, refs, diffs, and worktree porcelain; verify spaces, symlinks, detached heads, and Windows path fixtures.
+- [x] 6.1 Implement a cross-platform Git adapter for repository identity, common directory, status, refs, diffs, and worktree porcelain; verify spaces, symlinks, detached heads, and Windows path fixtures.
 
   ```yaml harness-task
   id: "6.1"
@@ -360,7 +360,7 @@
   manual: null
   ```
 
-- [ ] 6.2 Implement deterministic controller-owned change worktree create/select/reuse behavior and forbid child worktree operations; verify dirty planning checkout isolation and safe reuse.
+- [x] 6.2 Implement deterministic controller-owned change worktree create/select/reuse behavior and forbid child worktree operations; verify dirty planning checkout isolation and safe reuse.
 
   ```yaml harness-task
   id: "6.2"

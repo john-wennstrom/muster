@@ -33,6 +33,8 @@ export const runManifestSchema = z
     worktree: z.object({
       path: nonEmptyString,
       head: nonEmptyString,
+      indexDigest: nonEmptyString,
+      diffDigest: nonEmptyString,
     }),
     artifactDigest: nonEmptyString.nullable(),
     tasks: z.record(
@@ -76,18 +78,33 @@ export const taskResultSchema = z
   })
   .strict();
 
-export const reviewRecordSchema = z
-  .object({
+export const reviewRecordSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      schemaVersion: version,
+      runId: nonEmptyString,
+      kind: z.literal("planning"),
+      verdict: z.enum(["APPROVE", "REVISE"]),
+      artifactDigest: nonEmptyString,
+      model: nonEmptyString,
+      findings: z.array(z.string()),
+      createdAt: timestamp,
+    })
+    .strict(),
+  z
+    .object({
     schemaVersion: version,
     runId: nonEmptyString,
-    kind: z.enum(["planning", "task"]),
+    taskId: nonEmptyString,
+    kind: z.literal("task"),
     verdict: z.enum(["APPROVE", "REVISE"]),
     artifactDigest: nonEmptyString,
     model: nonEmptyString,
     findings: z.array(z.string()),
     createdAt: timestamp,
   })
-  .strict();
+    .strict(),
+]);
 
 export const validationRecordSchema = z
   .object({
@@ -141,6 +158,22 @@ export const migrationRecordSchema = z
   })
   .strict();
 
+export const taskDagRecordSchema = z
+  .object({
+    schemaVersion: version,
+    tasksDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    createdAt: timestamp,
+    nodes: z.array(
+      z.object({
+        id: nonEmptyString,
+        dependsOn: z.array(nonEmptyString),
+        checked: z.boolean(),
+      }).strict(),
+    ),
+    topologicalOrder: z.array(nonEmptyString),
+  })
+  .strict();
+
 export const persistenceRecordSchemas = {
   manifest: runManifestSchema,
   taskResult: taskResultSchema,
@@ -148,6 +181,7 @@ export const persistenceRecordSchemas = {
   validation: validationRecordSchema,
   checkpoint: checkpointRecordSchema,
   migration: migrationRecordSchema,
+  taskDag: taskDagRecordSchema,
 } as const;
 
 export type PersistenceRecordKind = keyof typeof persistenceRecordSchemas;
@@ -216,3 +250,4 @@ export type ReviewRecord = z.infer<typeof reviewRecordSchema>;
 export type ValidationRecord = z.infer<typeof validationRecordSchema>;
 export type CheckpointRecord = z.infer<typeof checkpointRecordSchema>;
 export type MigrationRecord = z.infer<typeof migrationRecordSchema>;
+export type TaskDagRecord = z.infer<typeof taskDagRecordSchema>;

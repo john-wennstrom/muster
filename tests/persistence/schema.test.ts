@@ -14,7 +14,12 @@ const records = {
     changeName: "add-search",
     lifecycle: "IMPLEMENTING",
     repository: { id: "repo-1", commonDirectory: "/repo/.git" },
-    worktree: { path: "/repo-worktrees/add-search", head: "a".repeat(40) },
+    worktree: {
+      path: "/repo-worktrees/add-search",
+      head: "a".repeat(40),
+      indexDigest: "index",
+      diffDigest: "diff",
+    },
     artifactDigest: "digest",
     tasks: { "1.1": "ready" },
     modelAssignments: { builder: "openai/example" },
@@ -35,6 +40,7 @@ const records = {
   review: {
     schemaVersion: 1,
     runId: "run-1",
+    taskId: "1.1",
     kind: "task",
     verdict: "APPROVE",
     artifactDigest: "digest",
@@ -71,6 +77,13 @@ const records = {
     toVersion: 1,
     migratedAt: timestamp,
     records: ["manifest.json"],
+  },
+  taskDag: {
+    schemaVersion: 1,
+    tasksDigest: "a".repeat(64),
+    createdAt: timestamp,
+    nodes: [{ id: "1.1", dependsOn: [], checked: false }],
+    topologicalOrder: ["1.1"],
   },
 } as const;
 
