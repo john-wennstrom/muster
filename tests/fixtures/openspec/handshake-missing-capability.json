@@ -1,0 +1,10 @@
+{
+  "version": "1.10.0",
+  "context": "{\"root\":{\"path\":\"/project\",\"source\":\"nearest\",\"role\":\"openspec_root\"},\"members\":[],\"status\":[]}",
+  "help": {
+    "status": "Usage: openspec status --change <id> --json",
+    "instructions": "Usage: openspec instructions [artifact|apply|archive] --change <id> --json",
+    "validate": "Usage: openspec validate [item-name] --json",
+    "archive": "Usage: openspec archive [change-name]"
+  }
+}

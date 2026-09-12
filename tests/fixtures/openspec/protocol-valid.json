@@ -1,0 +1,78 @@
+{
+  "context": {
+    "root": { "path": "/project", "source": "nearest", "role": "openspec_root" },
+    "members": [],
+    "status": []
+  },
+  "status": {
+    "changeName": "add-search",
+    "schemaName": "spec-driven",
+    "planningHome": { "kind": "repo", "root": "/project", "changesDir": "/project/openspec/changes", "defaultSchema": "spec-driven" },
+    "changeRoot": "/project/openspec/changes/add-search",
+    "artifactPaths": {
+      "proposal": { "outputPath": "proposal.md", "resolvedOutputPath": "/project/openspec/changes/add-search/proposal.md", "existingOutputPaths": [] }
+    },
+    "isPlanningComplete": false,
+    "isComplete": false,
+    "applyRequires": ["tasks"],
+    "nextSteps": ["Create proposal"],
+    "actionContext": {
+      "mode": "repo-local",
+      "sourceOfTruth": "repo",
+      "planningArtifacts": ["proposal", "specs", "design", "tasks"],
+      "linkedContext": [],
+      "allowedEditRoots": ["/project"],
+      "requiresAffectedAreaSelection": false,
+      "constraints": []
+    },
+    "artifacts": [
+      { "id": "proposal", "outputPath": "proposal.md", "status": "ready", "requires": [] }
+    ],
+    "root": { "path": "/project", "source": "nearest" }
+  },
+  "instructions": {
+    "changeName": "add-search",
+    "artifactId": "proposal",
+    "schemaName": "spec-driven",
+    "changeDir": "/project/openspec/changes/add-search",
+    "planningHome": { "kind": "repo", "root": "/project", "changesDir": "/project/openspec/changes", "defaultSchema": "spec-driven" },
+    "outputPath": "proposal.md",
+    "resolvedOutputPath": "/project/openspec/changes/add-search/proposal.md",
+    "existingOutputPaths": [],
+    "description": "Initial proposal",
+    "instruction": "Create the proposal.",
+    "template": "## Why",
+    "dependencies": [],
+    "unlocks": ["specs", "design"],
+    "root": { "path": "/project", "source": "nearest" }
+  },
+  "apply": {
+    "changeName": "add-search",
+    "changeDir": "/project/openspec/changes/add-search",
+    "schemaName": "spec-driven",
+    "contextFiles": { "proposal": ["/project/openspec/changes/add-search/proposal.md"] },
+    "progress": { "total": 1, "complete": 0, "remaining": 1 },
+    "tasks": [{ "id": "1", "description": "1.1 Add search", "done": false }],
+    "state": "ready",
+    "instruction": "Read context files and implement tasks.",
+    "root": { "path": "/project", "source": "nearest" }
+  },
+  "validate": {
+    "items": [{ "id": "add-search", "type": "change", "valid": true, "issues": [], "durationMs": 4 }],
+    "summary": {
+      "totals": { "items": 1, "passed": 1, "failed": 0 },
+      "byType": { "change": { "items": 1, "passed": 1, "failed": 0 } }
+    },
+    "version": "1.0",
+    "root": { "path": "/project", "source": "nearest" }
+  },
+  "archive": {
+    "archive": {
+      "change": "add-search",
+      "archivedAs": "2026-09-12-add-search",
+      "path": "/project/openspec/changes/archive/2026-09-12-add-search",
+      "specsUpdated": ["search"]
+    },
+    "root": { "path": "/project", "source": "nearest" }
+  }
+}

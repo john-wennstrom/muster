@@ -1,6 +1,6 @@
 ## 1. Import and Characterize the Foundation
 
-- [ ] 1.1 Import Fusion Harness commit `51f1d85499a1292cb79036d6ae237db7ea52096e`, excluding Git history, dependencies, secrets, and local state; add the required notice to `THIRD_PARTY_NOTICES.md`; verify the imported file manifest and notice text.
+- [x] 1.1 Import Fusion Harness commit `51f1d85499a1292cb79036d6ae237db7ea52096e`, excluding Git history, dependencies, secrets, and local state; add the required notice to `THIRD_PARTY_NOTICES.md`; verify the imported file manifest and notice text.
 
   ```yaml harness-task
   id: "1.1"
@@ -14,7 +14,7 @@
   manual: null
   ```
 
-- [ ] 1.2 Establish the Node.js 22, Bun, TypeScript, ESM package baseline and deterministic scripts; verify dependency installation, type checking, and package metadata with `bun install --frozen-lockfile && bun run typecheck`.
+- [x] 1.2 Establish the Node.js 22, Bun, TypeScript, ESM package baseline and deterministic scripts; verify dependency installation, type checking, and package metadata with `bun install --frozen-lockfile && bun run typecheck`.
 
   ```yaml harness-task
   id: "1.2"
@@ -28,7 +28,7 @@
   manual: null
   ```
 
-- [ ] 1.3 Preserve imported Fusion behavior as characterization coverage; verify the original command, routing, DAG, OpenSpec, writer-lease, and token-accounting tests pass unchanged with `bun test extensions/fusion-harness/tests`.
+- [x] 1.3 Preserve imported Fusion behavior as characterization coverage; verify the original command, routing, DAG, OpenSpec, writer-lease, and token-accounting tests pass unchanged with `bun test extensions/fusion-harness/tests`.
 
   ```yaml harness-task
   id: "1.3"
@@ -42,7 +42,7 @@
   manual: null
   ```
 
-- [ ] 1.4 Add a single-extension entry point and installation smoke harness while retaining compatibility exports; verify one extension registers Fusion and placeholder `/change` commands without the sibling checkout.
+- [x] 1.4 Add a single-extension entry point and installation smoke harness while retaining compatibility exports; verify one extension registers Fusion and placeholder `/change` commands without the sibling checkout.
 
   ```yaml harness-task
   id: "1.4"
@@ -58,7 +58,7 @@
 
 ## 2. Establish the Typed OpenSpec Contract
 
-- [ ] 2.1 Add a cancellable process runner, structured error taxonomy, and Zod schemas for OpenSpec context/status/instructions/apply/validate/archive payloads; verify valid and malformed fixtures with `bun test tests/openspec/protocol.test.ts`.
+- [x] 2.1 Add a cancellable process runner, structured error taxonomy, and Zod schemas for OpenSpec context/status/instructions/apply/validate/archive payloads; verify valid and malformed fixtures with `bun test tests/openspec/protocol.test.ts`.
 
   ```yaml harness-task
   id: "2.1"
@@ -72,7 +72,7 @@
   manual: null
   ```
 
-- [ ] 2.2 Implement the OpenSpec capability handshake and diagnostics without exact-version gating; verify compatible-unknown and missing-capability fixtures with `bun test tests/openspec/handshake.test.ts`.
+- [x] 2.2 Implement the OpenSpec capability handshake and diagnostics without exact-version gating; verify compatible-unknown and missing-capability fixtures with `bun test tests/openspec/handshake.test.ts`.
 
   ```yaml harness-task
   id: "2.2"
@@ -86,7 +86,7 @@
   manual: null
   ```
 
-- [ ] 2.3 Implement typed detect, status, artifact/apply instructions, validate, and archive adapter methods with explicit cwd and timeouts; verify command arguments, cancellation, stderr, and payload validation with `bun test tests/openspec/adapter.test.ts`.
+- [x] 2.3 Implement typed detect, status, artifact/apply instructions, validate, and archive adapter methods with explicit cwd and timeouts; verify command arguments, cancellation, stderr, and payload validation with `bun test tests/openspec/adapter.test.ts`.
 
   ```yaml harness-task
   id: "2.3"
@@ -100,7 +100,7 @@
   manual: null
   ```
 
-- [ ] 2.4 Add and package the `fusion-driven` schema with proposal/specs/design/tasks/review/verification dependencies and apply tracking; verify schema status and instructions in an isolated fixture project.
+- [x] 2.4 Add and package the `fusion-driven` schema with proposal/specs/design/tasks/review/verification dependencies and apply tracking; verify schema status and instructions in an isolated fixture project.
 
   ```yaml harness-task
   id: "2.4"
@@ -114,7 +114,7 @@
   manual: null
   ```
 
-- [ ] 2.5 Centralize OpenSpec/repository precedence and remove human-output inference from migrated workflow paths; verify conflicting memory/runtime fixtures resolve to current durable state.
+- [x] 2.5 Centralize OpenSpec/repository precedence and remove human-output inference from migrated workflow paths; verify conflicting memory/runtime fixtures resolve to current durable state.
 
   ```yaml harness-task
   id: "2.5"
@@ -130,7 +130,7 @@
 
 ## 3. Add Runtime Persistence and Baseline Telemetry
 
-- [ ] 3.1 Implement schema-versioned atomic JSON persistence under `.fusion/runs/<run-id>` and default ignore rules; verify interrupted writes preserve the last valid record on all available local filesystem fixtures.
+- [x] 3.1 Implement schema-versioned atomic JSON persistence under `.fusion/runs/<run-id>` and default ignore rules; verify interrupted writes preserve the last valid record on all available local filesystem fixtures.
 
   ```yaml harness-task
   id: "3.1"
@@ -144,7 +144,7 @@
   manual: null
   ```
 
-- [ ] 3.2 Define run manifest, task result, review, validation, checkpoint, and migration schemas; verify unsupported versions and corrupt records fail closed with path-specific diagnostics.
+- [x] 3.2 Define run manifest, task result, review, validation, checkpoint, and migration schemas; verify unsupported versions and corrupt records fail closed with path-specific diagnostics.
 
   ```yaml harness-task
   id: "3.2"
@@ -158,7 +158,7 @@
   manual: null
   ```
 
-- [ ] 3.3 Add provider-faithful usage records and baseline-compatible run aggregation around existing child execution; verify missing-cost, cache-token, duration, and model-assignment cases.
+- [x] 3.3 Add provider-faithful usage records and baseline-compatible run aggregation around existing child execution; verify missing-cost, cache-token, duration, and model-assignment cases.
 
   ```yaml harness-task
   id: "3.3"

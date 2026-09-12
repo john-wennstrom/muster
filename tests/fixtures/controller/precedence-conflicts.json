@@ -1,0 +1,27 @@
+{
+  "repository": {
+    "repositoryId": "repo-current",
+    "worktree": "/workspace/change",
+    "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "diffDigest": "diff-current"
+  },
+  "runtime": {
+    "runId": "run-17",
+    "changeName": "old-change",
+    "schemaName": "legacy",
+    "applyState": "all_done",
+    "tasks": [{ "id": "1", "description": "Old task", "done": true }],
+    "repositoryId": "repo-old",
+    "worktree": "/workspace/old",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "diffDigest": "diff-old"
+  },
+  "memory": {
+    "source": "hindsight",
+    "changeName": "remembered-change",
+    "schemaName": "memory-driven",
+    "applyState": "all_done",
+    "head": "cccccccccccccccccccccccccccccccccccccccc",
+    "preferences": ["keep reviews concise"]
+  }
+}

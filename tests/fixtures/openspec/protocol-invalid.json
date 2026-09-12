@@ -1,0 +1,8 @@
+{
+  "context": { "root": { "path": 42, "source": "nearest" }, "members": [], "status": [] },
+  "status": { "changeName": "add-search", "schemaName": "spec-driven", "artifacts": "done" },
+  "instructions": { "changeName": "add-search", "artifactId": "proposal", "instruction": 42 },
+  "apply": { "changeName": "add-search", "progress": { "total": 1, "complete": 2, "remaining": -1 }, "tasks": [] },
+  "validate": { "items": [{ "id": "add-search", "type": "change", "valid": "yes", "issues": [] }] },
+  "archive": { "archive": { "change": "add-search", "archivedAs": false, "path": "/archive", "specsUpdated": [] } }
+}

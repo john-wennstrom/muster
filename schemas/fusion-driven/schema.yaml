@@ -1,0 +1,69 @@
+name: fusion-driven
+version: 1
+description: OpenSpec workflow with digest-bound planning review and final verification
+artifacts:
+  - id: proposal
+    generates: proposal.md
+    description: Motivation, scope, capabilities, and impact
+    template: proposal.md
+    instruction: |
+      Describe why the change is needed, what changes, affected capabilities,
+      and expected impact. Keep implementation details in design.md.
+    requires: []
+
+  - id: specs
+    generates: "specs/**/*.md"
+    description: Testable behavioral requirements and scenarios
+    template: spec.md
+    instruction: |
+      Create one delta specification per affected capability. Use ADDED,
+      MODIFIED, REMOVED, or RENAMED requirement sections and four-hash Scenario
+      headings with WHEN and THEN statements.
+    requires: [proposal]
+
+  - id: design
+    generates: design.md
+    description: Technical decisions, trade-offs, and migration approach
+    template: design.md
+    instruction: |
+      Describe implementation decisions and alternatives, risks, migration,
+      and any genuinely deferrable open questions.
+    requires: [proposal]
+
+  - id: tasks
+    generates: tasks.md
+    description: Structured implementation checklist
+    template: tasks.md
+    instruction: |
+      Create ordered checkbox tasks. Associate each executable task with one
+      adjacent fenced YAML harness-task block containing id, dependencies, role,
+      read/write scopes, requirement/scenario links, verification, and manual metadata.
+    requires: [specs, design]
+
+  - id: review
+    generates: review.md
+    description: Independent digest-bound planning review
+    template: review.md
+    instruction: |
+      Review proposal, specs, design, and tasks in a fresh read-only context.
+      Record their canonical digest and return exactly APPROVE or REVISE. Any
+      required correction produces REVISE.
+    requires: [tasks]
+
+  - id: verification
+    generates: verification.md
+    description: Reproducible final verification evidence
+    template: verification.md
+    instruction: |
+      Record independent validation commands, requirement and scenario evidence,
+      resolved findings, deviations, warnings, source and artifact digests, and
+      a final PASS or FAIL result. Do not include raw model transcripts.
+    requires: [review]
+
+apply:
+  requires: [review]
+  tracks: tasks.md
+  instruction: |
+    Confirm review.md records a current APPROVE digest before implementation.
+    Work through dependency-ready tasks and mark a checkbox complete only after
+    implementation, required verification, independent review, and evidence persistence.
