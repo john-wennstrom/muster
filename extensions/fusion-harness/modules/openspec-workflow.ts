@@ -2,7 +2,14 @@ import * as fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { runChild, runProc } from "./child-runner.ts";
+import { runLegacyBrokeredChild, runLegacyReadOnlyChild } from "../../../src/agents/legacy-adapter.ts";
+import {
+	dispatchLegacyChangeCommand,
+	legacyCommandGuidance,
+	type ChangeCommandDependencies,
+	type LegacyChangeCommand,
+} from "../../../src/extension/change-command.ts";
+import { runProc } from "./child-runner.ts";
 import { validateCollaborationPlan, type CollaborationTask, type ValidatedCollaborationPlan } from "./collaboration-graph.ts";
 import { renderDelegationPlan } from "./collaboration-render.ts";
 import { renderTaskboard, type CollaborationTaskState } from "./collaboration-taskboard.ts";
@@ -107,7 +114,8 @@ async function atomicWrite(file: string, content: string): Promise<void> {
 
 async function runReadOnlyAgent(h: HarnessDeps, ctx: any, slot: ModelSlot, prompt: string): Promise<AgentRun> {
 	const run = newRun("ARCHITECT", slot.model, slot);
-	await runChild({ run, prompt, systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, access: "read", childRuntime: h.resolveChildRuntime(slot, "read"), thinking: slot.thinking, ...h.slotInitialSpawn(slot, ctx, await h.mkArtifacts()), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs() });
+	const artifactsDir = await h.mkArtifacts();
+	await runLegacyReadOnlyChild({ run, prompt, systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: "architect", runId: path.basename(artifactsDir), childId: slot.id, taskId: "openspec.artifact", description: "Read OpenSpec context and produce an artifact", assignee: slot.id, thinking: slot.thinking, ...h.slotInitialSpawn(slot, ctx, artifactsDir), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs() });
 	return run;
 }
 
@@ -119,7 +127,8 @@ export async function runDebate(h: HarnessDeps, ctx: any, change: string, contex
 	try {
 		await Promise.all(runs.map(async (run) => {
 			const slot = run.slot!;
-			await runChild({ run, prompt: openSpecDebatePrompt(change, context), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, access: "read", childRuntime: h.resolveChildRuntime(slot, "read"), thinking: slot.thinking, ...h.slotInitialSpawn(slot, ctx, await h.mkArtifacts()), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs() });
+			const artifactsDir = await h.mkArtifacts();
+			await runLegacyReadOnlyChild({ run, prompt: openSpecDebatePrompt(change, context), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, taskId: `openspec.debate-${slot.id}`, description: `Debate OpenSpec change ${change}`, assignee: slot.id, thinking: slot.thinking, ...h.slotInitialSpawn(slot, ctx, artifactsDir), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs() });
 		}));
 		return { runs, text: runs.map((run) => `## ${run.model}\n${runOk(run) ? run.text : runError(run)}`).join("\n\n") };
 	} finally {
@@ -144,7 +153,8 @@ export async function runOpenSpecCollaboratePhase(h: HarnessDeps, ctx: any, chan
 	try {
 		await Promise.all(proposalRuns.map(async (run) => {
 			const slot = run.slot!;
-			await runChild({ run, prompt: collabProposePrompt(slot, stack, `Implement OpenSpec change ${change}, phase ${phase.number} — ${phase.title}. Propose concrete work for only these tasks:\n${taskText}\n\n${context}`), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, access: "read", childRuntime: h.resolveChildRuntime(slot, "read"), thinking: slot.thinking, ...h.slotInitialSpawn(slot, ctx, await h.mkArtifacts()), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs() });
+			const artifactsDir = await h.mkArtifacts();
+			await runLegacyReadOnlyChild({ run, prompt: collabProposePrompt(slot, stack, `Implement OpenSpec change ${change}, phase ${phase.number} — ${phase.title}. Propose concrete work for only these tasks:\n${taskText}\n\n${context}`), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, taskId: `openspec.proposal-${phase.number}-${slot.id}`, description: `Propose work for OpenSpec phase ${phase.number}`, assignee: slot.id, thinking: slot.thinking, ...h.slotInitialSpawn(slot, ctx, artifactsDir), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs() });
 		}));
 	} finally { proposalWidget(); h.absorbRuns(proposalRuns); }
 	h.panel({ kind: "multi", command: "implement", title: "IMPLEMENT — COLLABORATION PROPOSALS", ok: proposalRuns.every(runOk), prompt: change, sources: proposalRuns.map(toStat), answers: proposalRuns.map((run) => ({ role: run.role, model: run.model, text: runOk(run) ? run.text : `FAILED: ${runError(run)}`, slotId: run.slot?.id, slotName: run.slot?.name, color: run.slot?.color, primary: run.slot?.primary })) }, proposalRuns.map((run) => `## ${run.slot?.name ?? run.model}\n${runOk(run) ? run.text : runError(run)}`).join("\n\n"));
@@ -162,13 +172,17 @@ export async function runOpenSpecCollaboratePhase(h: HarnessDeps, ctx: any, chan
 			? `\n\nPREVIOUS PLAN VALIDATION FAILED:\n${planError}\nReturn one corrected raw JSON object only. No markdown, no prose, no code fences.`
 			: "";
 		const prompt = `${basePlanPrompt}${repairHint}`;
-		await runChild({
+		await runLegacyReadOnlyChild({
 			run: planRun,
 			prompt,
 			systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_COLLAB_COORDINATOR.md"),
 			appendSystemPrompts: stack.architect.appendSystemPrompts,
-			access: "read",
-			childRuntime: h.resolveChildRuntime(stack.architect, "read"),
+			role: "architect",
+			runId: `legacy-${change}-${phase.number}`,
+			childId: stack.architect.id,
+			taskId: `openspec.delegation-${phase.number}`,
+			description: `Create delegation plan for OpenSpec phase ${phase.number}`,
+			assignee: stack.architect.id,
 			thinking: stack.architect.thinking,
 			...(attempt === 1 ? architectSpawn : h.slotNextSpawn(stack.architect, planRun, architectSpawn, ctx)),
 			cwd: ctx.cwd,
@@ -233,7 +247,7 @@ export async function runOpenSpecCollaboratePhase(h: HarnessDeps, ctx: any, chan
 				const handoff = `OpenSpec task ${original.id}. Requirements: ${original.requirements.join(", ") || "see specs"}. Scenarios: ${original.scenarios.join(", ") || "see specs"}. Verify commands: ${original.verifyCommands.join(", ") || "none"}.`;
 				taskState.set(task.id, task.mode === "read" ? "reading" : "writing");
 				renderBoard();
-				await runChild({ run, prompt: collabExecutePrompt(slot, `Implement OpenSpec change ${change}, phase ${phase.number} — ${phase.title}.`, task, handoff), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, access: task.mode === "read" ? "read" : "write", childRuntime: h.resolveChildRuntime(slot, task.mode === "read" ? "read" : "write"), thinking: slot.thinking, ...h.slotNextSpawn(slot, run, h.slotInitialSpawn(slot, ctx, await h.mkArtifacts()), ctx), cwd: ctx.cwd, timeoutMs: h.buildTimeoutMs() });
+				await runLegacyBrokeredChild({ run, prompt: collabExecutePrompt(slot, `Implement OpenSpec change ${change}, phase ${phase.number} — ${phase.title}.`, task, handoff), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: `legacy-${change}-${phase.number}`, childId: slot.id, task, thinking: slot.thinking, ...h.slotNextSpawn(slot, run, h.slotInitialSpawn(slot, ctx, await h.mkArtifacts()), ctx), cwd: ctx.cwd, timeoutMs: h.buildTimeoutMs() });
 				if (!runOk(run)) {
 					taskState.set(task.id, "failed");
 					renderBoard();
@@ -274,19 +288,32 @@ function requireOpenSpec(h: HarnessDeps, ctx: any, command: string, change: stri
 	return false;
 }
 
-export function registerOpenSpecCommands(pi: ExtensionAPI, h: HarnessDeps): void {
+export function registerOpenSpecCommands(
+	pi: ExtensionAPI,
+	h: HarnessDeps,
+	controller?: Pick<ChangeCommandDependencies, "loadSnapshot">,
+): void {
 	const clientFor = (ctx: any) => new OpenSpecClient(ctx.cwd);
+	const legacyHandler = (
+		command: LegacyChangeCommand,
+		change: string,
+		ctx: any,
+		handler: () => Promise<void>,
+	): Promise<void> => controller
+		? dispatchLegacyChangeCommand(command, change, ctx, controller, handler)
+		: (ctx.ui.notify(legacyCommandGuidance(command, change), "warning"), handler());
 	pi.registerCommand("os-status", { description: "Show OpenSpec planning and implementation state", handler: async (raw: any, ctx: any) => {
 		const change = (raw ?? "").trim().split(/\s+/)[0]; if (!change) return ctx.ui.notify("Usage: /os-status <change>", "warning");
 		if (!requireOpenSpec(h, ctx, "os-status", change)) return;
 		try { const client = clientFor(ctx); const status = await client.status(change); const tasks = resolveArtifact(await client.instructions("tasks", change), "tasks", ctx.cwd, change); const phases = parseTaskPlan(tasks.content ?? ""); const summary = phases.map((item) => `Phase ${item.number} — ${item.title}: ${item.tasks.filter((task) => task.checked).length}/${item.tasks.length} complete`).join("\n") || "No task phases found."; h.panel({ kind: "solo", command: "os-status", ok: true, prompt: change }, `Change: ${change}\n\n${JSON.stringify(status, null, 2)}\n\n${summary}`); } catch (error) { reportWorkflowError(h, ctx, "os-status", change, error); }
 	}});
 
-	pi.registerCommand("refine", { description: "Adversarially review and refine an OpenSpec change", handler: async (raw: any, ctx: any) => {
+	pi.registerCommand("refine", { description: "Deprecated: use /change refine", handler: async (raw: any, ctx: any) => {
 		const change = (raw ?? "").trim().split(/\s+/)[0]; if (!change) return ctx.ui.notify("Usage: /refine <change> [--allow-open]", "warning");
-		if (!requireOpenSpec(h, ctx, "refine", change)) return;
-		const allowOpen = (raw ?? "").includes("--allow-open"); let lease: WriterLease | undefined;
-		try {
+		await legacyHandler("refine", change, ctx, async () => {
+			if (!requireOpenSpec(h, ctx, "refine", change)) return;
+			const allowOpen = (raw ?? "").includes("--allow-open"); let lease: WriterLease | undefined;
+			try {
 			ctx.ui.setStatus("fusion-harness", `refine: loading OpenSpec change ${change}…`);
 			h.panel({ kind: "banner", command: "refine", ok: true, prompt: change }, `REFINE: STARTING\n\nLoading OpenSpec artifacts and preparing ${h.modelStack().slots.length} read-only debate agents.`);
 			const client = clientFor(ctx); await client.status(change); const design = resolveArtifact(await client.instructions("design", change), "design", ctx.cwd, change); const tasks = resolveArtifact(await client.instructions("tasks", change), "tasks", ctx.cwd, change); const context = await readContext([...new Set([...design.contextFiles, ...tasks.contextFiles])]); const stack = h.modelStack();
@@ -303,13 +330,16 @@ export function registerOpenSpecCommands(pi: ExtensionAPI, h: HarnessDeps): void
 			const revisedTasks = await runReadOnlyAgent(h, ctx, architect, openSpecTasksPrompt(change, context, revisedDesign.text));
 			if (!runOk(revisedTasks)) throw new Error(`task synthesis failed: ${runError(revisedTasks)}`); await atomicWrite(tasks.path, revisedTasks.text); await client.validate(change); h.panel({ kind: "solo", command: "refine", ok: true, prompt: change }, `REFINE: READY\n\nDesign: ${design.path}\nTasks: ${tasks.path}\n\nStrict validation passed.`);
 			h.panel({ kind: "solo", command: "refine", ok: true, prompt: change, agent: { role: revisedTasks.role, model: revisedTasks.model, slotId: architect.id, slotName: architect.name, color: architect.color, primary: architect.primary, status: revisedTasks.status, ms: revisedTasks.ms, tokensIn: revisedTasks.tokensIn, tokensOut: revisedTasks.tokensOut, costUsd: revisedTasks.costUsd, toolCalls: revisedTasks.toolCalls, toolNames: revisedTasks.toolNames, toolEvents: revisedTasks.toolEvents, chars: revisedTasks.text.length } }, `REFINE: TASK SYNTHESIS\n\n${revisedTasks.text}`);
-		} catch (error) { reportWorkflowError(h, ctx, "refine", change, error); } finally { lease?.release(); ctx.ui.setStatus("fusion-harness", undefined); }
+			} catch (error) { reportWorkflowError(h, ctx, "refine", change, error); } finally { lease?.release(); ctx.ui.setStatus("fusion-harness", undefined); }
+		});
 	}});
 
-	pi.registerCommand("implement", { description: "Implement the next or selected OpenSpec phase", handler: async (raw: any, ctx: any) => {
-		const parsed = parseChange(raw ?? "", "/implement"); if (!parsed) return ctx.ui.notify("Usage: /implement <change> [next|phase]", "warning"); let lease: WriterLease | undefined;
-		if (!requireOpenSpec(h, ctx, "implement", parsed.change)) return;
-		try {
+	pi.registerCommand("implement", { description: "Deprecated: use /change implement", handler: async (raw: any, ctx: any) => {
+		const parsed = parseChange(raw ?? "", "/implement"); if (!parsed) return ctx.ui.notify("Usage: /implement <change> [next|phase]", "warning");
+		await legacyHandler("implement", parsed.change, ctx, async () => {
+			if (!requireOpenSpec(h, ctx, "implement", parsed.change)) return;
+			let lease: WriterLease | undefined;
+			try {
 			ctx.ui.setStatus("fusion-harness", `implement: loading OpenSpec change ${parsed.change}…`);
 			h.panel({ kind: "banner", command: "implement", ok: true, prompt: parsed.change }, `IMPLEMENT: STARTING\n\nLoading the task plan for ${parsed.change}.`);
 			const client = clientFor(ctx); await client.validate(parsed.change); const artifact = resolveArtifact(await client.instructions("tasks", parsed.change), "tasks", ctx.cwd, parsed.change); if (!artifact.content) throw new Error(`tasks artifact not found at ${artifact.path}`); const phases = parseTaskPlan(artifact.content); const phase = parsed.phase ? phases.find((item) => item.number === parsed.phase) : phases.find((item) => item.tasks.some((task) => !task.checked)); if (!phase) throw new Error("no incomplete phase remains"); const incomplete = phase.tasks.filter((task) => !task.checked);
@@ -321,13 +351,15 @@ export function registerOpenSpecCommands(pi: ExtensionAPI, h: HarnessDeps): void
 			await runOpenSpecCollaboratePhase(h, ctx, parsed.change, phase, context);
 			for (const task of incomplete) for (const command of task.verifyCommands) { ctx.ui.setStatus("fusion-harness", `implement: verifying ${task.id} with ${command}…`); const commandParts = command.split(/\s+/); const result = await runProc(commandParts[0], commandParts.slice(1), ctx.cwd, 120_000); if (result.code !== 0) throw new Error(`task ${task.id} verification failed:\n${result.output}`); }
 			let updated = artifact.content; for (const task of incomplete) updated = updated.replace(new RegExp(`(-\\s*)\\[ \\]\\s+${task.id.replace(".", "\\.")}(\\s+)`), "$1[x]$2"); await atomicWrite(artifact.path, updated); await client.validate(parsed.change); h.panel({ kind: "solo", command: "implement", ok: true, prompt: parsed.change }, `IMPLEMENT: PASS\n\nPhase ${phase.number} — ${phase.title}\nTasks checked: ${incomplete.map((task) => task.id).join(", ")}`);
-		} catch (error) { reportWorkflowError(h, ctx, "implement", parsed?.change ?? "", error); } finally { lease?.release(); ctx.ui.setStatus("fusion-harness", undefined); }
+			} catch (error) { reportWorkflowError(h, ctx, "implement", parsed.change, error); } finally { lease?.release(); ctx.ui.setStatus("fusion-harness", undefined); }
+		});
 	}});
 
-	pi.registerCommand("ship", { description: "Verify and archive a completed OpenSpec change", handler: async (raw: any, ctx: any) => {
+	pi.registerCommand("ship", { description: "Deprecated: use /change finish", handler: async (raw: any, ctx: any) => {
 		const change = (raw ?? "").trim().split(/\s+/)[0]; if (!change) return ctx.ui.notify("Usage: /ship <change>", "warning");
-		if (!requireOpenSpec(h, ctx, "ship", change)) return;
-		try {
+		await legacyHandler("ship", change, ctx, async () => {
+			if (!requireOpenSpec(h, ctx, "ship", change)) return;
+			try {
 			const client = clientFor(ctx);
 			const artifact = resolveArtifact(await client.instructions("tasks", change), "tasks", ctx.cwd, change);
 			const incomplete = parseTaskPlan(artifact.content ?? "").flatMap((phase) => phase.tasks).filter((task) => !task.checked);
@@ -338,8 +370,9 @@ export function registerOpenSpecCommands(pi: ExtensionAPI, h: HarnessDeps): void
 			h.panel({ kind: "solo", command: "ship", ok: true, prompt: change }, verification.supported
 				? `SHIP: ARCHIVED\n\n${change}`
 				: `SHIP: ARCHIVED\n\n${change}\n\nNote: this OpenSpec version does not support \`verify\`; archive proceeded after strict validation.`);
-		} catch (error) {
-			reportWorkflowError(h, ctx, "ship", change, error);
-		}
+			} catch (error) {
+				reportWorkflowError(h, ctx, "ship", change, error);
+			}
+		});
 	}});
 }

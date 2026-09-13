@@ -1,0 +1,10 @@
+{
+  "changeName": "bounded-change",
+  "expectedComplexity": "bounded",
+  "affectedFiles": ["src/api.ts", "src/service.ts", "tests/api.test.ts"],
+  "affectedCapabilities": ["api", "service"],
+  "hasPublicContractChange": true,
+  "hasDataMigration": false,
+  "hasSecurityBoundaryChange": false,
+  "hasDesignAmbiguity": false
+}

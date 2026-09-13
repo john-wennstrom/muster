@@ -10,6 +10,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { runLegacyBrokeredChild, runLegacyReadOnlyChild, runLegacyScopePlannerChild } from "../../../src/agents/legacy-adapter.ts";
 import { runChild } from "./child-runner.ts";
 import { orderedSlots } from "./model-stack.ts";
 import {
@@ -74,7 +75,7 @@ export function registerFusionCommand(pi: ExtensionAPI, h: HarnessDeps): void {
 					const slot = run.slot!;
 					const agentDir = path.join(artifactsDir, "agents", slot.id);
 					await fs.promises.mkdir(agentDir, { recursive: true });
-					await runChild({ run, prompt: workerPrompt(slot, stack, prompt), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, access: "read", childRuntime: h.resolveChildRuntime(slot, "read"), thinking: slot.thinking, ...initialSpawns.get(slot.id)!, cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
+					await runLegacyReadOnlyChild({ run, prompt: workerPrompt(slot, stack, prompt), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, taskId: `fusion.source-${slot.id}`, description: "Research evidence for fusion", assignee: slot.id, thinking: slot.thinking, ...initialSpawns.get(slot.id)!, cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
 					await h.save(agentDir, "answer.md", runOk(run) ? run.text : `FAILED: ${runError(run)}`);
 				}));
 				if (stopper.stopped()) {
@@ -91,6 +92,21 @@ export function registerFusionCommand(pi: ExtensionAPI, h: HarnessDeps): void {
 					h.panel({ kind: "error", command: "fh-fusion", ok: false, sources: runs.map(toStat), artifactsDir, ...h.totals(runs, startedAt) }, `FUSION did not run: at least 2 successful sources are required; found ${successful.length}.`);
 					return;
 				}
+				const scopePlanner = newRun("ARCHITECT", stack.architect.model, stack.architect);
+				const scopePlan = await runLegacyScopePlannerChild({
+					run: scopePlanner,
+					description: `${prompt}\n\nFusion instruction: ${fusionInstruction}`,
+					plannedTaskId: "fusion.implementation",
+					plannedAssignee: stack.architect.id,
+					runId: path.basename(artifactsDir),
+					childId: `${stack.architect.id}-scope-planner`,
+					thinking: stack.architect.thinking,
+					sessionDir: path.join(artifactsDir, "scope-planner"),
+					cwd: ctx.cwd,
+					timeoutMs: h.childTimeoutMs(),
+					signal: stopper.signal,
+				});
+				h.absorbRuns([scopePlan.run]);
 
 				try {
 					writerLease = acquireWriterLease(ctx.cwd, `/fh-fusion ${path.basename(artifactsDir)}`);
@@ -99,7 +115,7 @@ export function registerFusionCommand(pi: ExtensionAPI, h: HarnessDeps): void {
 					return;
 				}
 				ctx.ui.setStatus(CUSTOM_TYPE, "fusion: temporary sole-writer agent merging and implementing…");
-				await runChild({ run: fuser, prompt: fuserPrompt(fusionInstruction, prompt, runs, fuser.model, stack.architect.thinking, artifactsDir), systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_FUSION.md"), appendSystemPrompts: stack.architect.appendSystemPrompts, access: "write", childRuntime: h.resolveChildRuntime(stack.architect, "write"), thinking: stack.architect.thinking, sessionDir: path.join(artifactsDir, "fusion"), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
+				await runLegacyBrokeredChild({ run: fuser, prompt: fuserPrompt(fusionInstruction, prompt, runs, fuser.model, stack.architect.thinking, artifactsDir), systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_FUSION.md"), appendSystemPrompts: stack.architect.appendSystemPrompts, role: "architect", runId: path.basename(artifactsDir), childId: "fusion", task: scopePlan.task, thinking: stack.architect.thinking, sessionDir: path.join(artifactsDir, "fusion"), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
 				if (stopper.stopped()) {
 					h.stoppedPanel("fh-fusion", [...runs, fuser], artifactsDir, startedAt, "The temporary FUSION writer was stopped; source work remains on disk.");
 					return;

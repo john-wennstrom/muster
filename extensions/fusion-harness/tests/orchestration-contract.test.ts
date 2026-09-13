@@ -36,7 +36,7 @@ describe("orchestration contracts", () => {
 
   test("keeps OpenSpec integration optional", () => {
     expect(source).toContain("isOpenSpecAvailable");
-    expect(source).toContain("registerOpenSpecCommands(pi, deps)");
+    expect(source).toContain("registerOpenSpecCommands(pi, deps, options.changeController)");
     expect(source).toContain("requireOpenSpec");
     expect(source).toContain("reportWorkflowError");
     expect(source).toContain("${command.toUpperCase()}: BLOCKED");
@@ -53,19 +53,21 @@ describe("orchestration contracts", () => {
     expect(source).toContain('startGridWidget(ctx, "implement"');
   });
 
-  test("fusion has read-only sources, one full-tool fuser, and no-tools ACKs", () => {
+  test("fusion has read-only sources, one scoped brokered fuser, and no-tools ACKs", () => {
     expect(fusionSource).toContain('prompt: workerPrompt(slot, stack, prompt)');
-    expect(fusionSource).toContain('access: "read", childRuntime: h.resolveChildRuntime(slot, "read")');
+    expect(fusionSource).toContain("runLegacyReadOnlyChild");
     expect(fusionSource).toContain('SYSTEM_PROMPT_FUSION.md');
     expect(fusionSource).toContain('prompt: fuserPrompt(fusionInstruction, prompt, runs, fuser.model, stack.architect.thinking, artifactsDir)');
-    expect(fusionSource).toContain('access: "write", childRuntime: h.resolveChildRuntime(stack.architect, "write")');
+    expect(fusionSource).toContain("runLegacyScopePlannerChild");
+    expect(fusionSource).toContain("runLegacyBrokeredChild");
+    expect(fusionSource).toContain('task: scopePlan.task');
     expect(fusionSource).toContain('access: "none"');
     expect(fusionSource).toContain('h.resolveChildRuntime(slot, "none")');
     expect(fusionSource).toContain('splitUtf8(fuser.text, 80_000)');
     expect(fusionSource).toContain('display: false');
     expect(fusionSource).toContain("ACK FUSION ${runId}");
     expect(prompt("USER_PROMPT_FUSION_WORKER.md")).toContain("ONLY agent allowed to modify");
-    expect(prompt("USER_PROMPT_FUSION_MERGE.md")).toContain("ONLY process permitted to modify");
+    expect(prompt("USER_PROMPT_FUSION_MERGE.md")).toContain("ONLY agent permitted to request changes");
   });
 
   test("N-way debate receives all other concrete opinions", () => {
@@ -86,8 +88,9 @@ describe("orchestration contracts", () => {
     expect(source).toContain("maxConcurrentWriteEnabledChildren");
     expect(source).toContain("acquireWriterLease(ctx.cwd, `/fh-collaborate");
     expect(source).toContain("parseStrictJsonObject(architectRun.text");
-    expect(source).toContain('access: "read"');
-    expect(source).toContain('access: "write"');
+    expect(source).toContain("runLegacyReadOnlyChild");
+    expect(source).toContain("runLegacyScopePlannerChild");
+    expect(source).toContain("runLegacyBrokeredChild");
     expect(source).toContain("worktreeCommandsObserved");
     expect(prompt("USER_PROMPT_COLLAB_EXECUTE.md")).toContain("one shared working directory");
     expect(prompt("SYSTEM_PROMPT_COLLAB_COORDINATOR.md")).toContain("at most one write-enabled child");

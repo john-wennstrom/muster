@@ -1,0 +1,10 @@
+{
+  "changeName": "architectural-change",
+  "expectedComplexity": "architectural",
+  "affectedFiles": ["src/api.ts", "src/auth.ts", "src/persistence.ts", "src/service.ts"],
+  "affectedCapabilities": ["api", "security", "storage"],
+  "hasPublicContractChange": true,
+  "hasDataMigration": true,
+  "hasSecurityBoundaryChange": true,
+  "hasDesignAmbiguity": true
+}

@@ -282,6 +282,8 @@ export function collabExecutePrompt(slot: ModelSlot, prompt: string, task: Colla
 		TASK_ID: task.id,
 		TASK_DESCRIPTION: task.description,
 		TASK_OUTPUTS: task.outputs.length ? task.outputs.map((output) => `- ${output}`).join("\n") : "- concrete task report",
+		TASK_READS: task.reads.map((scope) => `- ${scope}`).join("\n"),
+		TASK_WRITES: task.writes.length ? task.writes.map((scope) => `- ${scope}`).join("\n") : "- none",
 		HANDOFF: truncateChars(handoff || "No upstream reports; inspect the current project state.", HANDOFF_MAX),
 		MODE_CONTRACT: task.mode === "read" ? "READ-ONLY TASK: use read/grep/find/ls only; do not mutate the project." : "WRITE TASK: you hold the harness's sole writer token. Full tools are enabled, and no other writer is active.",
 		PROMPT: prompt,

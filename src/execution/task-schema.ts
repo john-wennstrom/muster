@@ -6,18 +6,13 @@ import type {
   ParsedTaskPhase,
 } from "./task-parser.ts";
 import { HarnessError } from "../shared/errors.ts";
+import { manualActionCategorySchema } from "../persistence/records.ts";
 
 const nonEmptyLine = z.string().min(1).refine((value) => !/[\r\n]/.test(value));
 const taskId = z.string().regex(/^[0-9]+(?:\.[0-9A-Za-z_-]+)+$/);
 const manualSchema = z
   .object({
-    category: z.enum([
-      "authentication",
-      "elevated_permission",
-      "destructive",
-      "external_side_effect",
-      "design_decision",
-    ]),
+    category: manualActionCategorySchema,
     condition: nonEmptyLine.optional(),
     reason: nonEmptyLine,
     instructions: z.array(nonEmptyLine).min(1),

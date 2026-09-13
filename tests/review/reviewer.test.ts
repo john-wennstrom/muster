@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   dispatchPlanningReview,
+  runBrokeredPlanningReviewer,
   type PlanningReviewerRunner,
 } from "../../src/review/planning-reviewer.ts";
+import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
 import { createReviewArtifact } from "../../src/review/review-artifact.ts";
 import { HarnessError } from "../../src/shared/errors.ts";
 
@@ -23,7 +25,7 @@ describe("planning reviewer dispatch", () => {
     const requests: Parameters<PlanningReviewerRunner>[0][] = [];
     const runner: PlanningReviewerRunner = async (request) => {
       requests.push(request);
-      return { review: { ...review, model: request.model }, toolNames: ["read", "grep"] };
+      return { review: { ...review, model: request.model }, toolNames: ["muster_read", "muster_search"] };
     };
 
     const result = await dispatchPlanningReview({
@@ -43,7 +45,7 @@ describe("planning reviewer dispatch", () => {
     expect(requests[0]).toMatchObject({
       model: "anthropic/reviewer",
       access: "read",
-      tools: ["read", "grep", "find", "ls"],
+      tools: ["muster_read", "muster_search"],
     });
     expect(requests[0]?.sessionId).not.toBe("author-session");
     expect(result.assignment).toMatchObject({
@@ -81,7 +83,7 @@ describe("planning reviewer dispatch", () => {
   test("fails closed when a reviewer reports use of a mutation tool", async () => {
     const runner: PlanningReviewerRunner = async (request) => ({
       review: { ...review, model: request.model },
-      toolNames: ["read", "write"],
+      toolNames: ["muster_read", "write"],
     });
 
     await expect(dispatchPlanningReview({
@@ -94,5 +96,31 @@ describe("planning reviewer dispatch", () => {
       prompt: "Review the planning artifacts.",
       runner,
     })).rejects.toMatchObject({ code: "REVIEW_TOOL_DENIED" } as HarnessError);
+  });
+
+  test("runs a fresh reviewer through brokered read-only tools", async () => {
+    const requests: Array<{ role: string; taskId: string }> = [];
+    const result = await runBrokeredPlanningReviewer({
+      runId: "run-1",
+      changeName: "add-search",
+      model: "openai/reviewer",
+      cwd: "/repo",
+      prompt: "Review planning.",
+      sessionId: "review-session",
+      sessionDir: "/tmp/review-session",
+      access: "read",
+      tools: ["muster_read", "muster_search"],
+    }, async (request) => {
+      requests.push({ role: request.role, taskId: request.taskId });
+      request.run.status = "done";
+      request.run.exitCode = 0;
+      request.run.text = JSON.stringify(review);
+      request.run.toolNames = ["muster_read"];
+      return request.run as AgentRun;
+    });
+
+    expect(requests).toEqual([{ role: "reviewer", taskId: "planning.review" }]);
+    expect(result.review).toEqual(review);
+    expect(result.toolNames).toEqual(["muster_read"]);
   });
 });

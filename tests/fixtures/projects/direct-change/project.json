@@ -1,0 +1,10 @@
+{
+  "changeName": "direct-change",
+  "expectedComplexity": "direct",
+  "affectedFiles": ["src/feature.ts"],
+  "affectedCapabilities": ["feature"],
+  "hasPublicContractChange": false,
+  "hasDataMigration": false,
+  "hasSecurityBoundaryChange": false,
+  "hasDesignAmbiguity": false
+}

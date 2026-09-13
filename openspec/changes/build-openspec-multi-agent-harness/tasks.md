@@ -374,7 +374,7 @@
   manual: null
   ```
 
-- [ ] 6.3 Upgrade the writer lease to repository/worktree/run/task identity with live-owner rejection and reconciled stale recovery; verify concurrent writers, normal release, crash recovery, and false-stale protection.
+- [x] 6.3 Upgrade the writer lease to repository/worktree/run/task identity with live-owner rejection and reconciled stale recovery; verify concurrent writers, normal release, crash recovery, and false-stale protection.
 
   ```yaml harness-task
   id: "6.3"
@@ -388,7 +388,7 @@
   manual: null
   ```
 
-- [ ] 6.4 Integrate worktree selection and writer leasing into the scheduler while preserving concurrent reads; verify two ready writers serialize and independent readers overlap.
+- [x] 6.4 Integrate worktree selection and writer leasing into the scheduler while preserving concurrent reads; verify two ready writers serialize and independent readers overlap.
 
   ```yaml harness-task
   id: "6.4"
@@ -404,7 +404,7 @@
 
 ## 7. Enforce Brokered Tools and Host Command Controls
 
-- [ ] 7.1 Define authenticated, cancellable parent/child tool-broker messages, correlation IDs, audit events, output bounds, and protocol-version negotiation; verify spoofed and malformed requests are rejected.
+- [x] 7.1 Define authenticated, cancellable parent/child tool-broker messages, correlation IDs, audit events, output bounds, and protocol-version negotiation; verify spoofed and malformed requests are rejected.
 
   ```yaml harness-task
   id: "7.1"
@@ -418,7 +418,7 @@
   manual: null
   ```
 
-- [ ] 7.2 Implement centralized role/tool/path authorization with canonical path, symlink, case, lease, and task-state checks; verify shell, patch, Serena, and traversal attempts cannot escape scope.
+- [x] 7.2 Implement centralized role/tool/path authorization with canonical path, symlink, case, lease, and task-state checks; verify shell, patch, Serena, and traversal attempts cannot escape scope.
 
   ```yaml harness-task
   id: "7.2"
@@ -432,7 +432,7 @@
   manual: null
   ```
 
-- [ ] 7.3 Implement cross-platform structured command profiles, executable allowlists, argument-array spawning, working-directory validation, and environment minimization; verify unsupported profiles and shell escalation are rejected.
+- [x] 7.3 Implement cross-platform structured command profiles, executable allowlists, argument-array spawning, working-directory validation, and environment minimization; verify unsupported profiles and shell escalation are rejected.
 
   ```yaml harness-task
   id: "7.3"
@@ -446,7 +446,7 @@
   manual: null
   ```
 
-- [ ] 7.4 Implement brokered host command/test execution with timeout, output bounds, cancellation and process cleanup, prohibited-action preflight, Git state capture, and post-command scope audit; verify violations cannot produce accepted task evidence.
+- [x] 7.4 Implement brokered host command/test execution with timeout, output bounds, cancellation and process cleanup, prohibited-action preflight, Git state capture, and post-command scope audit; verify violations cannot produce accepted task evidence.
 
   ```yaml harness-task
   id: "7.4"
@@ -460,7 +460,7 @@
   manual: null
   ```
 
-- [ ] 7.5 Add the clean-room Pi child broker extension and role-specific read/write/command tools without direct built-in mutation or shell access; verify reviewer writes are denied before reaching the host filesystem.
+- [x] 7.5 Add the clean-room Pi child broker extension and role-specific read/write/command tools without direct built-in mutation or shell access; verify reviewer writes are denied before reaching the host filesystem.
 
   ```yaml harness-task
   id: "7.5"
@@ -474,11 +474,25 @@
   manual: null
   ```
 
-- [ ] 7.6 Migrate architect, builder, reviewer, and validator execution to brokered tools while retaining compatibility command behavior; verify the imported command characterization suite plus broker integration tests.
+- [x] 7.5a Extend legacy collaboration task plans with validated read/write scopes and adapt legacy runs to repository/worktree/run/task identity plus the identity-aware writer lease; verify missing, escaping, and ambiguous scopes fail before dispatch while compatible command invocation remains unchanged.
+
+  ```yaml harness-task
+  id: "7.5a"
+  dependsOn: ["7.5", "6.3"]
+  role: builder
+  reads: ["extensions/fusion-harness/modules/collaboration-graph.ts", "extensions/fusion-harness/modules/cmd-build.ts", "extensions/fusion-harness/modules/cmd-fusion.ts", "extensions/fusion-harness/modules/openspec-workflow.ts", "src/execution/**", "src/tools/**"]
+  writes: ["extensions/fusion-harness/modules/**", "src/agents/**", "tests/agents/**", "extensions/fusion-harness/tests/**"]
+  requirements: ["project-foundation: Incremental compatibility migration", "policy-enforcement: Process and tool enforcement", "policy-enforcement: Scoped source writes"]
+  scenarios: ["Legacy workflow invocation", "Builder writes outside its scope"]
+  verify: ["bun test extensions/fusion-harness/tests", "bun test tests/agents/legacy-adapter.test.ts"]
+  manual: null
+  ```
+
+- [x] 7.6 Migrate architect, builder, reviewer, and validator execution to brokered tools, using a validated read-only scope-planning prepass for free-form legacy writers while retaining command invocation behavior; verify the imported command characterization suite plus broker integration tests.
 
   ```yaml harness-task
   id: "7.6"
-  dependsOn: ["7.5", "4.3"]
+  dependsOn: ["7.5a", "4.3"]
   role: builder
   reads: ["extensions/fusion-harness/**", "src/agents/**", "src/tools/**"]
   writes: ["src/agents/**", "src/review/**", "src/extension/**", "extensions/fusion-harness/**", "tests/agents/**"]
@@ -488,7 +502,7 @@
   manual: null
   ```
 
-- [ ] 7.7 Add adversarial broker and host-runner tests for traversal, symlinks, environment leakage, shell escalation, prohibited commands, unauthorized Git, out-of-scope diffs, output flooding, timeout, and cancellation; verify violations are blocked or rejected and audited.
+- [x] 7.7 Add adversarial broker and host-runner tests for traversal, symlinks, environment leakage, shell escalation, prohibited commands, unauthorized Git, out-of-scope diffs, output flooding, timeout, and cancellation; verify violations are blocked or rejected and audited.
 
   ```yaml harness-task
   id: "7.7"
@@ -504,7 +518,7 @@
 
 ## 8. Add Fresh Agents, Context Capsules, and Routing
 
-- [ ] 8.1 Replace persistent role conversations with fresh architect/builder/reviewer/validator run creation and structured dependency reports; verify consecutive tasks do not inherit transcripts.
+- [x] 8.1 Replace persistent role conversations with fresh architect/builder/reviewer/validator run creation and structured dependency reports; verify consecutive tasks do not inherit transcripts.
 
   ```yaml harness-task
   id: "8.1"
@@ -518,7 +532,7 @@
   manual: null
   ```
 
-- [ ] 8.2 Implement required/relevant/available/excluded context assembly and task capsules with non-truncatable contracts; verify budget pressure removes optional context first.
+- [x] 8.2 Implement required/relevant/available/excluded context assembly and task capsules with non-truncatable contracts; verify budget pressure removes optional context first.
 
   ```yaml harness-task
   id: "8.2"
@@ -532,7 +546,7 @@
   manual: null
   ```
 
-- [ ] 8.3 Add authorized context escalation and compact decision/dependency capsules with usage accounting; verify unrelated transcripts remain excluded and denied requests are explicit.
+- [x] 8.3 Add authorized context escalation and compact decision/dependency capsules with usage accounting; verify unrelated transcripts remain excluded and denied requests are explicit.
 
   ```yaml harness-task
   id: "8.3"
@@ -546,7 +560,7 @@
   manual: null
   ```
 
-- [ ] 8.4 Refactor Fusion model-stack resolution behind a capability/cost router, require an available OpenAI model for beta checks, and report Copilot as unavailable without an adapter; verify provider fixtures and assignments.
+- [x] 8.4 Refactor Fusion model-stack resolution behind a capability/cost router, require an available OpenAI model for beta checks, and report Copilot as unavailable without an adapter; verify provider fixtures and assignments.
 
   ```yaml harness-task
   id: "8.4"
@@ -560,7 +574,7 @@
   manual: null
   ```
 
-- [ ] 8.5 Add capability-detected Serena and Hindsight adapters with lower-authority reads and brokered Serena writes; verify absent adapters do not block core startup and conflicting memory loses.
+- [x] 8.5 Add capability-detected Serena and Hindsight adapters with lower-authority reads and brokered Serena writes; verify absent adapters do not block core startup and conflicting memory loses.
 
   ```yaml harness-task
   id: "8.5"
@@ -576,7 +590,7 @@
 
 ## 9. Implement Manual Interaction Checkpoints
 
-- [ ] 9.1 Implement planned/runtime manual-action classification, secret redaction, and atomic checkpoint records for all five mandatory categories; verify interactive and prohibited fixtures stop before action.
+- [x] 9.1 Implement planned/runtime manual-action classification, secret redaction, and atomic checkpoint records for all five mandatory categories; verify interactive and prohibited fixtures stop before action.
 
   ```yaml harness-task
   id: "9.1"
@@ -590,7 +604,7 @@
   manual: null
   ```
 
-- [ ] 9.2 Integrate branch-level pause closure with scheduling and writer revocation while allowing safe independent branches; verify dependents stop and unrelated reads/writes obey normal leases.
+- [x] 9.2 Integrate branch-level pause closure with scheduling and writer revocation while allowing safe independent branches; verify dependents stop and unrelated reads/writes obey normal leases.
 
   ```yaml harness-task
   id: "9.2"
@@ -604,7 +618,7 @@
   manual: null
   ```
 
-- [ ] 9.3 Add prominent Pi notification, status rendering, restart restoration, and explicit `/change resume` confirmation with audit metadata; verify unresolved checkpoints never auto-resume.
+- [x] 9.3 Add prominent Pi notification, status rendering, restart restoration, and explicit `/change resume` confirmation with audit metadata; verify unresolved checkpoints never auto-resume.
 
   ```yaml harness-task
   id: "9.3"
@@ -618,7 +632,7 @@
   manual: null
   ```
 
-- [ ] 9.4 Add end-to-end manual-stop tests covering authentication, privilege, destructive Git, external mutation, design choice, restart, and sanitized telemetry; verify no secret reaches persisted files.
+- [x] 9.4 Add end-to-end manual-stop tests covering authentication, privilege, destructive Git, external mutation, design choice, restart, and sanitized telemetry; verify no secret reaches persisted files.
 
   ```yaml harness-task
   id: "9.4"
@@ -634,7 +648,7 @@
 
 ## 10. Enforce Engineering Policies and Task Completion
 
-- [ ] 10.1 Implement TDD evidence records and reviewed non-applicability exceptions linked to requirements/scenarios; verify behavior tasks cannot complete without red/green/refactor evidence.
+- [x] 10.1 Implement TDD evidence records and reviewed non-applicability exceptions linked to requirements/scenarios; verify behavior tasks cannot complete without red/green/refactor evidence.
 
   ```yaml harness-task
   id: "10.1"
@@ -648,7 +662,7 @@
   manual: null
   ```
 
-- [ ] 10.2 Implement threshold-triggered systematic debugging state and evidence contract; verify repeated failures stop unguided repair and preserve a discriminating hypothesis trail.
+- [x] 10.2 Implement threshold-triggered systematic debugging state and evidence contract; verify repeated failures stop unguided repair and preserve a discriminating hypothesis trail.
 
   ```yaml harness-task
   id: "10.2"
@@ -662,7 +676,7 @@
   manual: null
   ```
 
-- [ ] 10.3 Implement fresh read-only per-task code review over contract, diff, tests, scopes, and TDD evidence; verify blocking findings return the task for repair.
+- [x] 10.3 Implement fresh read-only per-task code review over contract, diff, tests, scopes, and TDD evidence; verify blocking findings return the task for repair.
 
   ```yaml harness-task
   id: "10.3"
@@ -676,7 +690,7 @@
   manual: null
   ```
 
-- [ ] 10.4 Assemble the task runner pipeline from fresh builder through TDD, brokered verification, fresh review, evidence persistence, and checkbox update; verify claims cannot bypass any gate.
+- [x] 10.4 Assemble the task runner pipeline from fresh builder through TDD, brokered verification, fresh review, evidence persistence, and checkbox update; verify claims cannot bypass any gate.
 
   ```yaml harness-task
   id: "10.4"
@@ -690,7 +704,7 @@
   manual: null
   ```
 
-- [ ] 10.5 Integrate the task runner with scheduler recovery, worktrees, and design-conflict re-planning; verify crash, retry, conflict, stale review, and resumed-branch flows end to end.
+- [x] 10.5 Integrate the task runner with scheduler recovery, worktrees, and design-conflict re-planning; verify crash, retry, conflict, stale review, and resumed-branch flows end to end.
 
   ```yaml harness-task
   id: "10.5"
@@ -706,7 +720,7 @@
 
 ## 11. Deliver the Canonical Change Command Surface
 
-- [ ] 11.1 Implement `/change` argument parsing, change resolution, help, prerequisite diagnostics, status rendering, and command dispatch; verify unknown commands and missing prerequisites do not mutate state.
+- [x] 11.1 Implement `/change` argument parsing, change resolution, help, prerequisite diagnostics, status rendering, and command dispatch; verify unknown commands and missing prerequisites do not mutate state.
 
   ```yaml harness-task
   id: "11.1"
@@ -720,7 +734,7 @@
   manual: null
   ```
 
-- [ ] 11.2 Implement non-durable explore plus propose/refine orchestration with risk-scaled optional opinions and conditional debate; verify explore creates no artifacts unless promoted.
+- [x] 11.2 Implement non-durable explore plus propose/refine orchestration with risk-scaled optional opinions and conditional debate; verify explore creates no artifacts unless promoted.
 
   ```yaml harness-task
   id: "11.2"
@@ -734,7 +748,7 @@
   manual: null
   ```
 
-- [ ] 11.3 Implement `/change review` using fresh reviewer dispatch, digest persistence, binary verdicts, and revise loops; verify implementation remains blocked until current approval.
+- [x] 11.3 Implement `/change review` using fresh reviewer dispatch, digest persistence, binary verdicts, and revise loops; verify implementation remains blocked until current approval.
 
   ```yaml harness-task
   id: "11.3"
@@ -748,7 +762,7 @@
   manual: null
   ```
 
-- [ ] 11.4 Implement `/change implement` and `/change resume` over worktree, scheduler, task pipeline, and branch checkpoints; verify safe phases progress autonomously and paused branches require explicit confirmation.
+- [x] 11.4 Implement `/change implement` and `/change resume` over worktree, scheduler, task pipeline, and branch checkpoints; verify safe phases progress autonomously and paused branches require explicit confirmation.
 
   ```yaml harness-task
   id: "11.4"
@@ -762,7 +776,7 @@
   manual: null
   ```
 
-- [ ] 11.5 Route overlapping `/refine`, `/implement`, and `/ship` behavior through controller safety checks and add deprecation guidance to preserved legacy commands; verify the full imported command suite remains usable.
+- [x] 11.5 Route overlapping `/refine`, `/implement`, and `/ship` behavior through controller safety checks and add deprecation guidance to preserved legacy commands; verify the full imported command suite remains usable.
 
   ```yaml harness-task
   id: "11.5"
@@ -778,7 +792,7 @@
 
 ## 12. Add Final Verification, Finish, and Budget Reporting
 
-- [ ] 12.1 Implement fresh read-only final validation over OpenSpec, tasks, evidence, tests, findings, design, freshness, reports, and Git/worktree state; verify a failing full suite blocks readiness despite builder success.
+- [x] 12.1 Implement fresh read-only final validation over OpenSpec, tasks, evidence, tests, findings, design, freshness, reports, and Git/worktree state; verify a failing full suite blocks readiness despite builder success.
 
   ```yaml harness-task
   id: "12.1"
@@ -792,7 +806,7 @@
   manual: null
   ```
 
-- [ ] 12.2 Implement durable `verification.md` generation with reproducible commands, evidence links, findings, deviations, warnings, and source/artifact digests; verify raw transcripts are excluded.
+- [x] 12.2 Implement durable `verification.md` generation with reproducible commands, evidence links, findings, deviations, warnings, and source/artifact digests; verify raw transcripts are excluded.
 
   ```yaml harness-task
   id: "12.2"
@@ -806,7 +820,7 @@
   manual: null
   ```
 
-- [ ] 12.3 Implement `/change verify` and `/change finish` with separate freshness gates; verify success does not commit/archive/merge/push/delete and finish delegates only archive after recheck.
+- [x] 12.3 Implement `/change verify` and `/change finish` with separate freshness gates; verify success does not commit/archive/merge/push/delete and finish delegates only archive after recheck.
 
   ```yaml harness-task
   id: "12.3"
@@ -820,7 +834,7 @@
   manual: null
   ```
 
-- [ ] 12.4 Implement run/phase/role/task budgets, optional fan-out forecasting, and protected mandatory gates; verify budget exhaustion skips debate before blocking required work and never marks incomplete work done.
+- [x] 12.4 Implement run/phase/role/task budgets, optional fan-out forecasting, and protected mandatory gates; verify budget exhaustion skips debate before blocking required work and never marks incomplete work done.
 
   ```yaml harness-task
   id: "12.4"
@@ -834,7 +848,7 @@
   manual: null
   ```
 
-- [ ] 12.5 Add sanitized context categories and compact phase/run summaries with exact-versus-estimated labels and beta claim guards; verify secret fixtures and insufficient comparisons are reported honestly.
+- [x] 12.5 Add sanitized context categories and compact phase/run summaries with exact-versus-estimated labels and beta claim guards; verify secret fixtures and insufficient comparisons are reported honestly.
 
   ```yaml harness-task
   id: "12.5"
@@ -850,7 +864,7 @@
 
 ## 13. Complete Cross-Platform Beta Acceptance
 
-- [ ] 13.1 Add fixture-driven end-to-end tests for direct, bounded, and architectural changes from status through verified state, including stale review, design conflict, manual pause, recovery, and explicit finish behavior.
+- [x] 13.1 Add fixture-driven end-to-end tests for direct, bounded, and architectural changes from status through verified state, including stale review, design conflict, manual pause, recovery, and explicit finish behavior.
 
   ```yaml harness-task
   id: "13.1"
@@ -864,7 +878,7 @@
   manual: null
   ```
 
-- [ ] 13.2 Add Linux, macOS, and native Windows CI jobs for Node 22/Bun typecheck, unit/integration tests, extension smoke, Git/worktree semantics, and host-runner contract tests; verify workflow syntax locally and document expected matrix results.
+- [x] 13.2 Add Linux, macOS, and native Windows CI jobs for Node 22/Bun typecheck, unit/integration tests, extension smoke, Git/worktree semantics, and host-runner contract tests; verify workflow syntax locally and document expected matrix results.
 
   ```yaml harness-task
   id: "13.2"
@@ -878,7 +892,7 @@
   manual: null
   ```
 
-- [ ] 13.3 Document the beta host-execution trust boundary and create a non-blocking post-beta hardening backlog for OCI or native process/network isolation behind the command-runner interface; verify status, help, and security docs do not claim sandboxing.
+- [x] 13.3 Document the beta host-execution trust boundary and create a non-blocking post-beta hardening backlog for OCI or native process/network isolation behind the command-runner interface; verify status, help, and security docs do not claim sandboxing.
 
   ```yaml harness-task
   id: "13.3"

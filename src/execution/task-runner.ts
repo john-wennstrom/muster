@@ -1,5 +1,9 @@
 import type { ParsedTask } from "./task-parser.ts";
+import type { TddEvidenceRecord } from "../persistence/records.ts";
+import { runFreshRoleTask, type FreshRoleTaskRequest } from "../agents/role-runner.ts";
+import { evaluateTddPolicy } from "../policies/tdd.ts";
 import { HarnessError } from "../shared/errors.ts";
+import type { BudgetAmount, BudgetEvaluator } from "../telemetry/budget.ts";
 
 export type TaskClaim = "completed" | "blocked" | "awaiting_user" | "design_conflict";
 
@@ -20,6 +24,10 @@ export interface TaskOutcomeInput {
   reason?: string;
   checkpointId?: string;
   conflict?: DesignConflictEvidence;
+  behaviorChanging?: boolean;
+  requirements?: readonly string[];
+  scenarios?: readonly string[];
+  tddEvidence?: TddEvidenceRecord;
 }
 
 export type EvaluatedTaskOutcome = {
@@ -35,6 +43,58 @@ export type EvaluatedTaskOutcome = {
   affectedTasks?: readonly string[];
   recommendation?: string;
 };
+
+export interface TaskPipelineBuilderResult {
+  claim: TaskClaim;
+  implementationPersisted: boolean;
+  tddEvidence?: TddEvidenceRecord;
+  reason?: string;
+  checkpointId?: string;
+  conflict?: DesignConflictEvidence;
+}
+
+export interface TaskPipelineVerificationResult {
+  passed: boolean;
+  evidence: readonly string[];
+}
+
+export interface TaskPipelineReviewResult {
+  approved: boolean;
+  findings: readonly string[];
+}
+
+export interface TaskPipelineOptions {
+  runId: string;
+  sessionsRoot: string;
+  contents: string;
+  task: ParsedTask;
+  behaviorChanging: boolean;
+  requirements: readonly string[];
+  scenarios: readonly string[];
+  reviewBudgetAvailable: boolean;
+  budget?: BudgetEvaluator;
+  verificationBudgetEstimate?: BudgetAmount;
+  reviewBudgetEstimate?: BudgetAmount;
+  runBuilder: (request: FreshRoleTaskRequest) => Promise<TaskPipelineBuilderResult>;
+  runVerification: (
+    builder: TaskPipelineBuilderResult,
+  ) => Promise<TaskPipelineVerificationResult>;
+  runReview: (input: {
+    builder: TaskPipelineBuilderResult;
+    verification: TaskPipelineVerificationResult;
+  }) => Promise<TaskPipelineReviewResult>;
+  persistEvidence: (input: {
+    builder: TaskPipelineBuilderResult;
+    verification: TaskPipelineVerificationResult;
+    review: TaskPipelineReviewResult;
+  }) => Promise<void>;
+}
+
+export interface TaskPipelineResult {
+  outcome: EvaluatedTaskOutcome;
+  contents: string;
+  builderSessionId: string;
+}
 
 function invalidOutcome(message: string, details: Readonly<Record<string, unknown>>): never {
   throw new HarnessError("TASK_OUTCOME_INVALID", message, details);
@@ -55,6 +115,14 @@ export function evaluateTaskOutcome(input: TaskOutcomeInput): EvaluatedTaskOutco
   if (!input.taskId.trim()) invalidOutcome("Task outcome requires a task identifier", {});
 
   if (input.claim === "completed") {
+    const tdd = evaluateTddPolicy({
+      taskId: input.taskId,
+      behaviorChanging: input.behaviorChanging ?? false,
+      requirements: input.requirements ?? [],
+      scenarios: input.scenarios ?? [],
+      evidence: input.tddEvidence,
+    });
+    if (!tdd.accepted) return blocked(input.taskId, tdd.reason!);
     if (!input.implementationPersisted) return blocked(input.taskId, "implementation result is not persisted");
     if (!input.verificationPassed) return blocked(input.taskId, "required verification has not passed");
     if (!input.taskReviewApproved) return blocked(input.taskId, "task review is not approved");
@@ -151,4 +219,162 @@ export function synchronizeTaskCheckbox(
   }
   const absoluteOffset = start + checkboxOffset;
   return `${contents.slice(0, absoluteOffset)}[x]${contents.slice(absoluteOffset + 3)}`;
+}
+
+function pipelineBlocked(
+  taskId: string,
+  reason: string,
+): EvaluatedTaskOutcome {
+  return evaluateTaskOutcome({
+    taskId,
+    claim: "blocked",
+    implementationPersisted: false,
+    verificationPassed: false,
+    taskReviewApproved: false,
+    evidencePersisted: true,
+    reason,
+  });
+}
+
+function mandatoryBudgetReason(gate: "tests" | "review", reason: string): string {
+  return `mandatory task ${gate} budget is unavailable: ${reason}`;
+}
+
+export async function runTaskPipeline(
+  options: TaskPipelineOptions,
+): Promise<TaskPipelineResult> {
+  let builderSessionId = "";
+  const builder = await runFreshRoleTask({
+    runId: options.runId,
+    taskId: options.task.checkboxId,
+    role: "builder",
+    sessionsRoot: options.sessionsRoot,
+    prompt: `Implement task ${options.task.checkboxId}: ${options.task.description}`,
+    execute: async (request) => {
+      builderSessionId = request.sessionId;
+      return options.runBuilder(request);
+    },
+  });
+
+  if (builder.claim !== "completed") {
+    const outcome = evaluateTaskOutcome({
+      taskId: options.task.checkboxId,
+      claim: builder.claim,
+      implementationPersisted: builder.implementationPersisted,
+      verificationPassed: false,
+      taskReviewApproved: false,
+      evidencePersisted: true,
+      reason: builder.reason,
+      checkpointId: builder.checkpointId,
+      conflict: builder.conflict,
+    });
+    return { outcome, contents: options.contents, builderSessionId };
+  }
+
+  const tdd = evaluateTddPolicy({
+    taskId: options.task.checkboxId,
+    behaviorChanging: options.behaviorChanging,
+    requirements: options.requirements,
+    scenarios: options.scenarios,
+    evidence: builder.tddEvidence,
+  });
+  if (!tdd.accepted) {
+    return {
+      outcome: pipelineBlocked(options.task.checkboxId, tdd.reason!),
+      contents: options.contents,
+      builderSessionId,
+    };
+  }
+
+  const verificationBudget = options.budget?.forecast({
+    phase: "validation",
+    role: "validator",
+    taskId: options.task.checkboxId,
+    activity: "tests",
+    estimate: options.verificationBudgetEstimate ?? { totalTokens: 0, costUsd: 0 },
+  });
+  if (verificationBudget?.status === "blocked_mandatory") {
+    return {
+      outcome: pipelineBlocked(
+        options.task.checkboxId,
+        mandatoryBudgetReason("tests", verificationBudget.reason),
+      ),
+      contents: options.contents,
+      builderSessionId,
+    };
+  }
+
+  const verification = await options.runVerification(builder);
+  if (!verification.passed) {
+    const outcome = evaluateTaskOutcome({
+      taskId: options.task.checkboxId,
+      claim: "completed",
+      implementationPersisted: builder.implementationPersisted,
+      verificationPassed: false,
+      taskReviewApproved: false,
+      evidencePersisted: false,
+      behaviorChanging: options.behaviorChanging,
+      requirements: options.requirements,
+      scenarios: options.scenarios,
+      tddEvidence: builder.tddEvidence,
+    });
+    return { outcome, contents: options.contents, builderSessionId };
+  }
+  if (!options.reviewBudgetAvailable) {
+    return {
+      outcome: pipelineBlocked(
+        options.task.checkboxId,
+        "mandatory task review budget is unavailable",
+      ),
+      contents: options.contents,
+      builderSessionId,
+    };
+  }
+  const reviewBudget = options.budget?.forecast({
+    phase: "validation",
+    role: "reviewer",
+    taskId: options.task.checkboxId,
+    activity: "review",
+    estimate: options.reviewBudgetEstimate ?? { totalTokens: 0, costUsd: 0 },
+  });
+  if (reviewBudget?.status === "blocked_mandatory") {
+    return {
+      outcome: pipelineBlocked(
+        options.task.checkboxId,
+        mandatoryBudgetReason("review", reviewBudget.reason),
+      ),
+      contents: options.contents,
+      builderSessionId,
+    };
+  }
+
+  const review = await options.runReview({ builder, verification });
+  if (!review.approved) {
+    return {
+      outcome: pipelineBlocked(
+        options.task.checkboxId,
+        review.findings.join("; ") || "task review requires repair",
+      ),
+      contents: options.contents,
+      builderSessionId,
+    };
+  }
+  await options.persistEvidence({ builder, verification, review });
+  const outcome = evaluateTaskOutcome({
+    taskId: options.task.checkboxId,
+    claim: "completed",
+    implementationPersisted: builder.implementationPersisted,
+    verificationPassed: true,
+    taskReviewApproved: true,
+    evidencePersisted: true,
+    behaviorChanging: options.behaviorChanging,
+    requirements: options.requirements,
+    scenarios: options.scenarios,
+    tddEvidence: builder.tddEvidence,
+  });
+  return {
+    outcome,
+    contents: synchronizeTaskCheckbox(options.contents, options.task, outcome),
+    builderSessionId,
+  };
 }

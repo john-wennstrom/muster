@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { posix } from "node:path";
 
 export type CollaborationTaskMode = "read" | "write";
 
@@ -9,6 +10,8 @@ export interface CollaborationTask {
 	depends_on: string[];
 	outputs: string[];
 	mode: CollaborationTaskMode;
+	reads: string[];
+	writes: string[];
 }
 
 export interface CollaborationPlan {
@@ -20,6 +23,27 @@ export interface ValidatedCollaborationPlan extends CollaborationPlan {
 }
 
 const TASK_ID_RE = /^\d+\.[A-Za-z0-9_-]+$/;
+
+function normalizeScopes(value: unknown, label: string, errors: string[]): string[] {
+	if (!Array.isArray(value)) {
+		errors.push(`${label} must be an array`);
+		return [];
+	}
+	if (value.some((item) => typeof item !== "string")) {
+		errors.push(`${label} entries must all be strings`);
+		return [];
+	}
+	const normalized = (value as string[]).map((scope, index) => {
+		const portable = scope.trim().replaceAll("\\", "/");
+		const path = posix.normalize(portable);
+		if (!portable || path === "." || path === ".." || path.startsWith("../") || path.startsWith("/") || /^[A-Za-z]:\//.test(portable) || portable.includes("\0")) {
+			errors.push(`${label}[${index}] must be a non-empty repository-relative scope`);
+		}
+		return path;
+	});
+	if (new Set(normalized).size !== normalized.length) errors.push(`${label} contains duplicate normalized scopes`);
+	return normalized;
+}
 
 export function readCollaborationPlan(planPath: string, assigneeIds: Iterable<string>): ValidatedCollaborationPlan {
 	let parsed: unknown;
@@ -65,7 +89,13 @@ export function validateCollaborationPlan(input: unknown, assigneeIds: Iterable<
 		else if (Array.isArray(value.outputs) && value.outputs.some((item) => typeof item !== "string")) errors.push(`${label}.outputs entries must all be strings`);
 		const mode: CollaborationTaskMode = value.mode === "read" ? "read" : "write";
 		if (value.mode !== undefined && value.mode !== "read" && value.mode !== "write") errors.push(`${label}.mode must be read or write`);
-		tasks.push({ id, assignee, description, depends_on: dependsOn, outputs, mode });
+		const reads = normalizeScopes(value.reads, `${label}.reads`, errors);
+		const writes = normalizeScopes(value.writes, `${label}.writes`, errors);
+		if (reads.length === 0) errors.push(`${label}.reads must declare at least one scope`);
+		if (mode === "read" && writes.length > 0) errors.push(`${label}.writes must be empty for read mode`);
+		if (mode === "write" && writes.length === 0) errors.push(`${label}.writes must declare at least one scope for write mode`);
+		if (writes.includes("**")) errors.push(`${label}.writes must not grant repository-wide scope`);
+		tasks.push({ id, assignee, description, depends_on: dependsOn, outputs, mode, reads, writes });
 	}
 
 	const byId = new Map(tasks.map((task) => [task.id, task]));

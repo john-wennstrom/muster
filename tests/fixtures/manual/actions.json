@@ -1,0 +1,32 @@
+{
+  "secret": "fixture-runtime-secret",
+  "runtime": [
+    {
+      "category": "authentication",
+      "executable": "npm",
+      "args": ["login", "--token", "fixture-runtime-secret"]
+    },
+    {
+      "category": "elevated_permission",
+      "executable": "sudo",
+      "args": ["npm", "install"]
+    },
+    {
+      "category": "destructive",
+      "executable": "git",
+      "args": ["push", "--force", "origin", "main"]
+    },
+    {
+      "category": "external_side_effect",
+      "executable": "npm",
+      "args": ["publish"]
+    }
+  ],
+  "planned": {
+    "category": "design_decision",
+    "reason": "Choose the public API without exposing token=fixture-runtime-secret",
+    "instructions": ["Record the decision; do not include fixture-runtime-secret"],
+    "expectedOutcome": "The approved design contains the decision",
+    "resumeTarget": "9.4"
+  }
+}

@@ -113,13 +113,14 @@ export const BOOT_TYPE = "fusion-harness-boot"; // the boot banner's own tag —
 
 // ═══ Roles ═══════════════════════════════════════════════════════════════════
 
-export type Role = "ARCHITECT" | "BUILDER" | "FUSION" | "VALIDATOR";
+export type Role = "ARCHITECT" | "BUILDER" | "FUSION" | "REVIEWER" | "VALIDATOR";
 
 /** One consistent color per role, everywhere (columns, footer, panels, errors). */
 export const ROLE_COLOR: Record<Role, "accent" | "warning" | "success" | "mdLink"> = {
 	ARCHITECT: "accent",
 	BUILDER: "warning",
 	FUSION: "success",
+	REVIEWER: "mdLink",
 	VALIDATOR: "mdLink",
 };
 
@@ -128,6 +129,7 @@ export const ROLE_GLYPH: Record<Role, string> = {
 	ARCHITECT: "◆",
 	BUILDER: "▲",
 	FUSION: "⧉",
+	REVIEWER: "◇",
 	VALIDATOR: "✓",
 };
 

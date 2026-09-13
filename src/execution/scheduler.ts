@@ -1,5 +1,16 @@
-import type { TaskDagRecord } from "../persistence/records.ts";
+import type { CheckpointRecord, TaskDagRecord } from "../persistence/records.ts";
 import { HarnessError } from "../shared/errors.ts";
+import {
+  acquireWriterLease,
+  type AcquireWriterLeaseOptions,
+  type WriterLease,
+  type WriterLeaseRecord,
+} from "./writer-lease.ts";
+import {
+  ensureChangeWorktree,
+  type ChangeWorktree,
+  type EnsureChangeWorktreeOptions,
+} from "./worktree.ts";
 
 export type ScheduledTaskState =
   | "pending"
@@ -9,6 +20,7 @@ export type ScheduledTaskState =
   | "blocked"
   | "awaiting_user"
   | "design_conflict"
+  | "debugging"
   | "cancelled";
 
 export interface ScheduledTask {
@@ -25,6 +37,7 @@ export interface ScheduledTaskResult {
 export interface SchedulerOptions {
   dag: TaskDagRecord;
   tasks: Readonly<Record<string, Omit<ScheduledTask, "id">>>;
+  pendingCheckpoints?: readonly CheckpointRecord[];
   execute: (
     task: ScheduledTask,
     attempt: number,
@@ -32,6 +45,11 @@ export interface SchedulerOptions {
   ) => Promise<ScheduledTaskResult>;
   beforeWrite?: (taskId: string) => Promise<void> | void;
   afterWrite?: (taskId: string) => Promise<void> | void;
+  onUnexpectedFailure?: (
+    taskId: string,
+    attempt: number,
+    error: string,
+  ) => Promise<void> | void;
   signal?: AbortSignal;
 }
 
@@ -39,6 +57,34 @@ export interface SchedulerResult {
   states: Record<string, ScheduledTaskState>;
   attempts: Record<string, number>;
   errors: Record<string, string>;
+}
+
+export interface ChangeTaskExecutionContext {
+  worktree: ChangeWorktree;
+  writerLease: WriterLease | null;
+}
+
+export interface ChangeSchedulerOptions extends Omit<
+  SchedulerOptions,
+  "execute" | "beforeWrite" | "afterWrite"
+> {
+  runId: string;
+  worktree: EnsureChangeWorktreeOptions;
+  execute: (
+    task: ScheduledTask,
+    attempt: number,
+    context: ChangeTaskExecutionContext,
+    signal?: AbortSignal,
+  ) => Promise<ScheduledTaskResult>;
+  lease?: Pick<
+    AcquireWriterLeaseOptions,
+    "lockDirectory" | "processAlive" | "reconcileStaleOwner" | "now"
+  >;
+  selectWorktree?: typeof ensureChangeWorktree;
+}
+
+export interface ChangeSchedulerResult extends SchedulerResult {
+  worktree: ChangeWorktree;
 }
 
 function invalid(message: string, details: Readonly<Record<string, unknown>>): never {
@@ -66,6 +112,53 @@ function validateTasks(options: SchedulerOptions): Map<string, ScheduledTask> {
   return tasks;
 }
 
+export function affectedTaskBranch(dag: TaskDagRecord, taskId: string): string[] {
+  if (!dag.nodes.some((node) => node.id === taskId)) {
+    return invalid("Manual checkpoint task is absent from the DAG", { taskId });
+  }
+  const affected = new Set([taskId]);
+  for (const candidateId of dag.topologicalOrder) {
+    const candidate = dag.nodes.find((node) => node.id === candidateId)!;
+    if (candidate.dependsOn.some((dependencyId) => affected.has(dependencyId))) {
+      affected.add(candidateId);
+    }
+  }
+  return dag.topologicalOrder.filter((candidateId) => affected.has(candidateId));
+}
+
+function seedCheckpointPauses(
+  options: SchedulerOptions,
+  states: Record<string, ScheduledTaskState>,
+): void {
+  const checkpointIds = new Set<string>();
+  for (const checkpoint of options.pendingCheckpoints ?? []) {
+    if (checkpoint.status !== "pending") continue;
+    if (checkpointIds.has(checkpoint.id)) {
+      invalid("Scheduler received a duplicate manual checkpoint", { checkpointId: checkpoint.id });
+    }
+    checkpointIds.add(checkpoint.id);
+    const expectedBranch = affectedTaskBranch(options.dag, checkpoint.taskId);
+    if (
+      checkpoint.branch.length !== expectedBranch.length ||
+      checkpoint.branch.some((taskId, index) => taskId !== expectedBranch[index])
+    ) {
+      invalid("Manual checkpoint branch does not match the DAG dependent closure", {
+        checkpointId: checkpoint.id,
+        recordedBranch: checkpoint.branch,
+        expectedBranch,
+      });
+    }
+    if (states[checkpoint.taskId] === "completed") {
+      invalid("Manual checkpoint references a completed task", {
+        checkpointId: checkpoint.id,
+        taskId: checkpoint.taskId,
+      });
+    }
+    states[checkpoint.taskId] = "awaiting_user";
+    for (const taskId of expectedBranch.slice(1)) states[taskId] = "blocked";
+  }
+}
+
 export async function runScheduler(options: SchedulerOptions): Promise<SchedulerResult> {
   const tasks = validateTasks(options);
   const nodes = new Map(options.dag.nodes.map((node) => [node.id, node]));
@@ -76,6 +169,7 @@ export async function runScheduler(options: SchedulerOptions): Promise<Scheduler
     states[node.id] = node.checked ? "completed" : "pending";
     attempts[node.id] = 0;
   }
+  seedCheckpointPauses(options, states);
 
   const active = new Map<string, Promise<{ taskId: string; result: ScheduledTaskResult }>>();
 
@@ -100,8 +194,13 @@ export async function runScheduler(options: SchedulerOptions): Promise<Scheduler
         }
         if (options.signal?.aborted) return { outcome: "cancelled" };
         if (result.outcome !== "failed") return result;
+        await options.onUnexpectedFailure?.(
+          task.id,
+          attempt,
+          result.error ?? "task attempt failed without an error",
+        );
       }
-      return result;
+      return { outcome: "debugging", error: result.error };
     } finally {
       if (writerAcquired) await options.afterWrite?.(task.id);
     }
@@ -127,6 +226,7 @@ export async function runScheduler(options: SchedulerOptions): Promise<Scheduler
         state === "blocked" ||
         state === "awaiting_user" ||
         state === "design_conflict" ||
+        state === "debugging" ||
         state === "cancelled"
       )) {
         states[taskId] = "blocked";
@@ -159,4 +259,43 @@ export async function runScheduler(options: SchedulerOptions): Promise<Scheduler
   }
 
   return { states, attempts, errors };
+}
+
+export async function runChangeScheduler(
+  options: ChangeSchedulerOptions,
+): Promise<ChangeSchedulerResult> {
+  const worktree = await (options.selectWorktree ?? ensureChangeWorktree)(options.worktree);
+  const leases = new Map<string, WriterLease>();
+  const scheduler = await runScheduler({
+    dag: options.dag,
+    tasks: options.tasks,
+    pendingCheckpoints: options.pendingCheckpoints,
+    onUnexpectedFailure: options.onUnexpectedFailure,
+    signal: options.signal,
+    beforeWrite: async (taskId) => {
+      const lease = await acquireWriterLease({
+        identity: {
+          repositoryId: worktree.repositoryId,
+          worktreePath: worktree.path,
+          runId: options.runId,
+          taskId,
+          command: "builder",
+        },
+        ...options.lease,
+      });
+      leases.set(taskId, lease);
+    },
+    afterWrite: async (taskId) => {
+      const lease = leases.get(taskId);
+      leases.delete(taskId);
+      await lease?.release();
+    },
+    execute: (task, attempt, signal) => options.execute(
+      task,
+      attempt,
+      { worktree, writerLease: leases.get(task.id) ?? null },
+      signal,
+    ),
+  });
+  return { ...scheduler, worktree };
 }

@@ -24,6 +24,14 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
+    "acceptance:ci-status": "bun run scripts/ci/status.ts",
+    "ci:test": "bun test",
+    "ci:validate": "bun run scripts/ci/validate.ts",
+    "docs:check": "bun run scripts/docs/check.ts",
+    "doctor": "bun run scripts/doctor.ts",
+    "test:extension-smoke": "bun test tests/extension/install-smoke.test.ts",
+    "test:git-worktree": "bun test tests/execution/git.test.ts tests/execution/worktree.test.ts",
+    "test:host-runner": "bun test tests/tools/host-runner.test.ts tests/security/broker-host-adversarial.test.ts",
     "verify:import": "bun run extensions/fusion-harness/verify-import.ts",
     "test": "bun test extensions/fusion-harness/tests",
     "test:fusion-harness": "bun test extensions/fusion-harness/tests",

@@ -87,6 +87,7 @@ export function runChild(opts: {
 	cwd: string;
 	timeoutMs: number;
 	signal?: AbortSignal; // escape key — kill this child and settle it as "aborted"
+	environment?: NodeJS.ProcessEnv;
 }): Promise<AgentRun> {
 	const run = opts.run;
 	run.thinking = opts.thinking;
@@ -254,7 +255,7 @@ export function runChild(opts: {
 			detached: process.platform !== "win32", // own process group so cancellation reaches tool/bash descendants
 			stdio: ["ignore", "pipe", "pipe"],
 			// Children still make their real model API calls — this only skips startup chores.
-			env: { ...process.env, PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1" },
+			env: { ...process.env, ...opts.environment, PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1" },
 		});
 
 		// Line-buffer stdout: events arrive one JSON object per line, possibly split across chunks.

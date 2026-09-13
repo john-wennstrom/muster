@@ -147,7 +147,9 @@ Tool classes are:
 - OpenSpec tools available only to controller-owned workflows or artifact-writer roles;
 - integration tools wrapped by the same authorization decision.
 
-Reviewer and validator roles receive no mutation tools. Child tool requests and authorization decisions receive correlation IDs and audit events.
+Reviewer and validator roles receive no repository mutation tools. Validators may submit structured gate or validation evidence through a dedicated broker capability; the trusted parent validates and persists that runtime artifact without granting the child filesystem write access. Child tool requests and authorization decisions receive correlation IDs and audit events.
+
+Legacy Fusion command plans must cross an explicit compatibility adapter before they can use this broker. The adapter extends legacy task records with normalized read and write scopes, derives repository and canonical worktree identity through the Git adapter, assigns run and task identity, and acquires the identity-aware writer lease for mutating tasks. Missing, escaping, or ambiguous scopes fail before child dispatch. Free-form legacy writer commands run a brokered read-only scope-planning pass and validate its bounded result before starting a mutation-capable child. Legacy commands retain their user-facing invocation and output contracts, but they may not receive repository-wide write authority merely because their original plan format omitted scopes.
 
 **Alternative considered:** prompt restrictions plus post-run diff auditing. Rejected because prohibited writes and side effects could already have occurred before audit.
 

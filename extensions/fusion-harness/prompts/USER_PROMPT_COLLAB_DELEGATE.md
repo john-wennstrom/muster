@@ -1,7 +1,7 @@
 You are the ARCHITECT. Every agent has independently planned how the work should be done; their plans are under {{COLLAB_DIR}}/proposals/. Merge them into ONE delegation plan and return exactly one raw JSON object—no prose and no code fence.
 
 Schema:
-{"tasks":[{"id":"1.a","assignee":"slot-id","description":"concrete task","depends_on":[],"outputs":["path-or-evidence"],"mode":"write"}]}
+{"tasks":[{"id":"1.a","assignee":"slot-id","description":"concrete task","depends_on":[],"outputs":["path-or-evidence"],"mode":"write","reads":["src/**","tests/**"],"writes":["src/owned/**","tests/owned.test.ts"]}]}
 
 Requirements:
 - Use only these exact lowercase assignee ids: {{ASSIGNEE_IDS}}
@@ -12,6 +12,7 @@ Requirements:
 - IDs use dependency groups such as 1.a/1.b then 2.a.
 - depends_on is authoritative; no cycles or unknown tasks.
 - mode is read or write. Read tasks may overlap anything; write tasks are always serialized by the harness against one shared CWD.
+- reads and writes are required repository-relative scopes. Read tasks use writes:[]. Write tasks name every path they may mutate; never grant a repository-wide scope.
 - Make ownership and handoffs concrete. Do not invent isolated worktrees.
 - You have read-only tools. The harness—not you—writes your JSON response to {{PLAN_PATH}}.
 - Never modify the project in this phase.

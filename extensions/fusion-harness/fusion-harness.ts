@@ -45,6 +45,8 @@ import * as path from "node:path"; // every artifact/session path
 import { performance } from "node:perf_hooks"; // host-turn TPS boundaries
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Container, Text, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { runLegacyBrokeredChild, runLegacyScopePlannerChild } from "../../src/agents/legacy-adapter.ts";
+import type { ChangeCommandDependencies } from "../../src/extension/change-command.ts";
 import { registerAutoValidateCommand, registerCollaborateCommand } from "./modules/cmd-build.ts";
 import { registerFusionCommand } from "./modules/cmd-fusion.ts";
 import { registerReadonlyCommands } from "./modules/cmd-readonly.ts";
@@ -96,7 +98,11 @@ const WIDGET_TICK_MS = 1_000; // live-widget refresh cadence
 
 // ═══ 2. Extension ════════════════════════════════════════════════════════════
 
-export default function (pi: ExtensionAPI) {
+export interface FusionHarnessOptions {
+	changeController?: Pick<ChangeCommandDependencies, "loadSnapshot">;
+}
+
+export default function (pi: ExtensionAPI, options: FusionHarnessOptions = {}) {
 	// ── 2.1 Flags ──────────────────────────────────────────────
 	pi.registerFlag("fh-config", {
 		type: "string",
@@ -1179,13 +1185,28 @@ export default function (pi: ExtensionAPI) {
 		let writerLease: WriterLease | undefined;
 		ctx.ui.setStatus(CUSTOM_TYPE, `fh-only: ${slot.name} working…`);
 		try {
+			const scopePlanner = newRun("ARCHITECT", modelStack().architect.model, modelStack().architect);
+			const scopePlan = await runLegacyScopePlannerChild({
+				run: scopePlanner,
+				description: prompt,
+				plannedTaskId: "only.implementation",
+				plannedAssignee: slot.id,
+				runId: path.basename(artifactsDir),
+				childId: `${slot.id}-scope-planner`,
+				thinking: modelStack().architect.thinking,
+				sessionDir: path.join(artifactsDir, "scope-planner"),
+				cwd: ctx.cwd,
+				timeoutMs: childTimeoutMs(),
+				signal: stopper.signal,
+			});
+			absorbTotals([scopePlan.run]);
 			try {
 				writerLease = acquireWriterLease(ctx.cwd, `/fh-only ${slot.id} ${path.basename(artifactsDir)}`);
 			} catch (error) {
 				panel({ kind: "error", command: "fh-only", ok: false, agent: toStat(run), artifactsDir }, error instanceof Error ? error.message : String(error));
 				return;
 			}
-			await runChild({ run, prompt, systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, access: "write", childRuntime: resolveChildRuntime(slot, "write"), thinking: slot.thinking, ...slotInitialSpawn(slot, ctx, path.join(artifactsDir, slot.id)), cwd: ctx.cwd, timeoutMs: childTimeoutMs(), signal: stopper.signal });
+			await runLegacyBrokeredChild({ run, prompt, systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, task: scopePlan.task, thinking: slot.thinking, ...slotInitialSpawn(slot, ctx, path.join(artifactsDir, slot.id)), cwd: ctx.cwd, timeoutMs: childTimeoutMs(), signal: stopper.signal });
 			if (stopper.stopped()) {
 				stoppedPanel("fh-only", [run], artifactsDir, startedAt, `${slot.name} was stopped mid-answer.`);
 				return;
@@ -1291,5 +1312,5 @@ export default function (pi: ExtensionAPI) {
 	registerFusionCommand(pi, deps); // /fh-fusion
 	registerCollaborateCommand(pi, deps); // /fh-collaborate
 	registerAutoValidateCommand(pi, deps); // /fh-auto-validate
-	registerOpenSpecCommands(pi, deps); // optional /refine + /implement + /os-status + /ship
+	registerOpenSpecCommands(pi, deps, options.changeController); // optional /refine + /implement + /os-status + /ship
 }

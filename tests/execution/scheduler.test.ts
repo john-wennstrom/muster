@@ -75,7 +75,7 @@ describe("dependency scheduler", () => {
     ]);
   });
 
-  test("retries within bounds and never dispatches dependents after failure", async () => {
+  test("enters debugging at the retry bound and never dispatches dependents", async () => {
     const dag = compileTaskDag([
       { id: "1.1", dependsOn: [], checked: false },
       { id: "2.1", dependsOn: ["1.1"], checked: false },
@@ -95,7 +95,7 @@ describe("dependency scheduler", () => {
     });
 
     expect(attempts).toEqual(["1.1:1", "1.1:2"]);
-    expect(result.states).toEqual({ "1.1": "failed", "2.1": "blocked" });
+    expect(result.states).toEqual({ "1.1": "debugging", "2.1": "blocked" });
   });
 
   test("cancellation prevents pending task dispatch", async () => {

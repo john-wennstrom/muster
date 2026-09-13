@@ -12,6 +12,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { runLegacyBrokeredChild, runLegacyReadOnlyChild, runLegacyScopePlannerChild } from "../../../src/agents/legacy-adapter.ts";
+import { createDependencyReport, renderDependencyReports, type DependencyReport } from "../../../src/agents/reports.ts";
 import { runChild, runProc } from "./child-runner.ts";
 import { validateCollaborationPlan, type CollaborationTask, type ValidatedCollaborationPlan } from "./collaboration-graph.ts";
 import { renderDelegationPlan } from "./collaboration-render.ts";
@@ -102,7 +104,7 @@ export function registerCollaborateCommand(pi: ExtensionAPI, h: HarnessDeps): vo
 				await fs.promises.mkdir(proposalsDir, { recursive: true });
 				await Promise.all(runs.map(async (run) => {
 					const slot = run.slot!;
-					await runChild({ run, prompt: collabProposePrompt(slot, stack, prompt), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, access: "read", childRuntime: h.resolveChildRuntime(slot, "read"), thinking: slot.thinking, ...initialSpawns.get(slot.id)!, cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
+					await runLegacyReadOnlyChild({ run, prompt: collabProposePrompt(slot, stack, prompt), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, taskId: `proposal.${slot.id}`, description: "Propose a collaboration plan", assignee: slot.id, thinking: slot.thinking, ...initialSpawns.get(slot.id)!, cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
 					await h.save(proposalsDir, `${slot.id}.md`, runOk(run) ? run.text : `FAILED: ${runError(run)}`);
 				}));
 				if (stopper.stopped()) {
@@ -123,7 +125,7 @@ export function registerCollaborateCommand(pi: ExtensionAPI, h: HarnessDeps): vo
 				for (let attempt = 1; attempt <= 3; attempt++) {
 					ctx.ui.setStatus(CUSTOM_TYPE, `collaborate: architect merging plans into a delegation graph${attempt > 1 ? ` (repair ${attempt - 1})` : ""}…`);
 					const delegatePrompt = collabDelegatePrompt(stack, prompt, collabDir, planPath) + (planError ? `\n\nPREVIOUS PLAN VALIDATION FAILED:\n${planError}\nRewrite the complete corrected plan.` : "");
-					await runChild({ run: architectRun, prompt: delegatePrompt, systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_COLLAB_COORDINATOR.md"), appendSystemPrompts: stack.architect.appendSystemPrompts, access: "read", childRuntime: h.resolveChildRuntime(stack.architect, "read"), thinking: stack.architect.thinking, ...h.slotNextSpawn(stack.architect, architectRun, initialSpawns.get(stack.architect.id)!, ctx), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
+					await runLegacyReadOnlyChild({ run: architectRun, prompt: delegatePrompt, systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_COLLAB_COORDINATOR.md"), appendSystemPrompts: stack.architect.appendSystemPrompts, role: "architect", runId: path.basename(artifactsDir), childId: stack.architect.id, taskId: "architect.delegation", description: "Create the collaboration delegation plan", assignee: stack.architect.id, thinking: stack.architect.thinking, ...h.slotNextSpawn(stack.architect, architectRun, initialSpawns.get(stack.architect.id)!, ctx), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
 					if (stopper.stopped()) {
 						h.stoppedPanel("fh-collaborate", runs, artifactsDir, startedAt, "Stopped while the architect was producing the delegation graph.");
 						return;
@@ -173,7 +175,7 @@ export function registerCollaborateCommand(pi: ExtensionAPI, h: HarnessDeps): vo
 				const reportsDir = path.join(collabDir, "reports");
 				await fs.promises.mkdir(reportsDir, { recursive: true });
 				const taskState = new Map<string, CollaborationTaskState>(plan.tasks.map((task) => [task.id, "blocked"]));
-				const taskReports = new Map<string, string>();
+				const taskReports = new Map<string, DependencyReport>();
 				const busySlots = new Set<string>();
 				const inFlight = new Map<string, Promise<void>>();
 				let executionFailure: string | undefined;
@@ -185,7 +187,11 @@ export function registerCollaborateCommand(pi: ExtensionAPI, h: HarnessDeps): vo
 				const depsDone = (task: CollaborationTask): boolean => task.depends_on.every((dep) => taskState.get(dep) === "done");
 				const taskHandoff = (task: CollaborationTask): string => {
 					const parts = [`Collaboration artifacts: ${collabDir}`, `Delegation plan: ${planPath}`, `All finished task reports: ${reportsDir}`];
-					for (const dep of task.depends_on) parts.push(`\n## COMPLETED DEPENDENCY ${dep}\n${taskReports.get(dep) ?? "(report on disk)"}`);
+					const dependencies = task.depends_on.flatMap((dependencyId) => {
+						const report = taskReports.get(dependencyId);
+						return report ? [report] : [];
+					});
+					if (dependencies.length) parts.push(`\n${renderDependencyReports(dependencies)}`);
 					return parts.join("\n");
 				};
 				const executeTask = async (task: CollaborationTask): Promise<void> => {
@@ -199,15 +205,23 @@ export function registerCollaborateCommand(pi: ExtensionAPI, h: HarnessDeps): vo
 						maxConcurrentWriteEnabledChildren = Math.max(maxConcurrentWriteEnabledChildren, activeWriters);
 					}
 					try {
-						const access = write ? "write" : "read";
-						await runChild({ run, prompt: collabExecutePrompt(slot, prompt, task, taskHandoff(task)), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, access, childRuntime: h.resolveChildRuntime(slot, access), thinking: slot.thinking, ...h.slotNextSpawn(slot, run, initialSpawns.get(slot.id)!, ctx), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
+						await runLegacyBrokeredChild({ run, prompt: collabExecutePrompt(slot, prompt, task, taskHandoff(task)), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, task, thinking: slot.thinking, ...h.slotNextSpawn(slot, run, initialSpawns.get(slot.id)!, ctx), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
 					} finally {
 						if (write) activeWriters--;
 					}
 					const ok = runOk(run) && !stopper.stopped();
 					taskExecutions.push({ taskId: task.id, slot: slot.id, mode: task.mode, startedAt: taskStartedAt, endedAt: Date.now(), ok });
 					const report = runOk(run) ? run.text : `FAILED: ${runError(run)}`;
-					taskReports.set(task.id, report);
+					taskReports.set(task.id, createDependencyReport({
+						schemaVersion: 1,
+						runId: path.basename(artifactsDir),
+						taskId: task.id,
+						outcome: ok ? "completed" : "blocked",
+						summary: truncateChars(report || "No task report was produced.", 8_000),
+						changedInterfaces: task.outputs.slice(0, 100),
+						evidence: [`child status: ${run.status}`],
+						createdAt: new Date().toISOString(),
+					}));
 					await h.save(reportsDir, `${task.id}-${slot.id}.md`, report);
 					taskState.set(task.id, ok ? "done" : "failed");
 					if (!stopper.stopped()) {
@@ -258,7 +272,17 @@ export function registerCollaborateCommand(pi: ExtensionAPI, h: HarnessDeps): vo
 				activeWriters++;
 				maxConcurrentWriteEnabledChildren = Math.max(maxConcurrentWriteEnabledChildren, activeWriters);
 				try {
-					await runChild({ run: architectRun, prompt: collabCoordinatePrompt(prompt, reportsDir, planPath), systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_COLLAB_COORDINATOR.md"), appendSystemPrompts: stack.architect.appendSystemPrompts, access: "write", childRuntime: h.resolveChildRuntime(stack.architect, "write"), thinking: stack.architect.thinking, ...h.slotNextSpawn(stack.architect, architectRun, initialSpawns.get(stack.architect.id)!, ctx), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
+					const finalTask: CollaborationTask = {
+						id: "final.integration",
+						assignee: stack.architect.id,
+						description: "Integrate completed collaboration task outputs",
+						depends_on: plan.tasks.map((task) => task.id),
+						outputs: [],
+						mode: "write",
+						reads: [...new Set(plan.tasks.flatMap((task) => task.reads))],
+						writes: [...new Set(plan.tasks.flatMap((task) => task.writes))],
+					};
+					await runLegacyBrokeredChild({ run: architectRun, prompt: collabCoordinatePrompt(prompt, reportsDir, planPath), systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_COLLAB_COORDINATOR.md"), appendSystemPrompts: stack.architect.appendSystemPrompts, role: "architect", runId: path.basename(artifactsDir), childId: stack.architect.id, task: finalTask, thinking: stack.architect.thinking, ...h.slotNextSpawn(stack.architect, architectRun, initialSpawns.get(stack.architect.id)!, ctx), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
 				} finally {
 					activeWriters--;
 				}
@@ -375,26 +399,44 @@ export function registerAutoValidateCommand(pi: ExtensionAPI, h: HarnessDeps): v
 					return;
 				}
 				// ── 1. VALIDATOR designs the gate (before any build) ──
-				// The gate's transport is the FILESYSTEM: the harness dictates an absolute path and
-				// the validator writes gate.py there with its own write tool. Nothing is parsed out
-				// of the reply, so a gate whose own source contains ``` survives intact.
+				// The validator submits structured evidence; the trusted parent validates and
+				// persists gate.py without granting the child filesystem write access.
 				const scriptPath = path.join(artifactsDir, "gate.py");
 				ctx.ui.setStatus(CUSTOM_TYPE, "auto-validate: validator designing the gate…");
-				await runChild({
+				const validatorTask: CollaborationTask = {
+					id: "validator.gate",
+					assignee: h.modelStack().architect.id,
+					description: "Design the immutable acceptance gate",
+					depends_on: [],
+					outputs: [scriptPath],
+					mode: "read",
+					reads: ["**"],
+					writes: [],
+				};
+				await runLegacyBrokeredChild({
 					run: validator,
 					prompt: validatorPrompt(prompt, ctx.cwd, scriptPath),
 					systemPrompt: validatorSystem(scriptPath),
-					access: "validator",
-					childRuntime: h.resolveChildRuntime(h.modelStack().architect, "validator"),
+					role: "validator",
+					runId: path.basename(artifactsDir),
+					childId: h.modelStack().architect.id,
+					task: validatorTask,
 					thinking: h.roleThinking("architect"),
 					sessionDir: h.roleSession("architect", ctx.cwd).dir,
 					sessionId: h.roleSession("architect", ctx.cwd).id,
 					cwd: ctx.cwd,
 					timeoutMs: h.childTimeoutMs(),
 					signal: stopper.signal,
+					persistEvidence: async (_tool, input) => {
+						if (input.format !== "python" || typeof input.content !== "string") throw new Error("Validator gate submission is invalid");
+						const gate = ensureGateMetadata(input.content);
+						if (!gate) throw new Error("Validator gate submission is missing required PEP 723 metadata");
+						await fs.promises.writeFile(scriptPath, gate, "utf8");
+						return { persisted: true, path: scriptPath };
+					},
 				});
 				await h.save(artifactsDir, "validator.md", runOk(validator) ? validator.text : `FAILED: ${runError(validator)}`);
-				// Prefer the file the validator wrote. Fence extraction is the legacy fallback,
+				// Prefer the file persisted from structured evidence. Fence extraction is the legacy fallback,
 				// used only when it pasted the gate inline instead (lossy — see extractGateScript).
 				let script: string | undefined;
 				let gateVia = "written to disk by the validator";
@@ -469,6 +511,25 @@ export function registerAutoValidateCommand(pi: ExtensionAPI, h: HarnessDeps): v
 				);
 
 				// ── 3. Build → validate loop ──
+				const scopePlanner = newRun("ARCHITECT", aModel, h.modelStack().architect);
+				const scopePlan = await runLegacyScopePlannerChild({
+					run: scopePlanner,
+					description: prompt,
+					plannedTaskId: "builder.implementation",
+					plannedAssignee: h.modelStack().primaryBuilder.id,
+					runId: path.basename(artifactsDir),
+					childId: `${h.modelStack().architect.id}-scope-planner`,
+					thinking: h.roleThinking("architect"),
+					sessionDir: path.join(artifactsDir, "scope-planner"),
+					cwd: ctx.cwd,
+					timeoutMs: h.childTimeoutMs(),
+					signal: stopper.signal,
+				});
+				if (!runOk(scopePlan.run)) {
+					fail(toStat(scopePlan.run), `Scope planning failed: ${runError(scopePlan.run)}`);
+					return;
+				}
+				h.absorbRuns([scopePlan.run]);
 				// Round 1 forks the host session (the builder IS the host's agent lineage);
 				// later rounds resume that same fork so the loop keeps its working memory.
 				let lastGate: { code: number; output: string } | undefined;
@@ -489,15 +550,18 @@ export function registerAutoValidateCommand(pi: ExtensionAPI, h: HarnessDeps): v
 								? { sessionDir: firstSpawn.sessionDir, resume: builder.sessionRef }
 								: firstSpawn;
 					ctx.ui.setStatus(CUSTOM_TYPE, `auto-validate: builder — round ${round}/${maxV}…`);
-					await runChild({
+					await runLegacyBrokeredChild({
 						run: builder,
 						prompt: round === 1 ? builderPrompt(prompt, script) : correctionPrompt(round, maxV, lastGate!.code, lastGate!.output, triageBrief, gateUpdate),
 						systemPrompt: h.roleSystemPrompt("builder"),
 						appendSystemPrompts: h.modelStack().primaryBuilder.appendSystemPrompts,
-						access: "write",
-						childRuntime: h.resolveChildRuntime(h.modelStack().primaryBuilder, "write"),
+						role: "builder",
+						runId: path.basename(artifactsDir),
+						childId: h.modelStack().primaryBuilder.id,
+						task: scopePlan.task,
 						thinking: h.roleThinking("builder"),
 						...spawn,
+						continueTaskSession: round > 1,
 						cwd: ctx.cwd,
 						timeoutMs: h.buildTimeoutMs(),
 						signal: stopper.signal,
@@ -590,22 +654,27 @@ export function registerAutoValidateCommand(pi: ExtensionAPI, h: HarnessDeps): v
 						} catch {
 							/* keep the in-memory copy */
 						}
-						const triageAccess = gateRepairUsed ? "read" : "validator";
-						await runChild({
+						await runLegacyBrokeredChild({
 							run: validator,
 							prompt: triagePrompt(prompt, round, maxV, builder.text, gateHistory, artifactsDir),
 							systemPrompt: triageSystem(scriptPath),
-							// Repair power is enforced by TOOLS, not trust: while the run's single
-							// repair is unused, triage holds the validator's write (one dictated
-							// path); once spent, it drops back to strictly read-only eyes.
-							access: triageAccess,
-							childRuntime: h.resolveChildRuntime(h.modelStack().architect, triageAccess),
+							role: "validator",
+							runId: path.basename(artifactsDir),
+							childId: h.modelStack().architect.id,
+							task: { ...validatorTask, id: `validator.triage-${round}`, description: `Diagnose gate failure round ${round}` },
 							thinking: h.roleThinking("architect"),
 							sessionDir: h.roleSession("architect", ctx.cwd).dir,
 							sessionId: h.roleSession("architect", ctx.cwd).id,
 							cwd: ctx.cwd,
 							timeoutMs: h.childTimeoutMs(),
 							signal: stopper.signal,
+							persistEvidence: gateRepairUsed ? undefined : async (_tool, input) => {
+								if (input.format !== "python" || typeof input.content !== "string") throw new Error("Validator gate repair submission is invalid");
+								const repairedGate = ensureGateMetadata(input.content);
+								if (!repairedGate) throw new Error("Validator gate repair is missing required PEP 723 metadata");
+								await fs.promises.writeFile(scriptPath, repairedGate, "utf8");
+								return { persisted: true, path: scriptPath };
+							},
 						});
 						await h.save(artifactsDir, `triage-round-${round}.md`, runOk(validator) ? validator.text : `FAILED: ${runError(validator)}`);
 						if (runOk(validator)) {

@@ -85,6 +85,18 @@ const records = {
     nodes: [{ id: "1.1", dependsOn: [], checked: false }],
     topologicalOrder: ["1.1"],
   },
+  tddEvidence: {
+    schemaVersion: 1,
+    runId: "run-1",
+    taskId: "1.1",
+    disposition: "required",
+    requirements: ["requirement"],
+    scenarios: ["scenario"],
+    red: { command: "bun test", exitCode: 1, recordedAt: timestamp },
+    green: { command: "bun test", exitCode: 0, recordedAt: timestamp },
+    refactor: [{ command: "bun test", exitCode: 0, recordedAt: timestamp }],
+    createdAt: timestamp,
+  },
 } as const;
 
 describe("persistence record schemas", () => {

@@ -1,12 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
+import { newRun, type AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import {
+  runLegacyReadOnlyChild,
+  type RunLegacyReadOnlyChildOptions,
+} from "../agents/legacy-adapter.ts";
 import { HarnessError } from "../shared/errors.ts";
 import {
   planningReviewArtifactSchema,
   type PlanningReviewArtifact,
 } from "./review-artifact.ts";
 
-const REVIEW_TOOLS = ["read", "grep", "find", "ls"] as const;
+const REVIEW_TOOLS = ["muster_read", "muster_search"] as const;
 const reviewToolSet = new Set<string>(REVIEW_TOOLS);
 
 export interface ReviewModelCandidate {
@@ -64,6 +69,62 @@ export interface PlanningReviewAssignment {
 export interface PlanningReviewDispatchResult {
   review: PlanningReviewArtifact;
   assignment: PlanningReviewAssignment;
+}
+
+export type PlanningReviewerChildRunner = (
+  options: RunLegacyReadOnlyChildOptions,
+) => Promise<AgentRun>;
+
+function parseReviewerJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch (cause) {
+    throw new HarnessError(
+      "REVIEW_ARTIFACT_INVALID",
+      "Planning reviewer did not return one JSON review object",
+      {},
+      { cause },
+    );
+  }
+}
+
+export async function runBrokeredPlanningReviewer(
+  request: PlanningReviewerRequest,
+  childRunner: PlanningReviewerChildRunner = runLegacyReadOnlyChild,
+): Promise<PlanningReviewerResponse> {
+  const run = newRun("REVIEWER", request.model);
+  await childRunner({
+    run,
+    prompt: `${request.prompt}\n\nReturn exactly one JSON object matching the planning review contract; no markdown or code fence.`,
+    role: "reviewer",
+    runId: request.runId,
+    childId: request.sessionId,
+    taskId: "planning.review",
+    description: `Review planning for ${request.changeName}`,
+    assignee: "reviewer",
+    thinking: "high",
+    sessionDir: request.sessionDir,
+    sessionId: request.sessionId,
+    continueTaskSession: true,
+    cwd: request.cwd,
+    timeoutMs: 120_000,
+  });
+  if (run.status !== "done") {
+    throw new HarnessError(
+      "REVIEW_ARTIFACT_INVALID",
+      `Planning reviewer failed with status ${run.status}`,
+      { runId: request.runId, exitCode: run.exitCode, error: run.errorMessage },
+    );
+  }
+  const parsed = planningReviewArtifactSchema.safeParse(parseReviewerJson(run.text));
+  if (!parsed.success) {
+    throw new HarnessError(
+      "REVIEW_ARTIFACT_INVALID",
+      "Planning reviewer returned an incompatible review object",
+      { issues: parsed.error.issues },
+    );
+  }
+  return { review: parsed.data, toolNames: run.toolNames };
 }
 
 function selectReviewer(

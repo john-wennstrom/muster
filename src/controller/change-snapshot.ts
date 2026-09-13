@@ -124,6 +124,7 @@ function deriveLifecycle(
 
   const runtimeStates = Object.values(input.runtime?.manifest.tasks ?? {});
   if (runtimeStates.includes("design_conflict")) return "DESIGN_CONFLICT";
+  if (runtimeStates.includes("debugging")) return "BLOCKED";
   if (runtimeStates.includes("failed")) return "FAILED";
   if (runtimeStates.includes("cancelled")) return "CANCELLED";
   if (runtimeStates.includes("awaiting_user")) return "AWAITING_USER";

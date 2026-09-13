@@ -5,6 +5,14 @@ const nonEmptyString = z.string().min(1);
 const timestamp = z.string().datetime({ offset: true });
 const version = z.literal(1);
 
+export const manualActionCategorySchema = z.enum([
+  "authentication",
+  "elevated_permission",
+  "destructive",
+  "external_side_effect",
+  "design_decision",
+]);
+
 export const runManifestSchema = z
   .object({
     schemaVersion: version,
@@ -45,6 +53,7 @@ export const runManifestSchema = z
         "running",
         "awaiting_user",
         "design_conflict",
+        "debugging",
         "failed",
         "completed",
         "cancelled",
@@ -131,13 +140,7 @@ export const checkpointRecordSchema = z
     changeName: nonEmptyString,
     taskId: nonEmptyString,
     branch: z.array(nonEmptyString).min(1),
-    category: z.enum([
-      "authentication",
-      "elevated_permission",
-      "destructive",
-      "external_side_effect",
-      "design_decision",
-    ]),
+    category: manualActionCategorySchema,
     reason: nonEmptyString,
     instructions: z.array(nonEmptyString).min(1),
     createdAt: timestamp,
@@ -146,7 +149,23 @@ export const checkpointRecordSchema = z
     confirmedAt: timestamp.optional(),
     confirmedBy: nonEmptyString.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((record, context) => {
+    if (record.status === "pending" && (record.confirmedAt || record.confirmedBy)) {
+      context.addIssue({
+        code: "custom",
+        path: [record.confirmedAt ? "confirmedAt" : "confirmedBy"],
+        message: "Pending checkpoints cannot contain confirmation metadata",
+      });
+    }
+    if (record.status === "confirmed" && (!record.confirmedAt || !record.confirmedBy)) {
+      context.addIssue({
+        code: "custom",
+        path: [!record.confirmedAt ? "confirmedAt" : "confirmedBy"],
+        message: "Confirmed checkpoints require confirmation time and actor",
+      });
+    }
+  });
 
 export const migrationRecordSchema = z
   .object({
@@ -174,6 +193,39 @@ export const taskDagRecordSchema = z
   })
   .strict();
 
+const tddCommandEvidenceSchema = z.object({
+  command: nonEmptyString,
+  exitCode: z.number().int(),
+  recordedAt: timestamp,
+}).strict();
+
+export const tddEvidenceRecordSchema = z.discriminatedUnion("disposition", [
+  z.object({
+    schemaVersion: version,
+    runId: nonEmptyString,
+    taskId: nonEmptyString,
+    disposition: z.literal("required"),
+    requirements: z.array(nonEmptyString).min(1),
+    scenarios: z.array(nonEmptyString).min(1),
+    red: tddCommandEvidenceSchema,
+    green: tddCommandEvidenceSchema,
+    refactor: z.array(tddCommandEvidenceSchema).min(1),
+    createdAt: timestamp,
+  }).strict(),
+  z.object({
+    schemaVersion: version,
+    runId: nonEmptyString,
+    taskId: nonEmptyString,
+    disposition: z.literal("not_applicable"),
+    requirements: z.array(nonEmptyString).min(1),
+    scenarios: z.array(nonEmptyString).min(1),
+    rationale: nonEmptyString,
+    reviewedBy: nonEmptyString,
+    reviewedAt: timestamp,
+    createdAt: timestamp,
+  }).strict(),
+]);
+
 export const persistenceRecordSchemas = {
   manifest: runManifestSchema,
   taskResult: taskResultSchema,
@@ -182,6 +234,7 @@ export const persistenceRecordSchemas = {
   checkpoint: checkpointRecordSchema,
   migration: migrationRecordSchema,
   taskDag: taskDagRecordSchema,
+  tddEvidence: tddEvidenceRecordSchema,
 } as const;
 
 export type PersistenceRecordKind = keyof typeof persistenceRecordSchemas;
@@ -245,9 +298,11 @@ export function decodePersistedRecord<TKind extends PersistenceRecordKind>(
 }
 
 export type RunManifest = z.infer<typeof runManifestSchema>;
+export type ManualActionCategory = z.infer<typeof manualActionCategorySchema>;
 export type TaskResultRecord = z.infer<typeof taskResultSchema>;
 export type ReviewRecord = z.infer<typeof reviewRecordSchema>;
 export type ValidationRecord = z.infer<typeof validationRecordSchema>;
 export type CheckpointRecord = z.infer<typeof checkpointRecordSchema>;
 export type MigrationRecord = z.infer<typeof migrationRecordSchema>;
 export type TaskDagRecord = z.infer<typeof taskDagRecordSchema>;
+export type TddEvidenceRecord = z.infer<typeof tddEvidenceRecordSchema>;
