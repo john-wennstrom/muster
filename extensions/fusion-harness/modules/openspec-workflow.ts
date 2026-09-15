@@ -8,7 +8,7 @@ import {
 	legacyCommandGuidance,
 	type ChangeCommandDependencies,
 	type LegacyChangeCommand,
-} from "../../../src/extension/change-command.ts";
+} from "../../../src/muster/change-command.ts";
 import { runProc } from "./child-runner.ts";
 import { validateCollaborationPlan, type CollaborationTask, type ValidatedCollaborationPlan } from "./collaboration-graph.ts";
 import { renderDelegationPlan } from "./collaboration-render.ts";

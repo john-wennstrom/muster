@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ChangeSnapshot } from "../../src/controller/change-snapshot.ts";
 import { finishChange } from "../../src/controller/finish.ts";
 import { verifyChange } from "../../src/controller/verify.ts";
-import { dispatchChangeCommand } from "../../src/extension/change-command.ts";
+import { dispatchChangeCommand } from "../../src/muster/change-command.ts";
 import type { OpenSpecArchive } from "../../src/openspec/protocol.ts";
 import type { FinalValidationResult } from "../../src/review/validator.ts";
 import {

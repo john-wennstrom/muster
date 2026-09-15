@@ -10,7 +10,7 @@ import {
   handleManualResumeCommand,
   renderManualCheckpointStatus,
   restoreManualCheckpointNotifications,
-} from "../../src/extension/manual-ui.ts";
+} from "../../src/muster/manual-ui.ts";
 import { AtomicJsonStore } from "../../src/persistence/atomic-json-store.ts";
 
 const temporaryDirectories: string[] = [];

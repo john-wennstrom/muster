@@ -26,7 +26,7 @@ import {
   changeUsage,
   dispatchChangeCommand,
   type ChangeCommandDependencies,
-} from "../../src/extension/change-command.ts";
+} from "../../src/muster/change-command.ts";
 import type { OpenSpecArchive } from "../../src/openspec/protocol.ts";
 import { AtomicJsonStore } from "../../src/persistence/atomic-json-store.ts";
 import type {

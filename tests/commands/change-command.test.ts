@@ -3,7 +3,7 @@ import {
   changeUsage,
   dispatchChangeCommand,
   type ChangeCommandDependencies,
-} from "../../src/extension/change-command.ts";
+} from "../../src/muster/change-command.ts";
 import type { ChangeSnapshot } from "../../src/controller/change-snapshot.ts";
 import { HOST_EXECUTION_SECURITY_NOTICE } from "../../src/tools/command-profile.ts";
 
