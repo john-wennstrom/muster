@@ -759,7 +759,7 @@ export default function (pi: ExtensionAPI, options: FusionHarnessOptions = {}) {
 						const cost = all.reduce((s, r) => s + r.costUsd, 0);
 						c.addChild(
 							new Text(
-								theme.fg("customMessageLabel", theme.bold(`FUSION HARNESS · /${command}`)) +
+								theme.fg("customMessageLabel", theme.bold(`MUSTER · /${command}`)) +
 									theme.fg("dim", ` · ${fmtSecs(Date.now() - startedAt)} · ~$${cost.toFixed(4)}`),
 								1,
 								0,
@@ -805,7 +805,7 @@ export default function (pi: ExtensionAPI, options: FusionHarnessOptions = {}) {
 						const c = new Container();
 						const all = span ? [...runs, span] : runs;
 						const cost = all.reduce((sum, run) => sum + run.costUsd, 0);
-						c.addChild(new Text(theme.fg("customMessageLabel", theme.bold(`FUSION HARNESS · /${command}`)) + theme.fg("dim", ` · ${fmtSecs(Date.now() - startedAt)} · ~$${cost.toFixed(4)}`), 1, 0));
+						c.addChild(new Text(theme.fg("customMessageLabel", theme.bold(`MUSTER · /${command}`)) + theme.fg("dim", ` · ${fmtSecs(Date.now() - startedAt)} · ~$${cost.toFixed(4)}`), 1, 0));
 						if (runs.length) c.addChild(new AgentGrid(runs.length, (index, colW) => liveColumn(theme, runs[index], colW), theme.fg("dim", " │ ")));
 						if (span && span.status !== "pending") {
 							c.addChild(new Text("", 0, 0));
@@ -844,7 +844,7 @@ export default function (pi: ExtensionAPI, options: FusionHarnessOptions = {}) {
 						const c = new Container();
 						c.addChild(
 							new Text(
-								theme.fg("customMessageLabel", theme.bold(`FUSION HARNESS · /${command}`)) +
+								theme.fg("customMessageLabel", theme.bold(`MUSTER · /${command}`)) +
 									theme.fg("dim", ` · ${fmtSecs(Date.now() - startedAt)} · ~$${run.costUsd.toFixed(4)}`),
 								1,
 								0,
@@ -945,11 +945,11 @@ export default function (pi: ExtensionAPI, options: FusionHarnessOptions = {}) {
 		totalCostUsd: runs.reduce((s, r) => s + r.costUsd, 0),
 	});
 
-	// ── 2.8 Boot banner — big centered "FUSION HARNESS" when the harness starts ──
+	// ── 2.8 Boot banner — big centered "MUSTER" when the harness starts ──
 	// An ENTRY, not a custom message. Pi turns every custom *message* into a `user` turn in
 	// the LLM context (convertToLlm), so sending the banner through panel() put a literal
-	// "FUSION HARNESS" user message ahead of your first real prompt — models read it as a
-	// prefix ("FUSION HARNESS ping") and it rode along into every fork. Custom entries
+	// "MUSTER" user message ahead of your first real prompt — models read it as a
+	// prefix ("MUSTER ping") and it rode along into every fork. Custom entries
 	// persist in the session and render in scrollback but never reach the model, which is
 	// exactly what pure chrome wants: the banner costs zero tokens and says nothing.
 	//
@@ -961,8 +961,8 @@ export default function (pi: ExtensionAPI, options: FusionHarnessOptions = {}) {
 		pi.registerEntryRenderer(BOOT_TYPE, (_entry, _opts, theme) =>
 			new FullWidth((w) => {
 				const center = (l: string) => " ".repeat(Math.max(0, Math.floor((w - visibleWidth(l)) / 2))) + l;
-				const big = "FUSION HARNESS".replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0)).replace(/ /g, "　");
-				const title = visibleWidth(big) <= w ? big : "FUSION HARNESS";
+				const big = "MUSTER".replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0)).replace(/ /g, "　");
+				const title = visibleWidth(big) <= w ? big : "MUSTER";
 				// The fusion mark: ONE circle per configured slot, in the slot's ACTUAL hex
 				// color — the stack you loaded, visible at boot. Falls back to the two role
 				// circles if the configured stack can't be resolved yet.
@@ -1045,7 +1045,7 @@ export default function (pi: ExtensionAPI, options: FusionHarnessOptions = {}) {
 	const COMMAND_PAD = Math.max(...COMMAND_INDEX.map(([cmd]) => cmd.length));
 
 	pi.registerCommand("fh", {
-		description: "FUSION HARNESS — list every /fh-* command and toggle the multi-row model bar. /fh [on|off]",
+		description: "MUSTER — list every /fh-* command and toggle the multi-row model bar. /fh [on|off]",
 		handler: async (args, ctx) => {
 			noteHost(ctx); // an unset --builder follows the host session's live model
 			footerCtx ??= ctx; // first use before any tui session_start (e.g. after a reload)
@@ -1059,7 +1059,7 @@ export default function (pi: ExtensionAPI, options: FusionHarnessOptions = {}) {
 			// Just the name and the tabbed index — the model bar appearing/disappearing is
 			// its own feedback, and short descriptions keep every line unwrapped.
 			ctx.ui.notify(
-				["FUSION HARNESS", ...COMMAND_INDEX.map(([cmd, what]) => `  ${cmd.padEnd(COMMAND_PAD)}  ${what}`)].join("\n"),
+				["MUSTER", ...COMMAND_INDEX.map(([cmd, what]) => `  ${cmd.padEnd(COMMAND_PAD)}  ${what}`)].join("\n"),
 				"info",
 			);
 		},
@@ -1072,7 +1072,7 @@ export default function (pi: ExtensionAPI, options: FusionHarnessOptions = {}) {
 			noteHost(ctx);
 			const stack = modelStack();
 			const choices = orderedSlots(stack).map((slot) => `${slot.architect ? "◆ ARCHITECT" : "▲ BUILDER"} | ${slot.name} | ${slot.model} (${THINKING_SHORT[slot.thinking]})`);
-			const picked = await ctx.ui.select("Fusion Harness — choose slot", choices);
+			const picked = await ctx.ui.select("Muster — choose slot", choices);
 			if (!picked) return;
 			const slotIndex = choices.indexOf(picked);
 			const selectedSlot = orderedSlots(stack)[slotIndex];
@@ -1242,7 +1242,7 @@ export default function (pi: ExtensionAPI, options: FusionHarnessOptions = {}) {
 			}
 			if (!selected) {
 				const choices = orderedSlots(stack).map((slot) => `${slot.architect ? "◆ ARCHITECT" : "▲ BUILDER"} | ${slot.name} | ${slot.model}`);
-				const picked = await ctx.ui.select("Fusion Harness — one-send target", choices);
+				const picked = await ctx.ui.select("Muster — one-send target", choices);
 				if (!picked) return;
 				selected = orderedSlots(stack)[choices.indexOf(picked)];
 			}

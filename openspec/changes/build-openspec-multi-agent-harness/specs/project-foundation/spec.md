@@ -5,10 +5,10 @@ Defines the supported runtime, repository, packaging, migration, and compatibili
 ## ADDED Requirements
 
 ### Requirement: Canonical implementation repository
-Muster SHALL contain the complete implementation of the harness and SHALL NOT require the sibling Fusion Harness checkout at runtime or during normal development.
+Muster SHALL contain the complete implementation of the harness and SHALL NOT require the sibling Muster checkout at runtime or during normal development.
 
 #### Scenario: Run without the import source
-- **WHEN** muster is installed on a machine that does not contain the sibling Fusion Harness repository
+- **WHEN** muster is installed on a machine that does not contain the sibling Muster repository
 - **THEN** the extension loads and all shipped capabilities remain available
 
 ### Requirement: Licensed Fusion snapshot import

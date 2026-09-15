@@ -1,4 +1,4 @@
-# DuckDB 2.0 Fusion Harness Validation Prompts
+# DuckDB 2.0 Muster Validation Prompts
 
 All paid/live-agent validation prompts for the fusion-harness multi-model work come from this directory. Run them in numeric order, simple to complex. Do not invent inline agent prompts in the smoke or Herdr workflows; load the corresponding file verbatim.
 

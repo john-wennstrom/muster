@@ -3,7 +3,7 @@
   "version": "0.1.0-beta.0",
   "private": true,
   "type": "module",
-  "description": "A correctness-ready beta for OpenSpec-driven multi-agent development workflows in Pi.",
+  "description": "OpenSpec-driven multi-agent development workflows for Pi.",
   "keywords": [
     "pi-package"
   ],

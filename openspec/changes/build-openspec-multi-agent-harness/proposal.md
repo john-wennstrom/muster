@@ -1,10 +1,10 @@
 ## Why
 
-The current Fusion Harness contains useful multi-model execution primitives, but its workflow, persistence, safety boundaries, and OpenSpec integration do not yet form one recoverable development system with OpenSpec as the sole durable contract. This change imports that baseline into muster and evolves it into one Pi extension that can plan, execute, review, and verify OpenSpec changes while failing closed at quality, permission, and human-interaction boundaries.
+The current Muster contains useful multi-model execution primitives, but its workflow, persistence, safety boundaries, and OpenSpec integration do not yet form one recoverable development system with OpenSpec as the sole durable contract. This change imports that baseline into muster and evolves it into one Pi extension that can plan, execute, review, and verify OpenSpec changes while failing closed at quality, permission, and human-interaction boundaries.
 
 ## What Changes
 
-- Import the Fusion Harness source snapshot at commit `51f1d85499a1292cb79036d6ae237db7ea52096e` into muster without Git history or source-file attribution headers, while retaining its required MIT notice in `THIRD_PARTY_NOTICES.md`.
+- Import the Muster source snapshot at commit `51f1d85499a1292cb79036d6ae237db7ea52096e` into muster without Git history or source-file attribution headers, while retaining its required MIT notice in `THIRD_PARTY_NOTICES.md`.
 - Establish a Node.js 22, Bun, TypeScript, ESM project baseline that ships one repository and one Pi extension on Linux, macOS, and native Windows.
 - Make OpenSpec the only durable source for proposals, requirements, designs, implementation tasks, planning review, verification evidence, and archived change history.
 - Add a capability-detected, typed OpenSpec CLI adapter that fails closed on unavailable commands, malformed JSON, incompatible payloads, stale artifacts, and validation failures.

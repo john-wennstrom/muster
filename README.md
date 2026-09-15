@@ -1,6 +1,6 @@
 # muster
 
-Muster is a correctness-ready beta for OpenSpec-driven multi-agent development workflows in Pi. The preferred workflow surface is `/change`.
+Muster is a OpenSpec-driven multi-agent development workflows for Pi. The preferred workflow surface is `/change`.
 
 ## Security boundary
 

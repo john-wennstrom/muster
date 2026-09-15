@@ -285,7 +285,7 @@ export function renderFhPanel(message: any, theme: any): any {
 
 	switch (d.kind) {
 		case "banner": {
-			add(new Text(theme.fg("customMessageLabel", theme.bold(`FUSION HARNESS · /${d.command}`)), 1, 0));
+			add(new Text(theme.fg("customMessageLabel", theme.bold(`MUSTER · /${d.command}`)), 1, 0));
 			for (const r of d.roles ?? []) {
 				const stat: AgentStat = { ...r, status: "done", ms: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, toolCalls: 0, toolNames: [], toolEvents: [], chars: 0 };
 				add(new Text(`  ${statLabelStr(theme, stat)}`, 1, 0));
@@ -306,17 +306,17 @@ export function renderFhPanel(message: any, theme: any): any {
 		case "opinion": {
 			const title =
 				d.title !== undefined
-					? `FUSION HARNESS · /${d.command} — ${d.title}`
+					? `MUSTER · /${d.command} — ${d.title}`
 					: d.kind === "opinion"
 						? "◆ OPINION — side by side"
-						: `FUSION HARNESS · /${d.command} — both agents`;
+						: `MUSTER · /${d.command} — both agents`;
 			add(new Text(theme.fg("customMessageLabel", theme.bold(title)), 1, 0));
 			blank();
 			duoBody();
 			break;
 		}
 		case "multi": {
-			add(new Text(theme.fg("customMessageLabel", theme.bold(d.title ?? `FUSION HARNESS · /${d.command} — all agents`)), 1, 0));
+			add(new Text(theme.fg("customMessageLabel", theme.bold(d.title ?? `MUSTER · /${d.command} — all agents`)), 1, 0));
 			blank();
 			multiBody();
 			break;
@@ -329,7 +329,7 @@ export function renderFhPanel(message: any, theme: any): any {
 		}
 		case "system-prompt": {
 			// One responsive column per configured slot. No stats row: nothing ran.
-			add(new Text(theme.fg("customMessageLabel", theme.bold("FUSION HARNESS · /fh-system-prompt — what each role runs with")), 1, 0));
+			add(new Text(theme.fg("customMessageLabel", theme.bold("MUSTER · /fh-system-prompt — what each role runs with")), 1, 0));
 			blank();
 			const answers = d.answers ?? [];
 			const spCol = (a: (typeof answers)[number] | undefined, colW: number): string[] => {
@@ -418,7 +418,7 @@ export function renderFhPanel(message: any, theme: any): any {
 		case "gate": {
 			add(
 				new Text(
-					theme.fg("customMessageLabel", theme.bold(`FUSION HARNESS · /fh-auto-validate — `)) +
+					theme.fg("customMessageLabel", theme.bold(`MUSTER · /fh-auto-validate — `)) +
 						theme.fg("mdLink", theme.bold(d.round ? `GATE REPAIRED ⚒ (after round ${d.round})` : "GATE DESIGNED ⛨")) +
 						(d.agent ? theme.fg("dim", `   ${roleLabelStr(theme, d.agent.role, d.agent.model, false)}${theme.fg("dim", ` · ${statLine(d.agent)}`)}`) : ""),
 					1,
@@ -433,7 +433,7 @@ export function renderFhPanel(message: any, theme: any): any {
 		case "triage": {
 			add(
 				new Text(
-					theme.fg("customMessageLabel", theme.bold(`FUSION HARNESS · /fh-auto-validate — `)) +
+					theme.fg("customMessageLabel", theme.bold(`MUSTER · /fh-auto-validate — `)) +
 						theme.fg("warning", theme.bold(`⚡ VALIDATOR TRIAGE`)) +
 						theme.fg("dim", ` · escalated after ${d.round ?? "?"} failed validation${(d.round ?? 0) === 1 ? "" : "s"} (threshold ${d.escalateAt ?? "?"})`) +
 						(d.agent ? theme.fg("dim", `   ${statLine(d.agent)}`) : ""),
@@ -447,7 +447,7 @@ export function renderFhPanel(message: any, theme: any): any {
 			break;
 		}
 		case "stopped": {
-			add(new Text(theme.fg("warning", theme.bold(`⊘ FUSION HARNESS · /${d.command ?? "?"} STOPPED`)), 1, 0));
+			add(new Text(theme.fg("warning", theme.bold(`⊘ MUSTER · /${d.command ?? "?"} STOPPED`)), 1, 0));
 			if (content.trim()) {
 				blank();
 				md(content);
@@ -460,7 +460,7 @@ export function renderFhPanel(message: any, theme: any): any {
 				: theme.fg("error", theme.bold(`GATE FAIL ✗ (exit ${d.gateExitCode ?? "?"})`));
 			const roundTag = d.round ? theme.fg("dim", ` · validation ${d.round}/${d.maxRounds ?? "?"}`) : "";
 			add(
-				new Text(theme.fg("customMessageLabel", theme.bold(`FUSION HARNESS · /fh-auto-validate — `)) + verdict + roundTag, 1, 0),
+				new Text(theme.fg("customMessageLabel", theme.bold(`MUSTER · /fh-auto-validate — `)) + verdict + roundTag, 1, 0),
 			);
 			if (d.scriptPath) add(new Text(theme.fg("dim", `  gate: ${d.scriptPath}`), 1, 0));
 			blank();
@@ -469,7 +469,7 @@ export function renderFhPanel(message: any, theme: any): any {
 		}
 		default: {
 			// "error" and anything else: attributed failure, loud and specific.
-			add(new Text(theme.fg("error", theme.bold(`✗ FUSION HARNESS · /${d.command ?? "?"} FAILED`)), 1, 0));
+			add(new Text(theme.fg("error", theme.bold(`✗ MUSTER · /${d.command ?? "?"} FAILED`)), 1, 0));
 			if (d.agent?.error) add(new Text(theme.fg("error", `  ${d.agent.role} · ${d.agent.model} — ${d.agent.error}`), 1, 0));
 			for (const s of d.sources ?? []) {
 				if (s.error) add(new Text(theme.fg("error", `  ${s.role} · ${s.model} — ${s.error}`), 1, 0));

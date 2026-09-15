@@ -1,6 +1,6 @@
 ## 1. Import and Characterize the Foundation
 
-- [x] 1.1 Import Fusion Harness commit `51f1d85499a1292cb79036d6ae237db7ea52096e`, excluding Git history, dependencies, secrets, and local state; add the required notice to `THIRD_PARTY_NOTICES.md`; verify the imported file manifest and notice text.
+- [x] 1.1 Import Muster commit `51f1d85499a1292cb79036d6ae237db7ea52096e`, excluding Git history, dependencies, secrets, and local state; add the required notice to `THIRD_PARTY_NOTICES.md`; verify the imported file manifest and notice text.
 
   ```yaml harness-task
   id: "1.1"

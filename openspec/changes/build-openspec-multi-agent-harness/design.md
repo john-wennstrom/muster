@@ -1,6 +1,6 @@
 ## Context
 
-See `proposal.md` for motivation and scope. The implementation starts from Fusion Harness commit `51f1d85499a1292cb79036d6ae237db7ea52096e`, whose useful boundaries already include Pi command registration, model-stack resolution, clean-room child spawning, collaboration DAG validation, a lockfile writer lease, prompt contracts, OpenSpec workflow commands, and per-run token summaries.
+See `proposal.md` for motivation and scope. The implementation starts from Muster commit `51f1d85499a1292cb79036d6ae237db7ea52096e`, whose useful boundaries already include Pi command registration, model-stack resolution, clean-room child spawning, collaboration DAG validation, a lockfile writer lease, prompt contracts, OpenSpec workflow commands, and per-run token summaries.
 
 The imported baseline also constrains the migration:
 
