@@ -17,7 +17,7 @@ describe("muster extension installation", () => {
       await readFile(resolve(root, "package.json"), "utf8"),
     ) as { pi?: { extensions?: string[] } };
 
-    expect(packageJson.pi?.extensions).toEqual(["./src/extension/index.ts"]);
+    expect(packageJson.pi?.extensions).toEqual(["./src/muster/index.ts"]);
 
     const extensionUrl = pathToFileURL(
       resolve(root, packageJson.pi!.extensions![0]!),
@@ -52,6 +52,7 @@ describe("muster extension installation", () => {
       "fh-reset",
       "fh-system-prompt",
       "implement",
+      "init",
       "os-status",
       "refine",
       "ship",

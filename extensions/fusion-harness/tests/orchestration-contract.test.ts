@@ -26,7 +26,7 @@ describe("orchestration contracts", () => {
   });
 
   test("registers target commands and deletes unsafe/obsolete commands", () => {
-    for (const command of ["fh", "fh-model", "fh-only", "fh-opinion", "fh-fusion", "fh-debate", "fh-collaborate", "fh-auto-validate", "os-status", "refine", "implement", "ship", "fh-system-prompt", "fh-reset"]) {
+    for (const command of ["fh", "fh-model", "fh-only", "fh-opinion", "fh-fusion", "fh-debate", "fh-collaborate", "fh-auto-validate", "os-status", "init", "refine", "implement", "ship", "fh-system-prompt", "fh-reset"]) {
       expect(source).toContain(`registerCommand("${command}"`);
     }
     expect(source).not.toContain('registerCommand("fh-both"');

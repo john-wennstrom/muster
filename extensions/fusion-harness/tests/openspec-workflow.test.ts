@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { parseTaskPlan, resolveArtifact } from "../modules/openspec-workflow.ts";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { hasOpenSpecConfig, parseTaskPlan, resolveArtifact } from "../modules/openspec-workflow.ts";
 
 describe("OpenSpec workflow parsing", () => {
 	test("parses ordered phases, checkbox state, and verification metadata", () => {
@@ -13,5 +16,17 @@ describe("OpenSpec workflow parsing", () => {
 		const artifact = resolveArtifact({ contextFiles: { design: { outputPath: "custom/design.md" } } }, "design", "/tmp/project", "example");
 		expect(artifact.path).toBe("/tmp/project/openspec/changes/example/design.md");
 		expect(artifact.contextFiles).toContain("/tmp/project/custom/design.md");
+	});
+
+	test("detects an initialized project by its openspec config file", () => {
+		const project = mkdtempSync(join(tmpdir(), "openspec-init-"));
+		try {
+			expect(hasOpenSpecConfig(project)).toBeFalse();
+			mkdirSync(join(project, "openspec"), { recursive: true });
+			writeFileSync(join(project, "openspec", "config.yaml"), "schema: fusion-driven\n");
+			expect(hasOpenSpecConfig(project)).toBeTrue();
+		} finally {
+			rmSync(project, { recursive: true, force: true });
+		}
 	});
 });

@@ -34,6 +34,11 @@ export function isOpenSpecAvailable(): boolean {
 	}
 }
 
+/** True once `openspec init` has scaffolded this project (config.yaml or config.yml present). */
+export function hasOpenSpecConfig(cwd: string): boolean {
+	return fs.existsSync(path.resolve(cwd, "openspec", "config.yaml")) || fs.existsSync(path.resolve(cwd, "openspec", "config.yml"));
+}
+
 const parseJson = (value: string, label: string): any => {
 	try { return JSON.parse(value); } catch (error) { throw new Error(`openspec ${label} returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`); }
 };
@@ -306,6 +311,22 @@ export function registerOpenSpecCommands(
 		const change = (raw ?? "").trim().split(/\s+/)[0]; if (!change) return ctx.ui.notify("Usage: /os-status <change>", "warning");
 		if (!requireOpenSpec(h, ctx, "os-status", change)) return;
 		try { const client = clientFor(ctx); const status = await client.status(change); const tasks = resolveArtifact(await client.instructions("tasks", change), "tasks", ctx.cwd, change); const phases = parseTaskPlan(tasks.content ?? ""); const summary = phases.map((item) => `Phase ${item.number} — ${item.title}: ${item.tasks.filter((task) => task.checked).length}/${item.tasks.length} complete`).join("\n") || "No task phases found."; h.panel({ kind: "solo", command: "os-status", ok: true, prompt: change }, `Change: ${change}\n\n${JSON.stringify(status, null, 2)}\n\n${summary}`); } catch (error) { reportWorkflowError(h, ctx, "os-status", change, error); }
+	}});
+
+	pi.registerCommand("init", { description: "Set up OpenSpec for this project (checks the CLI, then runs `openspec init` if needed)", handler: async (_raw: any, ctx: any) => {
+		if (!requireOpenSpec(h, ctx, "init", "")) return;
+		if (hasOpenSpecConfig(ctx.cwd)) { h.panel({ kind: "solo", command: "init", ok: true }, "INIT: ALREADY CONFIGURED\n\nopenspec/config.yaml already exists in this project — nothing to do.\n\nUse /change explore or /change propose <name> to get started."); return; }
+		ctx.ui.setStatus("fusion-harness", "init: running `openspec init`…");
+		h.panel({ kind: "banner", command: "init", ok: true }, "INIT: STARTING\n\nRunning `openspec init` to scaffold OpenSpec for this project.");
+		try {
+			const result = await runProc("openspec", ["init"], ctx.cwd, 60_000);
+			if (result.code !== 0 || !hasOpenSpecConfig(ctx.cwd)) {
+				throw new Error(`openspec init did not create openspec/config.yaml (exit ${result.code}). It may require an interactive terminal — run \`openspec init\` directly there, then re-run /init to verify.\n\n${result.output.trim()}`);
+			}
+			h.panel({ kind: "solo", command: "init", ok: true }, `INIT: COMPLETE\n\n${result.output.trim()}\n\nOpenSpec initialized. Use /change explore or /change propose <name> to get started.`);
+		} catch (error) {
+			reportWorkflowError(h, ctx, "init", "", error);
+		}
 	}});
 
 	pi.registerCommand("refine", { description: "Deprecated: use /change refine", handler: async (raw: any, ctx: any) => {

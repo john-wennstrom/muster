@@ -1312,5 +1312,5 @@ export default function (pi: ExtensionAPI, options: FusionHarnessOptions = {}) {
 	registerFusionCommand(pi, deps); // /fh-fusion
 	registerCollaborateCommand(pi, deps); // /fh-collaborate
 	registerAutoValidateCommand(pi, deps); // /fh-auto-validate
-	registerOpenSpecCommands(pi, deps, options.changeController); // optional /refine + /implement + /os-status + /ship
+	registerOpenSpecCommands(pi, deps, options.changeController); // optional /init + /refine + /implement + /os-status + /ship
 }
