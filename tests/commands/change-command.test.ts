@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   changeUsage,
   dispatchChangeCommand,
+  parseChangeCommand,
   type ChangeCommandDependencies,
 } from "../../src/muster/change-command.ts";
 import type { ChangeSnapshot } from "../../src/controller/change-snapshot.ts";
@@ -69,5 +70,35 @@ describe("change command", () => {
     expect(subject.notifications[0]).toContain(HOST_EXECUTION_SECURITY_NOTICE);
     expect(subject.notifications[0]).not.toMatch(/\bsandboxed\b/i);
     expect(subject.mutations).toEqual([]);
+  });
+
+  test("explore dispatches the whole prompt to its handler, unsplit by whitespace", async () => {
+    const subject = harness();
+    const seen: unknown[] = [];
+    subject.dependencies.handlers.explore = async (command) => { seen.push(command); };
+    await dispatchChangeCommand("explore why is the retry loop slow", subject.context, subject.dependencies);
+    expect(seen).toEqual([{
+      action: "explore",
+      changeName: "add-search",
+      arguments: ["why", "is", "the", "retry", "loop", "slow"],
+    }]);
+  });
+});
+
+describe("parseChangeCommand", () => {
+  test("explore keeps the whole remainder as a free-text prompt, not a change slug", () => {
+    expect(parseChangeCommand("explore why does the retry loop spin forever")).toEqual({
+      action: "explore",
+      changeName: undefined,
+      arguments: ["why", "does", "the", "retry", "loop", "spin", "forever"],
+    });
+  });
+
+  test("other actions still split into change + arguments", () => {
+    expect(parseChangeCommand("propose add-search Add full text search")).toEqual({
+      action: "propose",
+      changeName: "add-search",
+      arguments: ["Add", "full", "text", "search"],
+    });
   });
 });

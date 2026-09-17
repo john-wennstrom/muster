@@ -91,8 +91,14 @@ export async function dispatchLegacyChangeCommand(
 export function parseChangeCommand(raw: string): ParsedChangeCommand | null {
   const parts = raw.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0 || !commandSet.has(parts[0]!)) return null;
+  const action = parts[0] as ChangeAction;
+  // explore takes a free-text prompt, not a "[change] [arguments]" pair — the whole
+  // remainder is the prompt and there is no change slug to parse out of it.
+  if (action === "explore") {
+    return { action, changeName: undefined, arguments: parts.slice(1) };
+  }
   return {
-    action: parts[0] as ChangeAction,
+    action,
     changeName: parts[1],
     arguments: parts.slice(2),
   };

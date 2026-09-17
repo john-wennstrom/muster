@@ -6,6 +6,8 @@ import {
   createProductionChangeCommandDependencies,
   loadProductionChangeSnapshot,
   recordChangeAgentRuns,
+  renderExplorePrompt,
+  resolveExploreModel,
 } from "../../src/muster/production-runtime.ts";
 import { loadChangeUsageSummary, createChangeUsageStore } from "../../src/persistence/change-usage-store.ts";
 import { runProcess } from "../../src/shared/process.ts";
@@ -127,5 +129,35 @@ describe("production change snapshot", () => {
     const dependencies = createProductionChangeCommandDependencies({ cwd: root });
     const usageViaDependencies = await dependencies.loadChangeUsage?.("add-search");
     expect(usageViaDependencies?.total.invocations).toBe(1);
+  });
+});
+
+describe("explore agent wiring", () => {
+  test("resolveExploreModel prefers MUSTER_EXPLORE_MODEL over the shipped default", () => {
+    expect(resolveExploreModel({})).toBe("anthropic/claude-fable-5");
+    expect(resolveExploreModel({ MUSTER_EXPLORE_MODEL: " openai/gpt-5.6-sol " })).toBe("openai/gpt-5.6-sol");
+  });
+
+  test("renderExplorePrompt appends context/facts sections only when non-empty", () => {
+    expect(renderExplorePrompt({
+      phase: "explore",
+      access: "read",
+      prompt: "Why does X fail?",
+      authoritativeContext: {},
+      supplementalFacts: [],
+    })).toBe("Why does X fail?");
+
+    const rendered = renderExplorePrompt({
+      phase: "explore",
+      access: "read",
+      prompt: "Why does X fail?",
+      authoritativeContext: { changeName: "add-search" },
+      supplementalFacts: [{ key: "pitfall", value: "flaky", source: "hindsight", authority: "supplemental" }],
+    });
+    expect(rendered).toContain("Why does X fail?");
+    expect(rendered).toContain("AUTHORITATIVE CONTEXT");
+    expect(rendered).toContain("add-search");
+    expect(rendered).toContain("SUPPLEMENTAL FACTS");
+    expect(rendered).toContain("pitfall");
   });
 });

@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import { newRun, runOk, runError, type AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import { runLegacyReadOnlyChild } from "../agents/legacy-adapter.ts";
 import { createChangeSnapshot, type ChangeSnapshot } from "../controller/change-snapshot.ts";
+import { explore, type ExploreAgentRequest, type ExploreDependencies } from "../controller/explore.ts";
 import {
   computeDiffDigest,
   computeIndexDigest,
@@ -23,8 +26,32 @@ import type { CheckpointRecord, RunManifest } from "../persistence/records.ts";
 import { discoverReviewedArtifacts, hashReviewedArtifacts } from "../review/artifact-digest.ts";
 import { parseReviewArtifact } from "../review/review-artifact.ts";
 import { parseVerificationArtifact } from "../review/verification-artifact.ts";
+import { HarnessError } from "../shared/errors.ts";
 import { usageFromLegacyRun, type UsagePhase } from "../telemetry/usage.ts";
 import type { ChangeCommandDependencies } from "./change-command.ts";
+
+// Shipped default for the read-only explore agent when no override is configured;
+// mirrors fusion-harness's own DEFAULT_ARCHITECT so behavior stays consistent.
+const DEFAULT_EXPLORE_MODEL = "anthropic/claude-fable-5";
+// A single read-only exploration turn is interactive, not a long build — cap well
+// under the legacy 8h child-timeout floor.
+const EXPLORE_CHILD_TIMEOUT_MS = 30 * 60 * 1000;
+
+/** `MUSTER_EXPLORE_MODEL` lets operators override the model without touching code. */
+export function resolveExploreModel(env: NodeJS.ProcessEnv = process.env): string {
+  return env.MUSTER_EXPLORE_MODEL?.trim() || DEFAULT_EXPLORE_MODEL;
+}
+
+export function renderExplorePrompt(request: ExploreAgentRequest): string {
+  const sections = [request.prompt];
+  if (Object.keys(request.authoritativeContext).length > 0) {
+    sections.push(`AUTHORITATIVE CONTEXT\n${JSON.stringify(request.authoritativeContext, null, 2)}`);
+  }
+  if (request.supplementalFacts.length > 0) {
+    sections.push(`SUPPLEMENTAL FACTS\n${JSON.stringify(request.supplementalFacts, null, 2)}`);
+  }
+  return sections.join("\n\n");
+}
 
 const NO_ARTIFACTS_DIGEST = computeSourceDigest("no-reviewed-artifacts", "");
 
@@ -181,6 +208,38 @@ export async function touchActiveChange(options: ProductionRuntimeOptions & { ch
   await setActiveChange(store, options.changeName, options.now);
 }
 
+export function createProductionExploreDependencies(cwd: string): ExploreDependencies {
+  return {
+    async runAgent(request) {
+      const model = resolveExploreModel();
+      const run = newRun("ARCHITECT", model);
+      const runId = `explore-${randomUUID()}`;
+      await runLegacyReadOnlyChild({
+        run,
+        prompt: renderExplorePrompt(request),
+        role: "architect",
+        runId,
+        childId: "explore",
+        taskId: "change.explore",
+        description: "Read-only exploration for /change explore",
+        assignee: "explore",
+        thinking: "medium",
+        sessionDir: resolve(cwd, ".fusion", "runs", runId, "sessions", "explore"),
+        cwd,
+        timeoutMs: EXPLORE_CHILD_TIMEOUT_MS,
+      });
+      if (!runOk(run)) {
+        throw new HarnessError(
+          "EXPLORE_AGENT_FAILED",
+          `Explore agent failed: ${runError(run)}`,
+          { runId, exitCode: run.exitCode },
+        );
+      }
+      return { model: run.model, content: run.text };
+    },
+  };
+}
+
 export function createProductionChangeCommandDependencies(
   options: ProductionRuntimeOptions = {},
 ): ChangeCommandDependencies {
@@ -196,6 +255,20 @@ export function createProductionChangeCommandDependencies(
     },
     loadSnapshot: (changeName) => loadProductionChangeSnapshot({ ...options, cwd, changeName }),
     loadChangeUsage: (changeName) => loadProductionChangeUsage({ ...options, cwd, changeName }),
-    handlers: {},
+    handlers: {
+      async explore(command, context) {
+        const prompt = command.arguments.join(" ").trim();
+        if (!prompt) {
+          context.ui.notify("Usage: /change explore <prompt>", "warning");
+          return;
+        }
+        const authoritativeContext = command.changeName ? { changeName: command.changeName } : undefined;
+        const exploration = await explore(
+          { prompt, authoritativeContext },
+          createProductionExploreDependencies(cwd),
+        );
+        context.ui.notify(exploration.analysis.content, "info");
+      },
+    },
   };
 }

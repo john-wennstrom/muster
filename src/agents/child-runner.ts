@@ -62,7 +62,7 @@ export interface RunBrokeredChildOptions {
   signal?: AbortSignal;
 }
 
-const CHILD_BROKER_EXTENSION = fileURLToPath(new URL("../extension/child-broker.ts", import.meta.url));
+const CHILD_BROKER_EXTENSION = fileURLToPath(new URL("../muster/child-broker.ts", import.meta.url));
 
 export function brokeredToolNames(role: BrokerChildRole, writeEnabled = role === "builder"): string[] {
   const tools = ["muster_read", "muster_search"];
