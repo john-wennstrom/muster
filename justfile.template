@@ -1,0 +1,27 @@
+# fusion-harness justfile template
+#
+# Copy this file to "justfile" at the repository root (cp justfile.template justfile) to get
+# `just` recipes for launching `pi` with an explicit fusion-harness model stack. Requires the
+# `just` command runner (https://github.com/casey/just) and `pi` on PATH.
+#
+# Recipes run `pi` from the repository root, so this repo's package.json `pi.extensions` entry
+# (./src/muster/index.ts) registers fusion-harness automatically — no separate `-e` flag needed.
+
+# List available recipes.
+default:
+    @just --list
+
+# Run `pi` with the bundled model-stack TEMPLATE (.pi/fusion-harness/model-stack-template.yaml).
+# That file ships example models/prompts, not a ready-to-run stack — copy it to
+# .pi/fusion-harness/model-stack-<codename>.yaml and edit the models/prompts before relying on
+# it for real work. ARGS passes through to `pi` (e.g. `just template --rounds 2`).
+template *ARGS:
+    pi --fh-config .pi/fusion-harness/model-stack-template.yaml {{ARGS}}
+
+# Run `pi` against any saved model-stack codename: .pi/fusion-harness/model-stack-<codename>.yaml
+stack codename *ARGS:
+    pi --fh-config .pi/fusion-harness/model-stack-{{codename}}.yaml {{ARGS}}
+
+# Legacy two-slot mode: explicit --architect/--builder models, no YAML config required.
+legacy architect builder *ARGS:
+    pi --architect {{architect}} --builder {{builder}} {{ARGS}}

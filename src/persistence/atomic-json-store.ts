@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
 import { HarnessError } from "../shared/errors.ts";
 
@@ -106,5 +106,22 @@ export class AtomicJsonStore {
     return JSON.parse(
       await readFile(resolve(this.runsRoot, runId, recordPath), "utf8"),
     ) as T;
+  }
+
+  /** Lists record paths (relative to the run directory) under a subdirectory, sorted; missing directories yield []. */
+  async list(runId: string, subdirectory: string): Promise<string[]> {
+    validateRelativePath(runId, "run id");
+    validateRelativePath(subdirectory, "subdirectory");
+    let entries;
+    try {
+      entries = await readdir(resolve(this.runsRoot, runId, subdirectory), { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    return entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => `${subdirectory}/${entry.name}`)
+      .sort();
   }
 }

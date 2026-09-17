@@ -1,0 +1,146 @@
+# fusion-harness model-stack template
+#
+# Save this file as .pi/fusion-harness/model-stack-<codename>.yaml — the part of the
+# filename after "model-stack-" becomes the stack's codename (e.g. this file's codename
+# is "template"). Point the harness at it explicitly with --fh-config, or rename/copy it
+# to the codename you invoke.
+#
+# TOP-LEVEL SHAPE
+#   The file is either:
+#     (a) a bare list of 2-5 slot mappings (legacy/simple form, no global `child`), or
+#     (b) an object with only these two keys:
+#           child: <global ChildConfig, optional>  — defaults every slot can inherit
+#           slots: <list of 2-5 slot mappings>      — required
+#   This template uses form (b) to demonstrate the global `child` block.
+#
+# SLOT COUNT / ROLE RULES (enforced by extensions/fusion-harness/modules/model-stack.ts)
+#   - Between 2 and 5 slots total.
+#   - Exactly ONE slot must set `architect: true`.
+#   - Exactly ONE non-architect slot must set `primary: true` (the "Main" builder).
+#     An architect slot can never also be primary.
+#   - Every other slot is a plain builder (reviewer, auditor, extra opinion, etc.).
+#
+# PER-SLOT FIELDS (unknown keys are rejected)
+#   name                 Required. Matches [A-Za-z0-9_-]{1,16}, unique (case-insensitive).
+#                         Lowercased/slugified into the slot's `id`.
+#   model                Required. Fully qualified "provider/id" with no whitespace,
+#                         e.g. anthropic/claude-fable-5, openai/gpt-5.6-sol.
+#   thinking             Optional, default "medium". One of:
+#                         off | minimal | low | medium | high | xhigh | max
+#                         (aliases accepted: none->off, min->minimal, med->medium,
+#                          hi->high, xhi->xhigh).
+#   color                Optional. Quoted six-digit "#RRGGBB". Must be unique across
+#                         slots if given explicitly. Omit it to auto-assign a stable
+#                         color from the palette (architects prefer #A78BFA).
+#   architect            Optional boolean. Marks the ARCHITECT slot (exactly one).
+#   primary              Optional boolean. Marks the primary/"Main" builder (exactly
+#                         one, and never on the architect).
+#   system_prompt        Optional. Inline text OR a path (relative to this YAML) to a
+#                         file whose contents replace pi's default system prompt for
+#                         this slot. Paths ending in .md/.txt (or starting with
+#                         ./ or ../) must resolve to an existing file.
+#   append_system_prompt Optional. One entry or a list of entries; each entry is inline
+#                         text or a file path, resolved the same way as system_prompt.
+#                         These are APPENDED after the base prompt (system_prompt override,
+#                         or pi's own default when system_prompt is unset) — they never
+#                         replace it, and order in the list is preserved.
+#   child                 Optional. Per-slot ChildConfig override — see below. Omit it to
+#                         simply inherit the stack-level `child` block untouched.
+#
+# CHILD CONFIG (both the top-level `child:` and each slot's `child:` share this shape)
+#   extensions           Optional array of extension sources:
+#                           npm:<package-name>
+#                           git:<host>/<owner>/<repo>
+#                           ./relative/or/../path.ts   (resolved relative to this YAML)
+#                           /absolute/path.ts
+#   tools.read           Optional. Extra tools granted on top of the harness's built-in
+#                         read-only set (read, grep, find, ls) when a slot runs read-only.
+#   tools.write          Optional. Extra tools granted on top of the harness's built-in
+#                         write set (read, grep, find, ls, bash, edit, write) when a slot
+#                         runs with write access. (Read-only invocations never receive
+#                         tools.write, even if configured.)
+#
+#   Each of tools.read / tools.write can be written two ways:
+#     - Array shorthand — an explicit, non-inheriting tool list:
+#         read: [semantic_find, memory_recall]
+#     - Object form — explicit control over inheritance:
+#         read:
+#           inherit: true            # merge with the global slot's resolved list (default
+#                                     # true at the per-slot level, false at global level)
+#           include: [extra_tool]    # additional tool names to allow
+#           exclude: [blocked_tool]  # names to strip back out after merging
+#       A tool name cannot appear in both `include` and `exclude`, and a name cannot be
+#       declared in both tools.read and tools.write for the same block.
+#
+#   Resolution order for a given slot: global `child.tools` is resolved first (its own
+#   `inherit` defaults to false, i.e. explicit-only unless you set it), then the slot's
+#   `child.tools` is layered on top (its `inherit` defaults to true, i.e. it builds on the
+#   global result unless you set inherit: false to replace it outright).
+
+child:
+  # Global defaults every slot below inherits unless it sets its own `child:` block.
+  extensions:
+    - npm:semantic-tools
+    - git:github.com/example/project-memory
+    - ./local-extension.ts
+  tools:
+    read:
+      inherit: true
+      include: [semantic_find, memory_recall]
+      exclude: [memory_store] # writer-only tool; keep it out of the read-only merge
+    write: [memory_store] # array shorthand — write access gets exactly this, plus the merged read set
+
+slots:
+  # 1) ARCHITECT — required, exactly one. Plans and reviews; never the primary builder.
+  - name: architect
+    model: anthropic/claude-fable-5
+    architect: true
+    thinking: high
+    color: "#A78BFA"
+    system_prompt: |
+      You are the ARCHITECT. Plan the change, decompose it into tasks, and review
+      builder output critically before it is accepted.
+    child:
+      tools:
+        read:
+          inherit: true # build on the global read set above
+          include: [arch_research] # architect-only extra read tool
+          exclude: [] # nothing additionally blocked
+
+  # 2) MAIN — required, exactly one non-architect slot with `primary: true`.
+  - name: main
+    model: openai/gpt-5.6-sol
+    primary: true
+    thinking: xhigh
+    color: "#F59E0B"
+    system_prompt: ./prompts/main-system-prompt.md # resolved relative to this YAML
+    append_system_prompt:
+      - ./prompts/house-rules.md # appended first, in list order
+      - "Always run the project's tests before reporting completion." # then this inline text
+    child:
+      tools:
+        write:
+          inherit: false # ignore the global write list entirely for this slot
+          include: [memory_store, scoped_patch] # explicit full replacement
+          exclude: []
+
+  # 3) REVIEWER — plain builder. No `child:` override → inherits the global block as-is.
+  - name: reviewer
+    model: google/gemini-3.6-flash
+    thinking: medium
+    color: "#34D399"
+    append_system_prompt: "Review for correctness, security, and adherence to the plan; do not modify files."
+
+  # 4) AUDITOR — plain builder. Demonstrates array-shorthand tool overrides and a
+  #    minimal, restricted extension/tool surface instead of inheriting the global one.
+  - name: auditor
+    model: anthropic/claude-fable-5-mini
+    thinking: low
+    color: "#F472B6"
+    system_prompt: "You are the AUDITOR. Verify evidence and flag unresolved risks; do not write code."
+    child:
+      extensions:
+        - npm:semantic-tools # narrower than the global extension list — no project-memory, no local ext
+      tools:
+        read: [semantic_find] # array shorthand: exactly this, no inheritance
+        write: [] # array shorthand: no extra write tools even when write access is granted

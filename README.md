@@ -2,6 +2,31 @@
 
 Muster is a OpenSpec-driven multi-agent development workflows for Pi. The preferred workflow surface is `/change`.
 
+## Workflow
+
+A development controller derives the current lifecycle of a change from a validated `ChangeSnapshot` — OpenSpec status, Git/worktree identity, review verdict, task state, and verification evidence — rather than from anything a model reports. Every `/change` subcommand asks the controller whether the change's current lifecycle allows that action before doing any work, and tells you the next allowed command when it does not.
+
+```text
+Usage: /change <explore|propose|refine|review|implement|verify|finish|status|resume> [change] [arguments]
+```
+
+1. **`/change explore <prompt>`** — read-only investigation with no OpenSpec artifacts and no lifecycle change. Use it to understand a problem before committing to a change.
+2. **`/change propose <change>`** — creates the OpenSpec proposal, specs, design, and tasks for a new change (`PLANNING`).
+3. **`/change refine <change>`** — revises those artifacts while `PLANNING`, `REVIEW_REQUIRED`, `DESIGN_CONFLICT`, or `BLOCKED`.
+4. **`/change review <change>`** — runs an independent, fresh-context planning review over the proposal/specs/design/tasks and records an artifact digest with an `APPROVE` or `REVISE` verdict (`REVIEW_REQUIRED` → `READY` on approval).
+5. **`/change implement <change>`** — compiles the tasks into a dependency DAG and executes dependency-ready tasks in a dedicated change worktree, one writer-leased task at a time, with fresh builder sessions and focused verification per task (`READY`/`IMPLEMENTING`).
+6. **`/change verify <change>`** — runs fresh-context final verification against the change's requirements and scenarios and writes a durable verification artifact (`VERIFYING` → `VERIFIED`).
+7. **`/change finish <change>`** — confirms a current `VERIFIED` digest and delegates archiving to OpenSpec. It never runs automatically after verification.
+8. **`/change status <change>`** — reports the current lifecycle, review/validation freshness, and any pending checkpoints without changing state.
+9. **`/change resume <change> <checkpoint-id>`** — an explicit user confirmation that continues a task branch paused at `AWAITING_USER`.
+
+```text
+EXPLORE
+  -> PLANNING -> REVIEW_REQUIRED -> READY -> IMPLEMENTING -> VERIFYING -> VERIFIED -> FINISHING -> COMPLETE
+```
+
+`AWAITING_USER`, `DESIGN_CONFLICT`, `BLOCKED`, `FAILED`, and `CANCELLED` are side states tracked per task/DAG branch, so unrelated branches can keep making progress. A task enters `AWAITING_USER` whenever it would require secrets/authentication, elevated privileges, a destructive action, or an external side effect, or whenever a design conflict needs a human decision — the affected branch pauses with persisted, secret-free instructions until `/change resume` explicitly confirms it. Any change to a reviewed artifact reopens `REVIEW_REQUIRED`, and any relevant post-verification change invalidates `VERIFIED`.
+
 ## Security boundary
 
 Beta host commands are brokered and audited, but these controls do not provide operating-system process or network isolation. Approved commands run as the current operating-system user and can reach resources available to that account. See the [security model](docs/security.md) for the enforced controls and residual risks.

@@ -1,0 +1,3 @@
+- Never touch files outside the declared write scope.
+- Prefer editing existing files over creating new ones.
+- Leave the working tree in a state that builds and passes tests.

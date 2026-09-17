@@ -4,6 +4,7 @@ import {
   resolveChangeAction,
   type ChangeAction,
 } from "../controller/action-resolver.ts";
+import type { ChangeUsageSummary } from "../persistence/change-usage-store.ts";
 import { HOST_EXECUTION_SECURITY_NOTICE } from "../tools/command-profile.ts";
 
 export const changeSubcommands = [
@@ -43,6 +44,7 @@ export interface ChangeCommandContext {
 export interface ChangeCommandDependencies {
   resolveChangeName(explicit?: string): Promise<string | null>;
   loadSnapshot(changeName: string): Promise<ChangeSnapshot | null>;
+  loadChangeUsage?(changeName: string): Promise<ChangeUsageSummary | null>;
   handlers: Partial<Record<ChangeAction, (
     command: ParsedChangeCommand & { changeName?: string },
     context: ChangeCommandContext,
@@ -96,13 +98,28 @@ export function parseChangeCommand(raw: string): ParsedChangeCommand | null {
   };
 }
 
-export function renderChangeStatus(snapshot: ChangeSnapshot): string {
+function renderChangeUsage(usage: ChangeUsageSummary): string[] {
+  const costLabel = usage.total.cost.completeness === "unavailable"
+    ? "cost unknown"
+    : `~$${usage.total.cost.knownUsd.toFixed(4)}${usage.total.cost.completeness === "partial" ? " (partial)" : ""}`;
+  const lines = [
+    `Usage: ${usage.total.invocations} invocations, ${usage.total.totalTokens.toLocaleString()} tokens, ${costLabel}`,
+  ];
+  for (const [phase, summary] of Object.entries(usage.byPhase)) {
+    if (summary.invocations === 0) continue;
+    lines.push(`  ${phase}: ${summary.invocations} invocations, ${summary.totalTokens.toLocaleString()} tokens`);
+  }
+  return lines;
+}
+
+export function renderChangeStatus(snapshot: ChangeSnapshot, usage?: ChangeUsageSummary | null): string {
   return [
     `Change: ${snapshot.changeName}`,
     `Lifecycle: ${snapshot.lifecycle}`,
     `Review: ${snapshot.freshness.review}`,
     `Validation: ${snapshot.freshness.validation}`,
     `Pending checkpoints: ${snapshot.pendingCheckpointIds.length}`,
+    ...(usage ? renderChangeUsage(usage) : []),
     HOST_EXECUTION_SECURITY_NOTICE,
   ].join("\n");
 }
@@ -136,7 +153,8 @@ export async function dispatchChangeCommand(
     return;
   }
   if (parsed.action === "status" && snapshot && !dependencies.handlers.status) {
-    context.ui.notify(renderChangeStatus(snapshot), "info");
+    const usage = await dependencies.loadChangeUsage?.(changeName!) ?? null;
+    context.ui.notify(renderChangeStatus(snapshot, usage), "info");
     return;
   }
   const handler = dependencies.handlers[parsed.action];
@@ -153,10 +171,14 @@ export function registerChangeCommand(
 ): void {
   pi.registerCommand("change", {
     description: changeCommandDescription,
-    handler: (args, context) => dispatchChangeCommand(
-      args,
-      context as ChangeCommandContext,
-      dependencies,
-    ),
+    handler: async (args, context) => {
+      const typedContext = context as ChangeCommandContext;
+      try {
+        await dispatchChangeCommand(args, typedContext, dependencies);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        typedContext.ui.notify(`/change failed: ${message}`, "error");
+      }
+    },
   });
 }

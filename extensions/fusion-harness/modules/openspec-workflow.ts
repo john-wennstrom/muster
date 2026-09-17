@@ -9,6 +9,7 @@ import {
 	type ChangeCommandDependencies,
 	type LegacyChangeCommand,
 } from "../../../src/muster/change-command.ts";
+import { recordChangeAgentRuns, touchActiveChange } from "../../../src/muster/production-runtime.ts";
 import { runProc } from "./child-runner.ts";
 import { validateCollaborationPlan, type CollaborationTask, type ValidatedCollaborationPlan } from "./collaboration-graph.ts";
 import { renderDelegationPlan } from "./collaboration-render.ts";
@@ -139,6 +140,7 @@ export async function runDebate(h: HarnessDeps, ctx: any, change: string, contex
 	} finally {
 		stopWidget();
 		h.absorbRuns(runs);
+		await recordChangeAgentRuns({ cwd: ctx.cwd, changeName: change, phase: "planning", runs });
 	}
 }
 
@@ -161,7 +163,7 @@ export async function runOpenSpecCollaboratePhase(h: HarnessDeps, ctx: any, chan
 			const artifactsDir = await h.mkArtifacts();
 			await runLegacyReadOnlyChild({ run, prompt: collabProposePrompt(slot, stack, `Implement OpenSpec change ${change}, phase ${phase.number} — ${phase.title}. Propose concrete work for only these tasks:\n${taskText}\n\n${context}`), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, taskId: `openspec.proposal-${phase.number}-${slot.id}`, description: `Propose work for OpenSpec phase ${phase.number}`, assignee: slot.id, thinking: slot.thinking, ...h.slotInitialSpawn(slot, ctx, artifactsDir), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs() });
 		}));
-	} finally { proposalWidget(); h.absorbRuns(proposalRuns); }
+	} finally { proposalWidget(); h.absorbRuns(proposalRuns); await recordChangeAgentRuns({ cwd: ctx.cwd, changeName: change, phase: "implementation", runs: proposalRuns }); }
 	h.panel({ kind: "multi", command: "implement", title: "IMPLEMENT — COLLABORATION PROPOSALS", ok: proposalRuns.every(runOk), prompt: change, sources: proposalRuns.map(toStat), answers: proposalRuns.map((run) => ({ role: run.role, model: run.model, text: runOk(run) ? run.text : `FAILED: ${runError(run)}`, slotId: run.slot?.id, slotName: run.slot?.name, color: run.slot?.color, primary: run.slot?.primary })) }, proposalRuns.map((run) => `## ${run.slot?.name ?? run.model}\n${runOk(run) ? run.text : runError(run)}`).join("\n\n"));
 	if (proposalRuns.filter(runOk).length < 2) throw new Error("phase collaboration needs at least two successful agent proposals");
 
@@ -224,6 +226,7 @@ export async function runOpenSpecCollaboratePhase(h: HarnessDeps, ctx: any, chan
 		},
 	});
 	h.panel({ kind: "solo", command: "implement", ok: true, prompt: change, agent: toStat(planRun) }, planBody);
+	await recordChangeAgentRuns({ cwd: ctx.cwd, changeName: change, phase: "implementation", runs: [planRun] });
 
 	const executionRuns = stack.slots.map((slot) => newRun(slot.architect ? "ARCHITECT" : "BUILDER", slot.model, slot));
 	const executionWidget = h.startGridWidget(ctx, "implement", executionRuns, undefined, Date.now());
@@ -266,6 +269,7 @@ export async function runOpenSpecCollaboratePhase(h: HarnessDeps, ctx: any, chan
 	} finally {
 		executionWidget();
 		h.absorbRuns(executionRuns);
+		await recordChangeAgentRuns({ cwd: ctx.cwd, changeName: change, phase: "implementation", runs: executionRuns });
 		try { ctx.ui.setWidget(TASKBOARD_WIDGET, undefined); } catch {}
 	}
 }
@@ -310,6 +314,7 @@ export function registerOpenSpecCommands(
 	pi.registerCommand("os-status", { description: "Show OpenSpec planning and implementation state", handler: async (raw: any, ctx: any) => {
 		const change = (raw ?? "").trim().split(/\s+/)[0]; if (!change) return ctx.ui.notify("Usage: /os-status <change>", "warning");
 		if (!requireOpenSpec(h, ctx, "os-status", change)) return;
+		await touchActiveChange({ cwd: ctx.cwd, changeName: change });
 		try { const client = clientFor(ctx); const status = await client.status(change); const tasks = resolveArtifact(await client.instructions("tasks", change), "tasks", ctx.cwd, change); const phases = parseTaskPlan(tasks.content ?? ""); const summary = phases.map((item) => `Phase ${item.number} — ${item.title}: ${item.tasks.filter((task) => task.checked).length}/${item.tasks.length} complete`).join("\n") || "No task phases found."; h.panel({ kind: "solo", command: "os-status", ok: true, prompt: change }, `Change: ${change}\n\n${JSON.stringify(status, null, 2)}\n\n${summary}`); } catch (error) { reportWorkflowError(h, ctx, "os-status", change, error); }
 	}});
 
@@ -331,6 +336,7 @@ export function registerOpenSpecCommands(
 
 	pi.registerCommand("refine", { description: "Deprecated: use /change refine", handler: async (raw: any, ctx: any) => {
 		const change = (raw ?? "").trim().split(/\s+/)[0]; if (!change) return ctx.ui.notify("Usage: /refine <change> [--allow-open]", "warning");
+		await touchActiveChange({ cwd: ctx.cwd, changeName: change });
 		await legacyHandler("refine", change, ctx, async () => {
 			if (!requireOpenSpec(h, ctx, "refine", change)) return;
 			const allowOpen = (raw ?? "").includes("--allow-open"); let lease: WriterLease | undefined;
@@ -344,6 +350,7 @@ export function registerOpenSpecCommands(
 			const revisedDesign = await runReadOnlyAgent(h, ctx, architect, openSpecDesignPrompt(change, context, debate.text));
 			if (!runOk(revisedDesign)) throw new Error(`design synthesis failed: ${runError(revisedDesign)}`);
 			h.panel({ kind: "solo", command: "refine", ok: true, prompt: change, agent: { role: revisedDesign.role, model: revisedDesign.model, slotId: architect.id, slotName: architect.name, color: architect.color, primary: architect.primary, status: revisedDesign.status, ms: revisedDesign.ms, tokensIn: revisedDesign.tokensIn, tokensOut: revisedDesign.tokensOut, costUsd: revisedDesign.costUsd, toolCalls: revisedDesign.toolCalls, toolNames: revisedDesign.toolNames, toolEvents: revisedDesign.toolEvents, chars: revisedDesign.text.length } }, `REFINE: DESIGN SYNTHESIS\n\n${revisedDesign.text}`);
+			await recordChangeAgentRuns({ cwd: ctx.cwd, changeName: change, phase: "planning", runs: [revisedDesign] });
 			const questionSection = revisedDesign.text.match(/^#{1,2}\s*Open Questions?\s*$([\s\S]*?)(?=^#{1,2}\s|$)/im)?.[1]?.trim() ?? "";
 			if (questionSection && !allowOpen) { h.panel({ kind: "error", command: "refine", ok: false, prompt: change }, `REFINE: NEEDS REVIEW\n\n${questionSection}\n\nTasks generation skipped.`); return; }
 			lease = acquireWriterLease(ctx.cwd, `/refine ${change}`); await atomicWrite(design.path, revisedDesign.text);
@@ -351,12 +358,14 @@ export function registerOpenSpecCommands(
 			const revisedTasks = await runReadOnlyAgent(h, ctx, architect, openSpecTasksPrompt(change, context, revisedDesign.text));
 			if (!runOk(revisedTasks)) throw new Error(`task synthesis failed: ${runError(revisedTasks)}`); await atomicWrite(tasks.path, revisedTasks.text); await client.validate(change); h.panel({ kind: "solo", command: "refine", ok: true, prompt: change }, `REFINE: READY\n\nDesign: ${design.path}\nTasks: ${tasks.path}\n\nStrict validation passed.`);
 			h.panel({ kind: "solo", command: "refine", ok: true, prompt: change, agent: { role: revisedTasks.role, model: revisedTasks.model, slotId: architect.id, slotName: architect.name, color: architect.color, primary: architect.primary, status: revisedTasks.status, ms: revisedTasks.ms, tokensIn: revisedTasks.tokensIn, tokensOut: revisedTasks.tokensOut, costUsd: revisedTasks.costUsd, toolCalls: revisedTasks.toolCalls, toolNames: revisedTasks.toolNames, toolEvents: revisedTasks.toolEvents, chars: revisedTasks.text.length } }, `REFINE: TASK SYNTHESIS\n\n${revisedTasks.text}`);
+			await recordChangeAgentRuns({ cwd: ctx.cwd, changeName: change, phase: "planning", runs: [revisedTasks] });
 			} catch (error) { reportWorkflowError(h, ctx, "refine", change, error); } finally { lease?.release(); ctx.ui.setStatus("fusion-harness", undefined); }
 		});
 	}});
 
 	pi.registerCommand("implement", { description: "Deprecated: use /change implement", handler: async (raw: any, ctx: any) => {
 		const parsed = parseChange(raw ?? "", "/implement"); if (!parsed) return ctx.ui.notify("Usage: /implement <change> [next|phase]", "warning");
+		await touchActiveChange({ cwd: ctx.cwd, changeName: parsed.change });
 		await legacyHandler("implement", parsed.change, ctx, async () => {
 			if (!requireOpenSpec(h, ctx, "implement", parsed.change)) return;
 			let lease: WriterLease | undefined;
@@ -378,6 +387,7 @@ export function registerOpenSpecCommands(
 
 	pi.registerCommand("ship", { description: "Deprecated: use /change finish", handler: async (raw: any, ctx: any) => {
 		const change = (raw ?? "").trim().split(/\s+/)[0]; if (!change) return ctx.ui.notify("Usage: /ship <change>", "warning");
+		await touchActiveChange({ cwd: ctx.cwd, changeName: change });
 		await legacyHandler("ship", change, ctx, async () => {
 			if (!requireOpenSpec(h, ctx, "ship", change)) return;
 			try {
