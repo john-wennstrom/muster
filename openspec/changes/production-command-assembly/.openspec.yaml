@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-09-17
+goal: Complete roadmap P0.1 so every advertised command reaches its production
+  controller and reports an exact durable outcome.

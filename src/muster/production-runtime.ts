@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { loadModelStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
 import { newRun, runOk, runError, type AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
 import { runLegacyReadOnlyChild } from "../agents/legacy-adapter.ts";
 import { createChangeSnapshot, type ChangeSnapshot } from "../controller/change-snapshot.ts";
@@ -30,16 +31,47 @@ import { HarnessError } from "../shared/errors.ts";
 import { usageFromLegacyRun, type UsagePhase } from "../telemetry/usage.ts";
 import type { ChangeCommandDependencies } from "./change-command.ts";
 
-// Shipped default for the read-only explore agent when no override is configured;
-// mirrors fusion-harness's own DEFAULT_ARCHITECT so behavior stays consistent.
+// Last-resort fallback only — used when no --fh-config/--architect is configured and no
+// MUSTER_EXPLORE_MODEL override is set. Mirrors fusion-harness's own DEFAULT_ARCHITECT.
 const DEFAULT_EXPLORE_MODEL = "anthropic/claude-fable-5";
 // A single read-only exploration turn is interactive, not a long build — cap well
 // under the legacy 8h child-timeout floor.
 const EXPLORE_CHILD_TIMEOUT_MS = 30 * 60 * 1000;
 
-/** `MUSTER_EXPLORE_MODEL` lets operators override the model without touching code. */
-export function resolveExploreModel(env: NodeJS.ProcessEnv = process.env): string {
-  return env.MUSTER_EXPLORE_MODEL?.trim() || DEFAULT_EXPLORE_MODEL;
+/** Same `--flag value` / `--flag=value` reading fusion-harness.ts uses before pi resolves registered flags. */
+function rawCliFlag(name: string, argv: readonly string[]): string {
+  const long = `--${name}`;
+  for (let index = 0; index < argv.length; index++) {
+    if (argv[index] === long) return argv[index + 1]?.trim() ?? "";
+    if (argv[index]!.startsWith(`${long}=`)) return argv[index]!.slice(long.length + 1).trim();
+  }
+  return "";
+}
+
+/**
+ * Resolve the explore agent's model with the same precedence fusion-harness uses for its
+ * own architect role, so /change explore automatically follows whatever the user already
+ * configured and authenticated for /refine, /implement, etc.:
+ * `MUSTER_EXPLORE_MODEL` env override > --fh-config YAML's architect slot > --architect
+ * legacy flag > a hardcoded default (only reached when nothing else is configured).
+ */
+export function resolveExploreModel(
+  env: NodeJS.ProcessEnv = process.env,
+  argv: readonly string[] = process.argv,
+): string {
+  const override = env.MUSTER_EXPLORE_MODEL?.trim();
+  if (override) return override;
+  const configPath = rawCliFlag("fh-config", argv);
+  if (configPath) {
+    try {
+      return loadModelStack(configPath).architect.model;
+    } catch {
+      // fall through — an invalid/missing --fh-config here is not explore's job to report
+    }
+  }
+  const architectFlag = rawCliFlag("architect", argv);
+  if (architectFlag) return architectFlag;
+  return DEFAULT_EXPLORE_MODEL;
 }
 
 export function renderExplorePrompt(request: ExploreAgentRequest): string {
@@ -267,7 +299,9 @@ export function createProductionChangeCommandDependencies(
           { prompt, authoritativeContext },
           createProductionExploreDependencies(cwd),
         );
-        context.ui.notify(exploration.analysis.content, "info");
+        // ui.notify is a transient toast — unsuited to a multi-paragraph analysis.
+        if (context.sendMessage) context.sendMessage(exploration.analysis.content);
+        else context.ui.notify(exploration.analysis.content, "info");
       },
     },
   };

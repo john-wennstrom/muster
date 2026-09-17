@@ -134,8 +134,32 @@ describe("production change snapshot", () => {
 
 describe("explore agent wiring", () => {
   test("resolveExploreModel prefers MUSTER_EXPLORE_MODEL over the shipped default", () => {
-    expect(resolveExploreModel({})).toBe("anthropic/claude-fable-5");
-    expect(resolveExploreModel({ MUSTER_EXPLORE_MODEL: " openai/gpt-5.6-sol " })).toBe("openai/gpt-5.6-sol");
+    expect(resolveExploreModel({}, [])).toBe("anthropic/claude-fable-5");
+    expect(resolveExploreModel({ MUSTER_EXPLORE_MODEL: " openai/gpt-5.6-sol " }, [])).toBe("openai/gpt-5.6-sol");
+  });
+
+  test("resolveExploreModel follows --fh-config's architect slot ahead of the shipped default", async () => {
+    const root = await mktempRoot();
+    const configPath = resolve(root, "model-stack.yaml");
+    await writeFile(
+      configPath,
+      [
+        "slots:",
+        "  - name: architect",
+        "    model: github-copilot/claude-sonnet-5",
+        "    architect: true",
+        "    thinking: high",
+        "  - name: builder",
+        "    model: github-copilot/claude-sonnet-5",
+        "    primary: true",
+        "",
+      ].join("\n"),
+    );
+    expect(resolveExploreModel({}, ["--fh-config", configPath])).toBe("github-copilot/claude-sonnet-5");
+  });
+
+  test("resolveExploreModel falls back to --architect when no --fh-config is set", () => {
+    expect(resolveExploreModel({}, ["--architect", "openai/gpt-5.6-sol"])).toBe("openai/gpt-5.6-sol");
   });
 
   test("renderExplorePrompt appends context/facts sections only when non-empty", () => {

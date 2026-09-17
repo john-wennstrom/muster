@@ -25,6 +25,7 @@ function snapshot(lifecycle: ChangeSnapshot["lifecycle"]): ChangeSnapshot {
 function harness(lifecycle: ChangeSnapshot["lifecycle"] = "READY") {
   const notifications: string[] = [];
   const mutations: string[] = [];
+  const sentMessages: string[] = [];
   const dependencies: ChangeCommandDependencies = {
     resolveChangeName: async (explicit) => explicit ?? "add-search",
     loadSnapshot: async () => snapshot(lifecycle),
@@ -35,8 +36,12 @@ function harness(lifecycle: ChangeSnapshot["lifecycle"] = "READY") {
   return {
     notifications,
     mutations,
+    sentMessages,
     dependencies,
-    context: { ui: { notify: (message: string) => notifications.push(message) } },
+    context: {
+      ui: { notify: (message: string) => notifications.push(message) },
+      sendMessage: (content: string) => sentMessages.push(content),
+    },
   };
 }
 
@@ -82,6 +87,16 @@ describe("change command", () => {
       changeName: "add-search",
       arguments: ["why", "is", "the", "retry", "loop", "slow"],
     }]);
+  });
+
+  test("handlers can post durable transcript output via sendMessage instead of the transient notify toast", async () => {
+    const subject = harness();
+    subject.dependencies.handlers.explore = async (_command, context) => {
+      context.sendMessage?.("## Findings\nThe retry loop lacks backoff.");
+    };
+    await dispatchChangeCommand("explore why is the retry loop slow", subject.context, subject.dependencies);
+    expect(subject.sentMessages).toEqual(["## Findings\nThe retry loop lacks backoff."]);
+    expect(subject.notifications).toEqual([]);
   });
 });
 

@@ -39,6 +39,13 @@ export interface ParsedChangeCommand {
 
 export interface ChangeCommandContext {
   ui: { notify(message: string, level?: "info" | "warning" | "error"): void };
+  /**
+   * Post durable Markdown content into the chat transcript. `ui.notify` is a transient
+   * toast unsuited to long-form output (e.g. an explore analysis); handlers that produce
+   * such content should prefer this and fall back to `ui.notify` when it is unavailable
+   * (e.g. in tests).
+   */
+  sendMessage?(content: string): void;
 }
 
 export interface ChangeCommandDependencies {
@@ -171,14 +178,19 @@ export async function dispatchChangeCommand(
   await handler({ ...parsed, changeName: changeName ?? parsed.changeName }, context);
 }
 
+const CHANGE_MESSAGE_TYPE = "muster-change";
+
 export function registerChangeCommand(
-  pi: Pick<ExtensionAPI, "registerCommand">,
+  pi: Pick<ExtensionAPI, "registerCommand" | "sendMessage">,
   dependencies: ChangeCommandDependencies,
 ): void {
   pi.registerCommand("change", {
     description: changeCommandDescription,
     handler: async (args, context) => {
-      const typedContext = context as ChangeCommandContext;
+      const typedContext: ChangeCommandContext = {
+        ui: context.ui,
+        sendMessage: (content) => pi.sendMessage({ customType: CHANGE_MESSAGE_TYPE, content, display: true }),
+      };
       try {
         await dispatchChangeCommand(args, typedContext, dependencies);
       } catch (error) {
