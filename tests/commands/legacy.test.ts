@@ -3,7 +3,7 @@ import type { ChangeSnapshot } from "../../src/controller/change-snapshot.ts";
 import {
   dispatchLegacyChangeCommand,
   legacyCommandGuidance,
-} from "../../src/muster/change-command.ts";
+} from "../../src/runtime/change-command.ts";
 
 const observedAt = "2026-09-12T12:00:00.000Z";
 

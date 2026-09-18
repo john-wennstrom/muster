@@ -7,10 +7,11 @@ import { OpenSpecAdapter } from "../openspec/adapter.ts";
 import { createChangeUsageStore, recordChangeUsage } from "../persistence/change-usage-store.ts";
 import { runBrokeredPlanningReviewer } from "../review/planning-reviewer.ts";
 import { usageFromLegacyRun } from "../telemetry/usage.ts";
-import type { CommandOutcome } from "./command-runtime.ts";
-import type { AgentRunObserver } from "./agent-progress.ts";
-import { createCommandRunId } from "./command-runtime.ts";
-import { resolveProductionModelStack } from "./planning-runtime.ts";
+import type { AgentRunObserver } from "../runtime/agent-progress.ts";
+import type { ParsedChangeCommand, ChangeCommandContext } from "../runtime/change-command.ts";
+import type { CommandOutcome, ProductionRuntimeOptions } from "../runtime/command.ts";
+import { createCommandRunId } from "../runtime/command.ts";
+import { resolveProductionModelStack } from "../runtime/planning.ts";
 
 export interface ProductionReviewOptions {
   onAgentStart?: AgentRunObserver;
@@ -70,5 +71,23 @@ export async function runProductionReview(options: ProductionReviewOptions): Pro
       message: result.review.requiredChanges.join("; ") || "Planning review requires revision",
       artifact: "review.md",
     },
+  };
+}
+
+/** Builds the `/change review` handler bound to the given cwd/options closure. */
+export function createReviewHandler(cwd: string, options: ProductionRuntimeOptions) {
+  return async function reviewHandler(
+    command: ParsedChangeCommand & { changeName?: string },
+    context: ChangeCommandContext,
+  ): Promise<CommandOutcome | void> {
+    return (options.runners?.review ?? runProductionReview)({
+      onAgentStart: context.onAgentStart ?? options.onAgentStart,
+      cwd,
+      changeName: command.changeName!,
+      prompt: command.arguments.join(" ").trim() || undefined,
+      signal: options.signal,
+      argv: options.argv,
+      runId: context.run?.runId,
+    });
   };
 }

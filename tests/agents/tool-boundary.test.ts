@@ -11,7 +11,7 @@ import {
   registerChildBrokerTools,
   requestChildBroker,
   type ChildBrokerConfiguration,
-} from "../../src/muster/child-broker.ts";
+} from "../../src/agents/child-broker.ts";
 import { authorizeToolRequest } from "../../src/tools/authorization.ts";
 
 const temporaryDirectories: string[] = [];

@@ -8,8 +8,8 @@ import {
 	legacyCommandGuidance,
 	type ChangeCommandDependencies,
 	type LegacyChangeCommand,
-} from "../../../src/muster/change-command.ts";
-import { recordChangeAgentRuns, touchActiveChange } from "../../../src/muster/production-runtime.ts";
+} from "../../../src/runtime/change-command.ts";
+import { recordChangeAgentRuns, touchActiveChange } from "../../../src/runtime/dependencies.ts";
 import { runProc } from "./child-runner.ts";
 import { validateCollaborationPlan, type CollaborationTask, type ValidatedCollaborationPlan } from "./collaboration-graph.ts";
 import { renderDelegationPlan } from "./collaboration-render.ts";

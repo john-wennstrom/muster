@@ -16,7 +16,7 @@ import type { ChangeWorktree } from "../../src/execution/worktree.ts";
 import {
   changeResumeUsage,
   dispatchChangeCommand,
-} from "../../src/muster/change-command.ts";
+} from "../../src/runtime/change-command.ts";
 import { AtomicJsonStore } from "../../src/persistence/atomic-json-store.ts";
 import type { CheckpointRecord } from "../../src/persistence/records.ts";
 

@@ -38,9 +38,9 @@ import { discoverReviewedArtifacts, hashReviewedArtifacts } from "../review/arti
 import { HarnessError } from "../shared/errors.ts";
 import { runHostCommand } from "../tools/host-runner.ts";
 import { usageFromLegacyRun } from "../telemetry/usage.ts";
-import type { CommandOutcome } from "./command-runtime.ts";
+import type { CommandOutcome } from "./command.ts";
 import type { AgentRunObserver } from "./agent-progress.ts";
-import { resolveProductionModelStack } from "./planning-runtime.ts";
+import { resolveProductionModelStack } from "./planning.ts";
 
 const builderResultSchema = z.object({
   claim: z.enum(["completed", "blocked", "design_conflict"]),

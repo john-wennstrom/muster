@@ -4,11 +4,11 @@ import {
   changeSubcommands,
   registerChangeCommand,
   type ChangeCommandDependencies,
-} from "./change-command.ts";
+} from "../runtime/change-command.ts";
 import {
   createProductionChangeCommandDependencies,
   type ProductionRuntimeOptions,
-} from "./production-runtime.ts";
+} from "../runtime/dependencies.ts";
 
 export { registerFusionHarness };
 export { changeSubcommands };

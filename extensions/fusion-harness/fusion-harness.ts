@@ -46,7 +46,7 @@ import { performance } from "node:perf_hooks"; // host-turn TPS boundaries
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Container, Text, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { runLegacyBrokeredChild, runLegacyScopePlannerChild } from "../../src/agents/legacy-adapter.ts";
-import type { ChangeCommandDependencies } from "../../src/muster/change-command.ts";
+import type { ChangeCommandDependencies } from "../../src/runtime/change-command.ts";
 import { registerAutoValidateCommand, registerCollaborateCommand } from "./modules/cmd-build.ts";
 import { registerFusionCommand } from "./modules/cmd-fusion.ts";
 import { registerReadonlyCommands } from "./modules/cmd-readonly.ts";

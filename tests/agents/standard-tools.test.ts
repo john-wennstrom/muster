@@ -6,7 +6,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { synthesizeLegacyStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
 import { newRun } from "../../extensions/fusion-harness/modules/runtime.ts";
 import { runBrokeredChild, standardChildRuntime } from "../../src/agents/child-runner.ts";
-import { registerChildBrokerTools, type ChildBrokerConfiguration } from "../../src/muster/child-broker.ts";
+import { registerChildBrokerTools, type ChildBrokerConfiguration } from "../../src/agents/child-broker.ts";
 
 const directories: string[] = [];
 afterEach(async () => {

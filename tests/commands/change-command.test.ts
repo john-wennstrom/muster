@@ -4,7 +4,7 @@ import {
   dispatchChangeCommand,
   parseChangeCommand,
   type ChangeCommandDependencies,
-} from "../../src/muster/change-command.ts";
+} from "../../src/runtime/change-command.ts";
 import type { ChangeSnapshot } from "../../src/controller/change-snapshot.ts";
 import { HOST_EXECUTION_SECURITY_NOTICE } from "../../src/tools/command-profile.ts";
 

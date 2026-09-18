@@ -13,7 +13,7 @@ import {
   type CommandBlocker,
   type CommandOutcome,
   type CommandRunContext,
-} from "./command-runtime.ts";
+} from "./command.ts";
 
 export const changeSubcommands = [
   "explore",

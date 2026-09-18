@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { synthesizeLegacyStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
-import { runProductionReview } from "../../src/muster/review-runtime.ts";
+import { runProductionReview } from "../../src/muster/review.ts";
 import type { OpenSpecAdapter } from "../../src/openspec/adapter.ts";
 import type { OpenSpecStatus } from "../../src/openspec/protocol.ts";
 import { createReviewArtifact, parseReviewArtifact } from "../../src/review/review-artifact.ts";

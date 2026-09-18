@@ -6,10 +6,9 @@ import {
   createProductionChangeCommandDependencies,
   loadProductionChangeSnapshot,
   recordChangeAgentRuns,
-  renderExplorePrompt,
-  resolveExploreModel,
-} from "../../src/muster/production-runtime.ts";
-import { changeSubcommands } from "../../src/muster/change-command.ts";
+} from "../../src/runtime/dependencies.ts";
+import { renderExplorePrompt, resolveExploreModel } from "../../src/muster/explore.ts";
+import { changeSubcommands } from "../../src/runtime/change-command.ts";
 import { loadChangeUsageSummary, createChangeUsageStore } from "../../src/persistence/change-usage-store.ts";
 import { runProcess } from "../../src/shared/process.ts";
 

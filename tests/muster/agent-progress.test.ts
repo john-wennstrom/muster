@@ -5,9 +5,10 @@ import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { newRun } from "../../extensions/fusion-harness/modules/runtime.ts";
-import { createAgentProgress, agentUsageLine } from "../../src/muster/agent-progress.ts";
-import { registerChangeCommand } from "../../src/muster/change-command.ts";
-import { createProductionChangeCommandDependencies, createProductionExploreDependencies } from "../../src/muster/production-runtime.ts";
+import { createAgentProgress, agentUsageLine } from "../../src/runtime/agent-progress.ts";
+import { registerChangeCommand } from "../../src/runtime/change-command.ts";
+import { createProductionChangeCommandDependencies } from "../../src/runtime/dependencies.ts";
+import { createProductionExploreDependencies } from "../../src/muster/explore.ts";
 import { runProcess } from "../../src/shared/process.ts";
 
 const directories: string[] = [];

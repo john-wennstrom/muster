@@ -7,7 +7,7 @@ import {
   guardRuntimeManualAction,
   loadManualCheckpoint,
 } from "../../src/controller/manual-checkpoint.ts";
-import { restoreManualCheckpointNotifications } from "../../src/muster/manual-ui.ts";
+import { restoreManualCheckpointNotifications } from "../../src/runtime/manual-ui.ts";
 import { AtomicJsonStore } from "../../src/persistence/atomic-json-store.ts";
 import type {
   CheckpointRecord,

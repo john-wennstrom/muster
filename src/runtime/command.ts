@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { lstat, readdir, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
 import type { ChangeAction } from "../controller/action-resolver.ts";
+import type { ChangeSnapshot } from "../controller/change-snapshot.ts";
+import type { ChangeUsageSummary } from "../persistence/change-usage-store.ts";
+import type { ProductionPlanningOptions } from "./planning.ts";
+import type { ProductionImplementationOptions } from "./implementation.ts";
+import type { ProductionReviewOptions } from "../muster/review.ts";
+import type { ProductionVerificationOptions } from "../muster/verify.ts";
 import { HarnessError } from "../shared/errors.ts";
 
 export type CommandOutcomeStatus = "success" | "blocked" | "cancelled" | "failure";
@@ -228,4 +235,30 @@ export function renderCommandOutcome(outcome: CommandOutcome): string {
     outcome.next ? `Next: ${outcome.next}` : undefined,
   ].filter((line): line is string => line !== undefined);
   return fields.join("\n");
+}
+
+export interface ProductionRuntimeOptions {
+  cwd?: string;
+  now?: () => string;
+  signal?: AbortSignal;
+  argv?: readonly string[];
+  onAgentStart?(run: AgentRun): void;
+  runners?: {
+    explore?(options: {
+      cwd: string;
+      prompt: string;
+      signal?: AbortSignal;
+    }): Promise<CommandOutcome>;
+    planning?(options: ProductionPlanningOptions): Promise<CommandOutcome>;
+    review?(options: ProductionReviewOptions): Promise<CommandOutcome>;
+    implementation?(options: ProductionImplementationOptions): Promise<CommandOutcome>;
+    verification?(options: ProductionVerificationOptions): Promise<CommandOutcome>;
+    finish?(options: ProductionVerificationOptions): Promise<CommandOutcome>;
+  };
+  ports?: {
+    resolveChange?(options: ResolveProductionChangeOptions): Promise<ResolvedChange>;
+    loadSnapshot?(options: ProductionRuntimeOptions & { changeName: string }): Promise<ChangeSnapshot | null>;
+    loadUsage?(options: ProductionRuntimeOptions & { changeName: string }): Promise<ChangeUsageSummary | null>;
+    activateChange?(options: ProductionRuntimeOptions & { changeName: string }): Promise<void>;
+  };
 }

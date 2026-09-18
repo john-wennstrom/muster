@@ -24,7 +24,7 @@ import type { OpenSpecStatus } from "../openspec/protocol.ts";
 import { createChangeUsageStore, recordChangeUsage } from "../persistence/change-usage-store.ts";
 import { HarnessError } from "../shared/errors.ts";
 import { usageFromLegacyRun } from "../telemetry/usage.ts";
-import type { CommandOutcome } from "./command-runtime.ts";
+import type { CommandOutcome } from "./command.ts";
 import type { AgentRunObserver } from "./agent-progress.ts";
 
 const DEFAULT_ARCHITECT = "anthropic/claude-fable-5";

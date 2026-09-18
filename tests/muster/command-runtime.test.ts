@@ -6,7 +6,7 @@ import {
   createCommandRunContext,
   resolveProductionChange,
   validateChangeSlug,
-} from "../../src/muster/command-runtime.ts";
+} from "../../src/runtime/command.ts";
 import { HarnessError } from "../../src/shared/errors.ts";
 
 const roots: string[] = [];

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { synthesizeLegacyStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
-import { runProductionPlanning } from "../../src/muster/planning-runtime.ts";
+import { runProductionPlanning } from "../../src/runtime/planning.ts";
 import type { OpenSpecAdapter } from "../../src/openspec/adapter.ts";
 import type { OpenSpecStatus } from "../../src/openspec/protocol.ts";
 
