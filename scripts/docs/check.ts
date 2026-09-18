@@ -5,7 +5,7 @@ import {
   changeResumeUsage,
   changeUsage,
   renderChangeStatus,
-} from "../../src/runtime/change-command.ts";
+} from "../../src/change/change-command.ts";
 import { HOST_EXECUTION_SECURITY_NOTICE } from "../../src/tools/command-profile.ts";
 
 const root = resolve(import.meta.dir, "../..");

@@ -1,15 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, resolve, sep } from "node:path";
 import { z } from "zod";
 import {
-  loadModelStack,
-  synthesizeLegacyStack,
   type ModelSlot,
   type ModelStack,
-} from "../../extensions/fusion-harness/modules/model-stack.ts";
-import { newRun, runError, runOk } from "../../extensions/fusion-harness/modules/runtime.ts";
-import { runLegacyReadOnlyChild } from "../agents/legacy-adapter.ts";
+} from "../../../extensions/fusion-harness/modules/model-stack.ts";
+import { newRun, runError, runOk } from "../../../extensions/fusion-harness/modules/runtime.ts";
+import { runLegacyReadOnlyChild } from "../../agents/legacy-adapter.ts";
 import {
   propose,
   refine,
@@ -17,41 +15,20 @@ import {
   type PlanningAgentResult,
   type PlanningArtifactWriteRequest,
   type PlanningPhase,
-} from "../controller/planning.ts";
-import { classifyChange } from "../controller/complexity-router.ts";
-import { OpenSpecAdapter } from "../openspec/adapter.ts";
-import type { OpenSpecStatus } from "../openspec/protocol.ts";
-import { createChangeUsageStore, recordChangeUsage } from "../persistence/change-usage-store.ts";
-import { HarnessError } from "../shared/errors.ts";
-import { usageFromLegacyRun } from "../telemetry/usage.ts";
-import type { CommandOutcome } from "./command.ts";
-import type { AgentRunObserver } from "./agent-progress.ts";
+} from "../../controller/planning.ts";
+import { classifyChange } from "../../controller/complexity-router.ts";
+import { OpenSpecAdapter } from "../../openspec/adapter.ts";
+import type { OpenSpecStatus } from "../../openspec/protocol.ts";
+import { createChangeUsageStore, recordChangeUsage } from "../../persistence/change-usage-store.ts";
+import { readCliFlag } from "../../shared/cli-flags.ts";
+import { isWithin } from "../../shared/paths.ts";
+import { HarnessError } from "../../shared/errors.ts";
+import { usageFromLegacyRun } from "../../telemetry/usage.ts";
+import type { CommandOutcome } from "../command.ts";
+import { resolveModelStack } from "../models.ts";
+import type { AgentRunObserver } from "../agent-progress.ts";
 
-const DEFAULT_ARCHITECT = "anthropic/claude-fable-5";
-const DEFAULT_BUILDER = "openai/gpt-5.6-sol";
 const PLANNING_TIMEOUT_MS = 30 * 60 * 1000;
-
-function rawCliFlag(name: string, argv: readonly string[]): string {
-  const long = `--${name}`;
-  for (let index = 0; index < argv.length; index++) {
-    if (argv[index] === long) return argv[index + 1]?.trim() ?? "";
-    if (argv[index]!.startsWith(`${long}=`)) return argv[index]!.slice(long.length + 1).trim();
-  }
-  return "";
-}
-
-export function resolveProductionModelStack(
-  argv: readonly string[] = process.argv,
-): ModelStack {
-  const configPath = rawCliFlag("fh-config", argv);
-  if (configPath) return loadModelStack(configPath);
-  return synthesizeLegacyStack({
-    architectModel: rawCliFlag("architect", argv) || DEFAULT_ARCHITECT,
-    builderModel: rawCliFlag("builder", argv) || DEFAULT_BUILDER,
-    architectThinking: "high",
-    builderThinking: "high",
-  });
-}
 
 const artifactBundleSchema = z.object({
   artifacts: z.array(z.object({
@@ -83,11 +60,6 @@ function parseArtifactBundle(content: string): z.infer<typeof artifactBundleSche
   return result.data;
 }
 
-function within(parent: string, candidate: string): boolean {
-  const path = relative(parent, candidate);
-  return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
-}
-
 function allowedArtifactPath(changeRoot: string, path: string): string {
   if (isAbsolute(path)) {
     throw new HarnessError("PLANNING_ARTIFACT_INVALID", "Planning artifact paths must be relative", { path });
@@ -103,7 +75,7 @@ function allowedArtifactPath(changeRoot: string, path: string): string {
     );
   }
   const destination = resolve(changeRoot, normalized);
-  if (!within(changeRoot, destination)) {
+  if (!isWithin(changeRoot, destination)) {
     throw new HarnessError("PLANNING_ARTIFACT_INVALID", "Planning artifact path escapes the change root", { path });
   }
   return destination;
@@ -166,7 +138,7 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
   }
   const status = await adapter.status(options.changeName);
   const changeRoot = resolve(status.changeRoot);
-  const stack = options.modelStack ?? resolveProductionModelStack(options.argv);
+  const stack = options.modelStack ?? resolveModelStack(options.argv);
   const planningRunId = options.runId ?? `${options.phase}-${options.changeName}`;
   const usageStore = createChangeUsageStore(options.cwd);
   const runAgent = options.runAgent ?? (async (request: PlanningAgentRequest, current: OpenSpecStatus, slot: ModelSlot) => {
@@ -198,7 +170,7 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
       ]);
     }
     if (!runOk(run)) {
-      throw new HarnessError("EXPLORE_AGENT_FAILED", `Planning agent failed: ${runError(run)}`, {
+      throw new HarnessError("PLANNING_AGENT_FAILED", `Planning agent failed: ${runError(run)}`, {
         phase: request.phase,
         stage: request.stage,
         model: slot.model,

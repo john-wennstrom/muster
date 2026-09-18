@@ -1,11 +1,11 @@
-import { lstat, readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
 import { createChangeSnapshot, type ChangeSnapshot } from "../controller/change-snapshot.ts";
 import {
   computeDiffDigest,
   computeIndexDigest,
   computeSourceDigest,
+  readSourceDigest,
 } from "../execution/change-digests.ts";
 import { GitAdapter } from "../execution/git.ts";
 import { parseTaskDocument } from "../execution/task-parser.ts";
@@ -18,37 +18,20 @@ import {
   setActiveChange,
   type ChangeUsageSummary,
 } from "../persistence/change-usage-store.ts";
+import { openChangeRun } from "../persistence/run-store.ts";
 import type { CheckpointRecord, RunManifest } from "../persistence/records.ts";
 import { discoverReviewedArtifacts, hashReviewedArtifacts } from "../review/artifact-digest.ts";
 import { parseReviewArtifact } from "../review/review-artifact.ts";
 import { parseVerificationArtifact } from "../review/verification-artifact.ts";
+import { pathExists, readFileOrNull } from "../shared/fs.ts";
 import { HarnessError } from "../shared/errors.ts";
 import { usageFromLegacyRun, type UsagePhase } from "../telemetry/usage.ts";
-import { resolveProductionChange, type ProductionRuntimeOptions } from "./command.ts";
+import { resolveProductionChange, type ChangeStateQuery } from "./command.ts";
 
 const NO_ARTIFACTS_DIGEST = computeSourceDigest("no-reviewed-artifacts", "");
 
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await lstat(path);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
-  }
-}
-
-async function readOptional(path: string): Promise<string | null> {
-  try {
-    return await readFile(path, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-}
-
 export async function loadProductionChangeSnapshot(
-  options: ProductionRuntimeOptions & { changeName: string },
+  options: ChangeStateQuery,
 ): Promise<ChangeSnapshot | null> {
   const cwd = options.cwd ?? process.cwd();
   const now = options.now ?? (() => new Date().toISOString());
@@ -68,9 +51,8 @@ export async function loadProductionChangeSnapshot(
 
   const git = new GitAdapter(cwd, undefined, undefined, options.signal);
   const identity = await git.identity();
-  const head = await git.head();
   const statusEntries = await git.status();
-  const diffText = await git.diff();
+  const source = await readSourceDigest(git);
 
   const tasksContents = await readFile(tasksPath, "utf8");
   const parsedTasks = parseTaskDocument(tasksContents, tasksPath);
@@ -94,31 +76,25 @@ export async function loadProductionChangeSnapshot(
     artifactDigest = NO_ARTIFACTS_DIGEST;
   }
 
-  const runId = changeRunId(options.changeName);
-  const store = createChangeUsageStore(cwd);
-  let manifest: RunManifest | null = null;
-  try {
-    manifest = await store.read<RunManifest>(runId, "manifest.json");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
+  const run = openChangeRun(cwd, options.changeName);
+  const manifest: RunManifest | null = await run.readManifestOrNull();
 
   const pendingCheckpointIds: string[] = [];
   for (const checkpointId of manifest?.checkpoints ?? []) {
     try {
-      const checkpoint = await store.read<CheckpointRecord>(runId, `checkpoints/${checkpointId}.json`);
+      const checkpoint = await run.store.read<CheckpointRecord>(run.runId, `checkpoints/${checkpointId}.json`);
       if (checkpoint.status === "pending") pendingCheckpointIds.push(checkpointId);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
 
-  const reviewContents = await readOptional(resolve(changeRoot, "review.md"));
+  const reviewContents = await readFileOrNull(resolve(changeRoot, "review.md"));
   const review = reviewContents
     ? parseReviewArtifact(reviewContents, resolve(changeRoot, "review.md"))
     : null;
 
-  const verificationContents = await readOptional(resolve(changeRoot, "verification.md"));
+  const verificationContents = await readFileOrNull(resolve(changeRoot, "verification.md"));
   const verification = verificationContents
     ? parseVerificationArtifact(verificationContents, resolve(changeRoot, "verification.md"))
     : null;
@@ -138,10 +114,10 @@ export async function loadProductionChangeSnapshot(
       repositoryId: identity.id,
       commonDirectory: identity.commonDirectory,
       worktree: identity.root,
-      head: head.commit,
+      head: source.head,
       indexDigest: computeIndexDigest(statusEntries),
-      diffDigest: computeDiffDigest(diffText),
-      sourceDigest: computeSourceDigest(head.commit, diffText),
+      diffDigest: computeDiffDigest(source.diff),
+      sourceDigest: source.sourceDigest,
     },
     runtime: manifest ? { observedAt: capturedAt, manifest } : null,
     review: review ? { observedAt: capturedAt, artifact: review } : null,
@@ -158,7 +134,7 @@ export async function loadProductionChangeSnapshot(
 }
 
 export async function loadProductionChangeUsage(
-  options: ProductionRuntimeOptions & { changeName: string },
+  options: ChangeStateQuery,
 ): Promise<ChangeUsageSummary | null> {
   const cwd = options.cwd ?? process.cwd();
   const store = createChangeUsageStore(cwd);
@@ -167,7 +143,8 @@ export async function loadProductionChangeUsage(
 
 /** Persists usage/cost telemetry for real agent invocations, tying them to the change being worked on. */
 export async function recordChangeAgentRuns(
-  options: ProductionRuntimeOptions & {
+  options: {
+    cwd?: string;
     changeName: string;
     phase: UsagePhase;
     runs: readonly Pick<AgentRun, "role" | "model" | "tokensIn" | "tokensOut" | "costUsd" | "ms">[];
@@ -180,7 +157,7 @@ export async function recordChangeAgentRuns(
   await recordChangeUsage(store, options.changeName, records);
 }
 
-export async function touchActiveChange(options: ProductionRuntimeOptions & { changeName: string }): Promise<void> {
+export async function touchActiveChange(options: ChangeStateQuery): Promise<void> {
   const cwd = options.cwd ?? process.cwd();
   const store = createChangeUsageStore(cwd);
   await setActiveChange(store, options.changeName, options.now);

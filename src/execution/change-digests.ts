@@ -25,3 +25,12 @@ export function computeDiffDigest(diffText: string): string {
 export function computeSourceDigest(headCommit: string, diffText: string): string {
   return sha256(`${headCommit}\n${diffText}`);
 }
+
+/** Reads HEAD and the working diff from a repository and digests them together. */
+export async function readSourceDigest(git: {
+  head(): Promise<{ commit: string }>;
+  diff(): Promise<string>;
+}): Promise<{ head: string; diff: string; sourceDigest: string }> {
+  const [head, diff] = await Promise.all([git.head(), git.diff()]);
+  return { head: head.commit, diff, sourceDigest: computeSourceDigest(head.commit, diff) };
+}

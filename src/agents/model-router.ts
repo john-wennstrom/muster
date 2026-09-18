@@ -1,4 +1,5 @@
 import type { ModelStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
+import type { HarnessErrorCode } from "../shared/errors.ts";
 import type { UsageRole } from "../telemetry/usage.ts";
 
 export interface ModelCapability {
@@ -29,7 +30,7 @@ export interface ProviderStatus {
 
 export class ModelRoutingError extends Error {
   constructor(
-    readonly code: "MODEL_UNAVAILABLE" | "OPENAI_REQUIRED" | "COPILOT_ADAPTER_REQUIRED",
+    readonly code: Extract<HarnessErrorCode, "MODEL_UNAVAILABLE" | "OPENAI_REQUIRED" | "COPILOT_ADAPTER_REQUIRED">,
     message: string,
     readonly details: Readonly<Record<string, unknown>> = {},
   ) {

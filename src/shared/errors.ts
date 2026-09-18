@@ -7,10 +7,14 @@ export type HarnessErrorCode =
   | "CHANGE_PATH_UNSAFE"
   | "CHANGE_SLUG_COLLISION"
   | "COMMAND_HANDLER_MISSING"
+  | "COPILOT_ADAPTER_REQUIRED"
   | "DEBUGGING_STATE_INVALID"
   | "EXPLORE_AGENT_FAILED"
   | "GIT_COMMAND_FAILED"
   | "GIT_OUTPUT_INVALID"
+  | "MODEL_UNAVAILABLE"
+  | "OPENAI_REQUIRED"
+  | "PLANNING_AGENT_FAILED"
   | "PROCESS_CANCELLED"
   | "PROCESS_SPAWN_FAILED"
   | "PROCESS_TIMEOUT"
@@ -43,6 +47,8 @@ export type HarnessErrorCode =
   | "TASK_SCHEDULER_INVALID"
   | "TASK_COMPLETION_INVALID"
   | "TASK_OUTCOME_INVALID"
+  /** Reserved for a failure that carries no declared code, so every reported code is declared. */
+  | "UNEXPECTED_ERROR"
   | "WORKTREE_UNSAFE";
 
 export class HarnessError extends Error {

@@ -6,7 +6,7 @@ Audit date: 2026-09-17. Target: [OpenSpec-Driven Multi-Agent Development Harness
 
 ### Current command availability
 
-The default [production dependency factory](../src/muster/production-runtime.ts) supplies only an `explore` handler. The [command dispatcher](../src/muster/change-command.ts) implements the `status` fallback itself. Registration and lifecycle checks exist for all nine actions, but registration is not implementation.
+The default [production dependency factory](../src/change/dependencies.ts) supplies only an `explore` handler. The [command dispatcher](../src/change/change-command.ts) implements the `status` fallback itself. Registration and lifecycle checks exist for all nine actions, but registration is not implementation.
 
 | Command | Current default behavior | Remaining work |
 | --- | --- | --- |
@@ -55,7 +55,7 @@ These are implemented building blocks, not a greenfield backlog:
 
 ### P0.1 Production command assembly
 
-Target: design sections 11, 12, 24, 25, 27-29, 33 and 40. Owners: [production runtime](../src/muster/production-runtime.ts), [dispatcher](../src/muster/change-command.ts), [planning](../src/controller/planning.ts), [review](../src/controller/review.ts), [implementation](../src/controller/implement.ts), [verification](../src/controller/verify.ts), [finish](../src/controller/finish.ts).
+Target: design sections 11, 12, 24, 25, 27-29, 33 and 40. Owners: [production runtime](../src/change/dependencies.ts), [dispatcher](../src/change/change-command.ts), [planning](../src/controller/planning.ts), [review](../src/controller/review.ts), [implementation](../src/controller/implement.ts), [verification](../src/controller/verify.ts), [finish](../src/controller/finish.ts).
 
 - [x] **Unwired:** supply production handlers for `propose`, `refine`, `review`, `implement`, `verify`, `finish`, and `resume`. Assemble the existing controllers with real OpenSpec, Git, store, broker, child, and UI dependencies. Do not substitute legacy execution for the new gates.
 - [x] **Partial:** define one command-run context carrying the invocation's repository cwd, resolved planning home, change, worktree, run identity, models, cancellation signal, and output sink. The current factory captures `process.cwd()` and does not receive the Pi command context's cwd.
@@ -73,7 +73,7 @@ Validation (2026-09-18): the P0.1 focused suite passes 71 tests, typecheck passe
 
 Target: design sections 6, 22, 24 and 38, plus the requested Fusion-style multi-column experience. The original design requires observability but does not explicitly mandate columns; visual parity is an additional user requirement.
 
-Evidence: [Fusion runtime and widget starters](../extensions/fusion-harness/fusion-harness.ts), [brokered child runner](../src/agents/child-runner.ts), [production explore](../src/muster/production-runtime.ts), [manual UI](../src/muster/manual-ui.ts). Fusion owns private `startSoloWidget`, `startGridWidget`, `liveRuns`, final panels, and Escape handling. `/change` exposes only `notify` and `sendMessage`, and explore returns only model/content after awaiting the child.
+Evidence: [Fusion runtime and widget starters](../extensions/fusion-harness/fusion-harness.ts), [brokered child runner](../src/agents/child-runner.ts), [production explore](../src/change/phases/exploration.ts), [manual UI](../src/change/manual-ui.ts). Fusion owns private `startSoloWidget`, `startGridWidget`, `liveRuns`, final panels, and Escape handling. `/change` exposes only `notify` and `sendMessage`, and explore returns only model/content after awaiting the child.
 
 - [ ] **Unwired:** extract or expose reusable Fusion presentation machinery behind a shared run observer/presenter. Preserve its existing visual language; do not implement a separate web dashboard or a second orchestration engine.
 - [ ] **Gap:** connect child start, tool activity, response deltas, usage, exit, error, and cancellation to the presenter. Expose the active `AgentRun` or equivalent typed events while work is happening, not only after it completes.
@@ -89,7 +89,7 @@ Acceptance: `/change explore` visibly starts, streams activity, can be stopped, 
 
 ### P0.3 Real OpenSpec state and freshness
 
-Target: design sections 7-11, 17, 26-29, 32 and 35. Evidence: [snapshot loader](../src/muster/production-runtime.ts), [snapshot derivation](../src/controller/change-snapshot.ts), [Git diff](../src/execution/git.ts), [source digests](../src/execution/change-digests.ts), [artifact digest](../src/review/artifact-digest.ts), [schema](../schemas/fusion-driven/schema.yaml), [final validator](../src/review/validator.ts).
+Target: design sections 7-11, 17, 26-29, 32 and 35. Evidence: [snapshot loader](../src/change/snapshot.ts), [snapshot derivation](../src/controller/change-snapshot.ts), [Git diff](../src/execution/git.ts), [source digests](../src/execution/change-digests.ts), [artifact digest](../src/review/artifact-digest.ts), [schema](../schemas/fusion-driven/schema.yaml), [final validator](../src/review/validator.ts).
 
 - [ ] **Partial:** collect OpenSpec status first and honor `changeRoot`, `artifactPaths`, planning home, and instruction-resolved paths. The current loader assumes `cwd/openspec/changes/<name>` and returns null without tasks, so a valid proposal-only change cannot be represented as planning.
 - [ ] **Gap:** preserve explicit adapter errors for missing executable, incompatible JSON, missing artifacts, and I/O failures. The collector currently catches every status error as `planningComplete = false` and every discovery/hash error as a sentinel digest, hiding the cause.
@@ -199,7 +199,7 @@ Acceptance: aliases have the same durable outcomes and safety gates as `/change`
 
 ### P1.6 Telemetry and compact run summaries
 
-Target: design sections 2, 18, 21-23, 32 and 38. Evidence: [usage records](../src/telemetry/usage.ts), [change usage store](../src/persistence/change-usage-store.ts), [budgets](../src/telemetry/budget.ts), [reports](../src/telemetry/report.ts), [production runtime](../src/muster/production-runtime.ts).
+Target: design sections 2, 18, 21-23, 32 and 38. Evidence: [usage records](../src/telemetry/usage.ts), [change usage store](../src/persistence/change-usage-store.ts), [budgets](../src/telemetry/budget.ts), [reports](../src/telemetry/report.ts), [production runtime](../src/change/dependencies.ts).
 
 - [ ] **Partial:** instrument every production invocation, including explore, opinions, debate, synthesis, builder retries, task reviews, final validator, failures, and cancellations. Explore currently discards its `AgentRun` usage when returning model/content; legacy recording is only a partial path.
 - [ ] **Partial:** preserve provider input/cache-read/cache-write/output/cost fields at event ingestion. The legacy aggregate adapter cannot recover cache fields and treats zero cost as unknown. Distinguish exact zero, unavailable cost, estimated cost, and partial totals.

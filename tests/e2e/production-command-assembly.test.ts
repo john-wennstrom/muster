@@ -4,8 +4,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ChangeSnapshot } from "../../src/controller/change-snapshot.ts";
 import type { ChangeAction } from "../../src/controller/action-resolver.ts";
 import registerMuster from "../../src/muster/index.ts";
-import type { CommandOutcome } from "../../src/runtime/command.ts";
-import type { ProductionRuntimeOptions } from "../../src/runtime/dependencies.ts";
+import type { CommandOutcome } from "../../src/change/command.ts";
+import type { ProductionRuntimeOptions } from "../../src/change/dependencies.ts";
 
 interface RegisteredCommand {
   description: string;

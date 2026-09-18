@@ -1,17 +1,20 @@
 import { OpenSpecAdapter } from "../openspec/adapter.ts";
 import { changeRunId, createChangeUsageStore, getActiveChange } from "../persistence/change-usage-store.ts";
 import { HarnessError } from "../shared/errors.ts";
-import { createExploreHandler } from "../muster/explore.ts";
-import { createProposeHandler } from "../muster/propose.ts";
-import { createRefineHandler } from "../muster/refine.ts";
-import { createReviewHandler } from "../muster/review.ts";
-import { createImplementHandler } from "../muster/implement.ts";
-import { createResumeHandler } from "../muster/resume.ts";
-import { createVerifyHandler } from "../muster/verify.ts";
-import { createFinishHandler } from "../muster/finish.ts";
-import { createStatusHandler } from "../muster/status.ts";
-import type { ChangeCommandDependencies } from "./change-command.ts";
+import { createExploreHandler } from "./handlers/explore.ts";
+import { createProposeHandler } from "./handlers/propose.ts";
+import { createRefineHandler } from "./handlers/refine.ts";
+import { createReviewHandler } from "./handlers/review.ts";
+import { createImplementHandler } from "./handlers/implement.ts";
+import { createResumeHandler } from "./handlers/resume.ts";
+import { createVerifyHandler } from "./handlers/verify.ts";
+import { createFinishHandler } from "./handlers/finish.ts";
+import { createStatusHandler } from "./handlers/status.ts";
+import type { ChangeCommandDependencies } from "./context.ts";
+import { emitOutcome } from "./outcome.ts";
+import { changeCommandSpec } from "./commands.ts";
 import {
+  changeStateQuery,
   createCommandRunContext,
   createCommandRunId,
   renderCommandOutcome,
@@ -20,7 +23,7 @@ import {
   type ProductionRuntimeOptions,
   type ResolvedChange,
 } from "./command.ts";
-import { resolveProductionModelStack } from "./planning.ts";
+import { resolveModelStack, roleModel } from "./models.ts";
 import {
   loadProductionChangeSnapshot,
   loadProductionChangeUsage,
@@ -37,7 +40,7 @@ export {
 };
 
 /** Assembles the production `/change` handler for every command by wiring the per-command
- * factories in `src/muster/*.ts` to real OpenSpec/Git/store/broker/child/UI dependencies. */
+ * factories in `src/change/handlers/*.ts` to real OpenSpec/Git/store/broker/child/UI dependencies. */
 export function createProductionChangeCommandDependencies(
   options: ProductionRuntimeOptions = {},
 ): ChangeCommandDependencies {
@@ -91,7 +94,8 @@ export function createProductionChangeCommandDependencies(
       resolvedChanges.set(change.name, change);
       return change.name;
     },
-    activateChange: (changeName) => (options.ports?.activateChange ?? touchActiveChange)({ ...options, cwd, changeName }),
+    activateChange: (changeName) =>
+      (options.ports?.activateChange ?? touchActiveChange)(changeStateQuery(options, cwd, changeName)),
     async createRunContext(command, context) {
       const change = command.changeName
         ? resolvedChanges.get(command.changeName) ?? await resolveProductionChange({
@@ -100,36 +104,38 @@ export function createProductionChangeCommandDependencies(
           allowMissing: command.action === "propose",
         })
         : undefined;
-      const stack = command.action === "status" ? undefined : resolveProductionModelStack(options.argv);
-      const stateful = ["implement", "resume", "verify", "finish"].includes(command.action);
+      const runIdentity = changeCommandSpec(command.action).runIdentity;
       return createCommandRunContext({
         action: command.action,
         repositoryCwd: cwd,
         planningHome: change?.planningHome ?? cwd,
         change,
-        runId: command.action === "status" || command.action === "explore"
+        runId: runIdentity === "none"
           ? undefined
-          : stateful && command.changeName
+          : runIdentity === "per-change" && command.changeName
             ? changeRunId(command.changeName)
             : createCommandRunId(command.action, command.changeName),
-        models: {
-          architect: stack?.architect.model,
-          builder: stack?.primaryBuilder.model,
-          reviewer: stack?.builders.find((slot) => slot.model !== stack.architect.model)?.model ?? stack?.primaryBuilder.model,
-          validator: stack?.architect.model,
+        models: () => {
+          const stack = resolveModelStack(options.argv);
+          return {
+            architect: roleModel(stack, "architect"),
+            builder: roleModel(stack, "builder"),
+            reviewer: roleModel(stack, "reviewer"),
+            validator: roleModel(stack, "validator"),
+          };
         },
         signal: options.signal ?? context.signal,
         output: {
           write(outcome) {
-            const rendered = renderCommandOutcome(outcome);
-            if (context.sendMessage) context.sendMessage(rendered);
-            else context.ui.notify(rendered, outcome.status === "failure" ? "error" : outcome.status === "success" ? "info" : "warning");
+            emitOutcome(context, outcome);
           },
         },
       });
     },
-    loadSnapshot: (changeName) => (options.ports?.loadSnapshot ?? loadProductionChangeSnapshot)({ ...options, cwd, changeName }),
-    loadChangeUsage: (changeName) => (options.ports?.loadUsage ?? loadProductionChangeUsage)({ ...options, cwd, changeName }),
+    loadSnapshot: (changeName) =>
+      (options.ports?.loadSnapshot ?? loadProductionChangeSnapshot)(changeStateQuery(options, cwd, changeName)),
+    loadChangeUsage: (changeName) =>
+      (options.ports?.loadUsage ?? loadProductionChangeUsage)(changeStateQuery(options, cwd, changeName)),
     handlers: {
       explore: createExploreHandler(cwd, options),
       propose: createProposeHandler(cwd, options),

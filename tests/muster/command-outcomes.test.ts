@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { HarnessError } from "../../src/shared/errors.ts";
-import { registerChangeCommand, type ChangeCommandDependencies } from "../../src/runtime/change-command.ts";
+import { registerChangeCommand, type ChangeCommandDependencies } from "../../src/change/change-command.ts";
 
 function registeredHarness(dependencies: ChangeCommandDependencies) {
   let handler: ((args: string, context: unknown) => Promise<void>) | undefined;

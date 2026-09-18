@@ -1,6 +1,6 @@
 ## 1. Shared Helper Extraction
 
-- [ ] 1.1 Extract command-line flag reading, path existence probing, and path containment checking into single shared owners; delete the duplicate copies in the explore handler, planning runner, command module, snapshot module, and verify handler, and verify the full suite still matches the recorded baseline.
+- [x] 1.1 Extract command-line flag reading, path existence probing, and path containment checking into single shared owners; delete the duplicate copies in the explore handler, planning runner, command module, snapshot module, and verify handler, and verify the full suite still matches the recorded baseline.
 
   ```yaml harness-task
   id: "1.1"
@@ -14,7 +14,7 @@
   manual: null
   ```
 
-- [ ] 1.2 Extract persisted record reading and change run-store opening (store, run identity, manifest read/write) into single owners under the persistence layer; replace the duplicate record readers and repeated store/run-identity/manifest expressions in the implementation runner, verify handler, finish handler, and snapshot module, and verify persistence tests still pass.
+- [x] 1.2 Extract persisted record reading and change run-store opening (store, run identity, manifest read/write) into single owners under the persistence layer; replace the duplicate record readers and repeated store/run-identity/manifest expressions in the implementation runner, verify handler, finish handler, and snapshot module, and verify persistence tests still pass.
 
   ```yaml harness-task
   id: "1.2"
@@ -28,7 +28,7 @@
   manual: null
   ```
 
-- [ ] 1.3 Extract validated task-document loading and source-digest reading into single owners under the execution layer; replace the duplicated task-loading blocks in the implementation runner and verify handler and the repeated head/diff/digest expressions, and verify execution tests still pass.
+- [x] 1.3 Extract validated task-document loading and source-digest reading into single owners under the execution layer; replace the duplicated task-loading blocks in the implementation runner and verify handler and the repeated head/diff/digest expressions, and verify execution tests still pass.
 
   ```yaml harness-task
   id: "1.3"
@@ -44,7 +44,7 @@
 
 ## 2. Transcript Presentation Identity
 
-- [ ] 2.1 Add the branding module exporting the custom message type, widget-key derivation, and outcome-derived details type; replace the private dispatcher literal and the hand-built widget-key prefix in agent progress, and add a test asserting the widget key and message type share one source.
+- [x] 2.1 Add the branding module exporting the custom message type, widget-key derivation, and outcome-derived details type; replace the private dispatcher literal and the hand-built widget-key prefix in agent progress, and add a test asserting the widget key and message type share one source.
 
   ```yaml harness-task
   id: "2.1"
@@ -58,7 +58,7 @@
   manual: null
   ```
 
-- [ ] 2.2 Widen the transcript-posting seam to accept an outcome in addition to a string, attach the structured details payload, register a message renderer for the custom type, and verify by test that rendered content is unchanged for hosts without a renderer while details are present for hosts with one.
+- [x] 2.2 Widen the transcript-posting seam to accept an outcome in addition to a string, attach the structured details payload, register a message renderer for the custom type, and verify by test that rendered content is unchanged for hosts without a renderer while details are present for hosts with one.
 
   ```yaml harness-task
   id: "2.2"
@@ -74,7 +74,7 @@
 
 ## 3. Declared Command Metadata
 
-- [ ] 3.1 Add the per-action metadata table declaring argument shape, change requirement, lifecycle gating, and run-identity kind, typed so an action missing a declaration fails typechecking; verify the table covers every advertised action.
+- [x] 3.1 Add the per-action metadata table declaring argument shape, change requirement, lifecycle gating, and run-identity kind, typed so an action missing a declaration fails typechecking; verify the table covers every advertised action.
 
   ```yaml harness-task
   id: "3.1"
@@ -88,7 +88,7 @@
   manual: null
   ```
 
-- [ ] 3.2 Derive argument parsing, usage strings, the advertised subcommand list, active-change persistence, and run-identity selection from the metadata table; remove the inline per-action special cases in the dispatcher and the hardcoded stateful-action list in the dependency assembly, and verify free-text parsing and arity rejection behave per the table.
+- [x] 3.2 Derive argument parsing, usage strings, the advertised subcommand list, active-change persistence, and run-identity selection from the metadata table; remove the inline per-action special cases in the dispatcher and the hardcoded stateful-action list in the dependency assembly, and verify free-text parsing and arity rejection behave per the table.
 
   ```yaml harness-task
   id: "3.2"
@@ -104,7 +104,7 @@
 
 ## 4. Uniform Handler Contract
 
-- [ ] 4.1 Add the handler definition factory producing the normalized request (change name typed by the action's declaration, joined free-text argument, raw arguments, working directory, merged signal, run identity, agent-run observer, actor, memoized snapshot accessor) and attaching action and change name to the returned outcome; verify with tests covering a required-change action, a missing required change, and cancellation.
+- [x] 4.1 Add the handler definition factory producing the normalized request (change name typed by the action's declaration, joined free-text argument, raw arguments, working directory, merged signal, run identity, agent-run observer, actor, memoized snapshot accessor) and attaching action and change name to the returned outcome; verify with tests covering a required-change action, a missing required change, and cancellation.
 
   ```yaml harness-task
   id: "4.1"
@@ -118,7 +118,7 @@
   manual: null
   ```
 
-- [ ] 4.2 Rewrite all nine subcommand handlers against the factory, removing the non-null change-name assertions, repeated prompt joins, signal merges, observer forwarding, snapshot-loading expressions, and restated action and change-name fields; verify every advertised action still reaches its phase through the default registration.
+- [x] 4.2 Rewrite all nine subcommand handlers against the factory, removing the non-null change-name assertions, repeated prompt joins, signal merges, observer forwarding, snapshot-loading expressions, and restated action and change-name fields; verify every advertised action still reaches its phase through the default registration.
 
   ```yaml harness-task
   id: "4.2"
@@ -132,7 +132,7 @@
   manual: null
   ```
 
-- [ ] 4.3 Populate the confirming actor from the host invocation context and confirm the verification and finish phases now forward the agent-run observer; verify by tests that a confirmed checkpoint records the host-supplied actor and that agent runs started by those two phases appear in progress and usage output.
+- [x] 4.3 Populate the confirming actor from the host invocation context and confirm the verification and finish phases now forward the agent-run observer; verify by tests that a confirmed checkpoint records the host-supplied actor and that agent runs started by those two phases appear in progress and usage output.
 
   ```yaml harness-task
   id: "4.3"
@@ -148,7 +148,7 @@
 
 ## 5. Model Resolution and Options Seam
 
-- [ ] 5.1 Consolidate model resolution into one resolver applying environment override, configured stack slot, command-line flag, then a single declared fallback per role; add per-role environment overrides, remove the duplicated fallback model literals, and verify precedence by test for a non-exploration role.
+- [x] 5.1 Consolidate model resolution into one resolver applying environment override, configured stack slot, command-line flag, then a single declared fallback per role; add per-role environment overrides, remove the duplicated fallback model literals, and verify precedence by test for a non-exploration role.
 
   ```yaml harness-task
   id: "5.1"
@@ -162,7 +162,7 @@
   manual: null
   ```
 
-- [ ] 5.2 Split the runtime options bag into configuration and test overrides, narrow each substitution point to its declared inputs, and give the finish phase its own options type instead of reusing the verification phase's; verify substituted boundaries no longer receive sibling substitution points.
+- [x] 5.2 Split the runtime options bag into configuration and test overrides, narrow each substitution point to its declared inputs, and give the finish phase its own options type instead of reusing the verification phase's; verify substituted boundaries no longer receive sibling substitution points.
 
   ```yaml harness-task
   id: "5.2"
@@ -176,7 +176,7 @@
   manual: null
   ```
 
-- [ ] 5.3 Remove per-invocation state construction that no handler reads, including the eager change and model-stack resolution performed for read-only actions, and verify by test that a status invocation performs no model-stack resolution and that every retained field has a consumer.
+- [x] 5.3 Remove per-invocation state construction that no handler reads, including the eager change and model-stack resolution performed for read-only actions, and verify by test that a status invocation performs no model-stack resolution and that every retained field has a consumer.
 
   ```yaml harness-task
   id: "5.3"
@@ -192,7 +192,7 @@
 
 ## 6. Verification
 
-- [ ] 6.1 Run the full cross-platform validation set and compare the pass/fail counts against the recorded pre-existing platform baseline, confirming no new failures were introduced by any step.
+- [x] 6.1 Run the full cross-platform validation set and compare the pass/fail counts against the recorded pre-existing platform baseline, confirming no new failures were introduced by any step.
 
   ```yaml harness-task
   id: "6.1"
@@ -206,7 +206,7 @@
   manual: null
   ```
 
-- [ ] 6.2 Smoke-test each phase live against a real child-process spawn, confirming transcript rendering, live progress for every phase including verification and finish, and model selection under a configured model stack.
+- [x] 6.2 Smoke-test each phase live against a real child-process spawn, confirming transcript rendering, live progress for every phase including verification and finish, and model selection under a configured model stack.
 
   ```yaml harness-task
   id: "6.2"

@@ -1,14 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { lstat, readdir, realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { readdir, realpath } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
 import type { ChangeAction } from "../controller/action-resolver.ts";
 import type { ChangeSnapshot } from "../controller/change-snapshot.ts";
 import type { ChangeUsageSummary } from "../persistence/change-usage-store.ts";
-import type { ProductionPlanningOptions } from "./planning.ts";
-import type { ProductionImplementationOptions } from "./implementation.ts";
-import type { ProductionReviewOptions } from "../muster/review.ts";
-import type { ProductionVerificationOptions } from "../muster/verify.ts";
+import type { ProductionPlanningOptions } from "./phases/planning.ts";
+import type { ProductionImplementationOptions } from "./phases/implementation.ts";
+import type { ProductionReviewOptions } from "./phases/review.ts";
+import type { ProductionVerificationOptions } from "./phases/verification.ts";
+import type { ProductionFinishOptions } from "./phases/finish.ts";
+import type { ProductionExplorationOptions } from "./phases/exploration.ts";
+import { pathExists } from "../shared/fs.ts";
+import { isWithin } from "../shared/paths.ts";
 import { HarnessError } from "../shared/errors.ts";
 
 export type CommandOutcomeStatus = "success" | "blocked" | "cancelled" | "failure";
@@ -82,13 +86,18 @@ export interface CreateCommandRunContextOptions {
   change?: ResolvedChange;
   worktree?: ResolvedWorktree;
   runId?: string;
-  models?: ResolvedRoleModels;
+  /** A thunk defers model resolution until a consumer actually reads `models`. */
+  models?: ResolvedRoleModels | (() => ResolvedRoleModels);
   signal?: AbortSignal;
   output: CommandOutputSink;
 }
 
 export function createCommandRunContext(options: CreateCommandRunContextOptions): CommandRunContext {
   const planningHome = resolve(options.planningHome ?? options.repositoryCwd);
+  const resolveModels = typeof options.models === "function"
+    ? options.models
+    : () => ({ ...options.models });
+  let models: Readonly<ResolvedRoleModels> | undefined;
   return Object.freeze({
     action: options.action,
     repositoryCwd: resolve(options.repositoryCwd),
@@ -96,7 +105,10 @@ export function createCommandRunContext(options: CreateCommandRunContextOptions)
     change: options.change ? Object.freeze({ ...options.change }) : undefined,
     worktree: options.worktree ? Object.freeze({ ...options.worktree }) : undefined,
     runId: options.runId,
-    models: Object.freeze({ ...options.models }),
+    get models(): Readonly<ResolvedRoleModels> {
+      models ??= Object.freeze(resolveModels());
+      return models;
+    },
     signal: options.signal ?? new AbortController().signal,
     output: options.output,
   });
@@ -128,23 +140,8 @@ export function validateChangeSlug(value: string): string {
   return slug;
 }
 
-function isWithin(parent: string, candidate: string): boolean {
-  const path = relative(parent, candidate);
-  return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
-}
-
 function normalizedDirectoryKey(value: string): string {
   return value.normalize("NFC").toLocaleLowerCase("en-US");
-}
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await lstat(path);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
-  }
 }
 
 export interface ResolveProductionChangeOptions {
@@ -203,7 +200,7 @@ export async function resolveProductionChange(
       { name, changesDirectory, changeRoot: changeRootCandidate },
     );
   }
-  const changeExists = await exists(changeRootCandidate);
+  const changeExists = await pathExists(changeRootCandidate);
   if (!changeExists && !options.allowMissing) {
     throw new HarnessError(
       "CHANGE_NOT_FOUND",
@@ -237,28 +234,48 @@ export function renderCommandOutcome(outcome: CommandOutcome): string {
   return fields.join("\n");
 }
 
-export interface ProductionRuntimeOptions {
+/** Invocation configuration: everything the runtime needs to do real work. */
+export interface RuntimeConfig {
   cwd?: string;
   now?: () => string;
   signal?: AbortSignal;
   argv?: readonly string[];
   onAgentStart?(run: AgentRun): void;
+}
+
+/** The narrow input every change-state port accepts, instead of the whole options bag. */
+export interface ChangeStateQuery {
+  cwd: string;
+  changeName: string;
+  signal?: AbortSignal;
+  now?: () => string;
+}
+
+/** Test-only substitution points, kept separate from configuration. */
+export interface RuntimeOverrides {
   runners?: {
-    explore?(options: {
-      cwd: string;
-      prompt: string;
-      signal?: AbortSignal;
-    }): Promise<CommandOutcome>;
+    explore?(options: ProductionExplorationOptions): Promise<CommandOutcome>;
     planning?(options: ProductionPlanningOptions): Promise<CommandOutcome>;
     review?(options: ProductionReviewOptions): Promise<CommandOutcome>;
     implementation?(options: ProductionImplementationOptions): Promise<CommandOutcome>;
     verification?(options: ProductionVerificationOptions): Promise<CommandOutcome>;
-    finish?(options: ProductionVerificationOptions): Promise<CommandOutcome>;
+    finish?(options: ProductionFinishOptions): Promise<CommandOutcome>;
   };
   ports?: {
     resolveChange?(options: ResolveProductionChangeOptions): Promise<ResolvedChange>;
-    loadSnapshot?(options: ProductionRuntimeOptions & { changeName: string }): Promise<ChangeSnapshot | null>;
-    loadUsage?(options: ProductionRuntimeOptions & { changeName: string }): Promise<ChangeUsageSummary | null>;
-    activateChange?(options: ProductionRuntimeOptions & { changeName: string }): Promise<void>;
+    loadSnapshot?(query: ChangeStateQuery): Promise<ChangeSnapshot | null>;
+    loadUsage?(query: ChangeStateQuery): Promise<ChangeUsageSummary | null>;
+    activateChange?(query: ChangeStateQuery): Promise<void>;
   };
+}
+
+export interface ProductionRuntimeOptions extends RuntimeConfig, RuntimeOverrides {}
+
+/** Narrows the invocation options to the inputs a change-state port accepts. */
+export function changeStateQuery(
+  options: RuntimeConfig,
+  cwd: string,
+  changeName: string,
+): ChangeStateQuery {
+  return { cwd, changeName, signal: options.signal, now: options.now };
 }

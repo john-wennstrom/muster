@@ -5,10 +5,11 @@ import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { newRun } from "../../extensions/fusion-harness/modules/runtime.ts";
-import { createAgentProgress, agentUsageLine } from "../../src/runtime/agent-progress.ts";
-import { registerChangeCommand } from "../../src/runtime/change-command.ts";
-import { createProductionChangeCommandDependencies } from "../../src/runtime/dependencies.ts";
-import { createProductionExploreDependencies } from "../../src/muster/explore.ts";
+import { createAgentProgress, agentUsageLine } from "../../src/change/agent-progress.ts";
+import { MUSTER_CUSTOM_TYPE, musterWidgetKey } from "../../src/change/branding.ts";
+import { registerChangeCommand } from "../../src/change/change-command.ts";
+import { createProductionChangeCommandDependencies } from "../../src/change/dependencies.ts";
+import { createProductionExploreDependencies } from "../../src/change/phases/exploration.ts";
 import { runProcess } from "../../src/shared/process.ts";
 
 const directories: string[] = [];
@@ -111,6 +112,15 @@ describe("change agent progress", () => {
     expect(agentUsageLine(run)).toContain("cost unavailable");
     run.costReported = true;
     expect(agentUsageLine(run)).toContain("~$0.0000");
+  });
+
+  test("the progress widget key and the transcript message type share one source", () => {
+    const subject = uiHarness();
+    const progress = createAgentProgress({ command: "propose", ui: subject.ui, sendMessage() {} });
+    progress.observe(newRun("ARCHITECT", "provider/architect"));
+    progress.finish();
+    expect(musterWidgetKey("progress").startsWith(`${MUSTER_CUSTOM_TYPE}-`)).toBe(true);
+    expect(subject.cleared[0]!.startsWith(`${MUSTER_CUSTOM_TYPE}-`)).toBe(true);
   });
 
   test("later agents remain visible after the first five invocations", () => {

@@ -1,48 +1,29 @@
 import { createHash } from "node:crypto";
-import { lstat, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { dependencyReportSchema } from "../agents/reports.ts";
-import { verifyChange } from "../controller/verify.ts";
-import { computeSourceDigest } from "../execution/change-digests.ts";
-import { GitAdapter } from "../execution/git.ts";
-import { parseTaskDocument } from "../execution/task-parser.ts";
-import { validateTaskDocument } from "../execution/task-schema.ts";
-import { OpenSpecAdapter } from "../openspec/adapter.ts";
-import { createChangeUsageStore, changeRunId } from "../persistence/change-usage-store.ts";
+import { dependencyReportSchema } from "../../agents/reports.ts";
+import { verifyChange } from "../../controller/verify.ts";
+import { computeSourceDigest, readSourceDigest } from "../../execution/change-digests.ts";
+import { GitAdapter } from "../../execution/git.ts";
+import { loadValidatedTaskDocument } from "../../execution/load-tasks.ts";
+import { OpenSpecAdapter } from "../../openspec/adapter.ts";
+import { openChangeRun } from "../../persistence/run-store.ts";
 import {
   checkpointRecordSchema,
   reviewRecordSchema,
-  runManifestSchema,
   taskResultSchema,
   validationRecordSchema,
-} from "../persistence/records.ts";
-import { discoverReviewedArtifacts, hashReviewedArtifacts } from "../review/artifact-digest.ts";
-import { parseReviewArtifact } from "../review/review-artifact.ts";
-import type { CommandEvidence, FinalValidatorDependencies } from "../review/validator.ts";
-import { runHostCommand } from "../tools/host-runner.ts";
-import type { ParsedChangeCommand, ChangeCommandContext } from "../runtime/change-command.ts";
-import type { CommandOutcome, ProductionRuntimeOptions } from "../runtime/command.ts";
-import { parseVerificationCommand } from "../runtime/implementation.ts";
-import { resolveProductionModelStack } from "../runtime/planning.ts";
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await lstat(path);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
-  }
-}
-
-async function readDirectoryRecords<T>(
-  store: ReturnType<typeof createChangeUsageStore>,
-  runId: string,
-  directory: string,
-  schema: { parse(value: unknown): T },
-): Promise<T[]> {
-  return Promise.all((await store.list(runId, directory)).map(async (path) => schema.parse(await store.read(runId, path))));
-}
+} from "../../persistence/records.ts";
+import { discoverReviewedArtifacts, hashReviewedArtifacts } from "../../review/artifact-digest.ts";
+import { parseReviewArtifact } from "../../review/review-artifact.ts";
+import type { CommandEvidence, FinalValidatorDependencies } from "../../review/validator.ts";
+import { pathExists } from "../../shared/fs.ts";
+import { runHostCommand } from "../../tools/host-runner.ts";
+import type { AgentRunObserver } from "../agent-progress.ts";
+import type { CommandOutcome } from "../command.ts";
+import { defineChangeHandler } from "../handler.ts";
+import { parseVerificationCommand } from "../../execution/verification-command.ts";
+import { resolveModelStack } from "../models.ts";
 
 export interface ProductionVerificationPorts {
   runCommand?(command: string, worktree: string, signal?: AbortSignal): Promise<CommandEvidence>;
@@ -51,6 +32,7 @@ export interface ProductionVerificationPorts {
 export interface ProductionVerificationOptions {
   cwd: string;
   changeName: string;
+  onAgentStart?: AgentRunObserver;
   signal?: AbortSignal;
   argv?: readonly string[];
   openSpec?: OpenSpecAdapter;
@@ -69,36 +51,27 @@ async function verificationState(options: ProductionVerificationOptions) {
   const artifacts = await discoverReviewedArtifacts(options.cwd, changeRoot);
   const artifactDigest = await hashReviewedArtifacts(artifacts);
   const tasksPath = status.artifactPaths.tasks?.existingOutputPaths[0] ?? resolve(changeRoot, "tasks.md");
-  const tasksContents = await readFile(tasksPath, "utf8");
-  const parsed = parseTaskDocument(tasksContents, tasksPath);
-  const requirements = new Set<string>();
-  const scenarios = new Set<string>();
-  for (const task of parsed.tasks) {
-    const metadata = task.metadata as { requirements?: unknown; scenarios?: unknown };
-    if (Array.isArray(metadata.requirements)) for (const value of metadata.requirements) if (typeof value === "string") requirements.add(value);
-    if (Array.isArray(metadata.scenarios)) for (const value of metadata.scenarios) if (typeof value === "string") scenarios.add(value);
-  }
-  const tasks = validateTaskDocument(parsed, { requirements, scenarios }).tasks;
-  const runId = changeRunId(options.changeName);
-  const store = createChangeUsageStore(options.cwd);
-  const manifest = runManifestSchema.parse(await store.read(runId, "manifest.json"));
+  const tasks = (await loadValidatedTaskDocument(tasksPath)).document.tasks;
+  const run = openChangeRun(options.cwd, options.changeName);
+  const manifest = await run.readManifest();
   const [taskResults, reviews, reports, checkpoints] = await Promise.all([
-    readDirectoryRecords(store, runId, "task-results", taskResultSchema),
-    readDirectoryRecords(store, runId, "reviews", reviewRecordSchema),
-    readDirectoryRecords(store, runId, "reports", dependencyReportSchema),
-    readDirectoryRecords(store, runId, "checkpoints", checkpointRecordSchema),
+    run.readRecords("task-results", taskResultSchema),
+    run.readRecords("reviews", reviewRecordSchema),
+    run.readRecords("reports", dependencyReportSchema),
+    run.readRecords("checkpoints", checkpointRecordSchema),
   ]);
   const git = new GitAdapter(manifest.worktree.path, undefined, undefined, options.signal);
-  const [identity, head, gitStatus, diff, worktrees] = await Promise.all([
+  const [identity, gitStatus, worktrees, source] = await Promise.all([
     git.identity(),
-    git.head(),
     git.status(),
-    git.diff(),
     git.worktrees(),
+    readSourceDigest(git),
   ]);
-  const sourceDigest = computeSourceDigest(head.commit, diff);
+  const head = { commit: source.head };
+  const diff = source.diff;
+  const sourceDigest = source.sourceDigest;
   const reviewPath = resolve(changeRoot, "review.md");
-  const planningReview = await exists(reviewPath)
+  const planningReview = await pathExists(reviewPath)
     ? parseReviewArtifact(await readFile(reviewPath, "utf8"), reviewPath)
     : null;
   const runCommand = options.ports?.runCommand ?? (async (command: string, worktree: string, signal?: AbortSignal) => {
@@ -146,7 +119,7 @@ async function verificationState(options: ProductionVerificationOptions) {
     }),
     checkDesign: async () => {
       const designPath = resolve(changeRoot, "design.md");
-      const available = await exists(designPath);
+      const available = await pathExists(designPath);
       return {
         available,
         aligned: available && reviews.every((review) => review.verdict === "APPROVE"),
@@ -183,8 +156,8 @@ async function verificationState(options: ProductionVerificationOptions) {
     head,
     diff,
     tasks,
-    runId,
-    store,
+    runId: run.runId,
+    store: run.store,
     manifest,
     dependencies,
     collectCommands,
@@ -197,7 +170,7 @@ function createHashDigest(value: string): string {
 
 export async function runProductionVerification(options: ProductionVerificationOptions): Promise<CommandOutcome> {
   const state = await verificationState(options);
-  const stack = resolveProductionModelStack(options.argv);
+  const stack = resolveModelStack(options.argv);
   const commandEvidence = await state.collectCommands();
   const result = await verifyChange({
     changeName: options.changeName,
@@ -243,20 +216,5 @@ export async function runProductionVerification(options: ProductionVerificationO
     summary: `Final verification ${result.validation.result}: ${result.validation.blockingReasons.join("; ") || "all gates passed"}.`,
     next: `/change ${result.nextAction} ${options.changeName}`,
     blocker: result.validation.result === "FAIL" ? { kind: "invalid_evidence", message: result.validation.blockingReasons.join("; ") } : undefined,
-  };
-}
-
-/** Builds the `/change verify` handler bound to the given cwd/options closure. */
-export function createVerifyHandler(cwd: string, options: ProductionRuntimeOptions) {
-  return async function verifyHandler(
-    command: ParsedChangeCommand & { changeName?: string },
-    _context: ChangeCommandContext,
-  ): Promise<CommandOutcome | void> {
-    return (options.runners?.verification ?? runProductionVerification)({
-      cwd,
-      changeName: command.changeName!,
-      signal: options.signal,
-      argv: options.argv,
-    });
   };
 }

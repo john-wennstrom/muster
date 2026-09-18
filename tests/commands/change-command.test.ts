@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   changeUsage,
+  changeSubcommands,
   dispatchChangeCommand,
   parseChangeCommand,
   type ChangeCommandDependencies,
-} from "../../src/runtime/change-command.ts";
+} from "../../src/change/change-command.ts";
+import { changeCommands } from "../../src/change/commands.ts";
+import { musterChangeDetails, type MusterChangeDetails } from "../../src/change/branding.ts";
+import { renderCommandOutcome, type CommandOutcome } from "../../src/change/command.ts";
 import type { ChangeSnapshot } from "../../src/controller/change-snapshot.ts";
 import { HOST_EXECUTION_SECURITY_NOTICE } from "../../src/tools/command-profile.ts";
 
@@ -26,6 +30,7 @@ function harness(lifecycle: ChangeSnapshot["lifecycle"] = "READY") {
   const notifications: string[] = [];
   const mutations: string[] = [];
   const sentMessages: string[] = [];
+  const sentDetails: MusterChangeDetails[] = [];
   const dependencies: ChangeCommandDependencies = {
     resolveChangeName: async (explicit) => explicit ?? "add-search",
     loadSnapshot: async () => snapshot(lifecycle),
@@ -37,10 +42,15 @@ function harness(lifecycle: ChangeSnapshot["lifecycle"] = "READY") {
     notifications,
     mutations,
     sentMessages,
+    sentDetails,
     dependencies,
     context: {
       ui: { notify: (message: string) => notifications.push(message) },
-      sendMessage: (content: string) => sentMessages.push(content),
+      // Mirrors a real host: renders the outcome to content and keeps its structured details.
+      sendMessage: (message: CommandOutcome | string) => {
+        sentMessages.push(typeof message === "string" ? message : renderCommandOutcome(message));
+        if (typeof message !== "string") sentDetails.push(musterChangeDetails(message));
+      },
     },
   };
 }
@@ -100,6 +110,33 @@ describe("change command", () => {
     expect(subject.notifications).toEqual([]);
   });
 
+  test("outcomes reach the transcript with structured details alongside their rendered content", async () => {
+    const subject = harness("READY");
+    subject.dependencies.handlers.implement = async () => ({
+      status: "success" as const,
+      action: "implement" as const,
+      changeName: "add-search",
+      runId: "run-add-search",
+      summary: "Implemented 3 tasks.",
+    });
+    await dispatchChangeCommand("implement add-search", subject.context, subject.dependencies);
+    expect(subject.sentDetails).toEqual([{
+      action: "implement",
+      changeName: "add-search",
+      status: "success",
+      runId: "run-add-search",
+      code: undefined,
+    }]);
+    expect(subject.sentMessages[0]).toContain("Implemented 3 tasks.");
+  });
+
+  test("a host without sendMessage still receives the rendered outcome as a notification", async () => {
+    const subject = harness("REVIEW_REQUIRED");
+    const context = { ui: subject.context.ui };
+    await dispatchChangeCommand("implement add-search", context, subject.dependencies);
+    expect(subject.notifications[0]).toContain("Next: /change review add-search");
+  });
+
   test("standalone exploration never resolves or loads a remembered change", async () => {
     const subject = harness();
     let resolved = false;
@@ -141,5 +178,37 @@ describe("parseChangeCommand", () => {
       changeName: "add-search",
       arguments: ["Add", "full", "text", "search"],
     });
+  });
+});
+
+describe("changeCommands", () => {
+  test("every advertised subcommand is declared", () => {
+    expect([...changeSubcommands].sort()).toEqual((Object.keys(changeCommands) as typeof changeSubcommands).toSorted());
+    for (const action of changeSubcommands) {
+      const spec = changeCommands[action];
+      expect(spec.usage.startsWith(`/change ${action}`)).toBe(true);
+      expect(spec.arity.max === null || spec.arity.max >= spec.arity.min).toBe(true);
+    }
+  });
+
+  test("free-text parsing follows the declared argument shape", () => {
+    for (const action of changeSubcommands) {
+      const parsed = parseChangeCommand(`${action} add-search rest of it`)!;
+      const expectsChange = changeCommands[action].args !== "free-text";
+      expect(parsed.changeName).toEqual(expectsChange ? "add-search" : undefined);
+    }
+  });
+
+  test("an argument count outside the declared arity is blocked before any phase work", async () => {
+    const subject = harness("READY");
+    const activated: string[] = [];
+    subject.dependencies.activateChange = async (changeName) => { activated.push(changeName); };
+    subject.dependencies.handlers.resume = async () => { throw new Error("handler must not run"); };
+
+    await dispatchChangeCommand("resume add-search one two", subject.context, subject.dependencies);
+
+    expect(subject.sentMessages[0]).toContain(changeCommands.resume.usage);
+    expect(activated).toEqual([]);
+    expect(subject.mutations).toEqual([]);
   });
 });

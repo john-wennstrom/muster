@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { AgentGrid, fitLines, liveColumn } from "../../extensions/fusion-harness/modules/tui.ts";
 import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import { musterWidgetKey } from "./branding.ts";
 
 export type AgentRunObserver = (run: AgentRun) => void;
 
@@ -16,7 +16,7 @@ export function createAgentProgress(options: {
   ui: Pick<ExtensionUIContext, "notify"> & Partial<Pick<ExtensionUIContext, "setWidget">>;
   sendMessage(content: string): void;
 }) {
-  const key = `muster-change-${randomUUID()}`;
+  const key = musterWidgetKey("progress");
   const runs: AgentRun[] = [];
   let ticker: ReturnType<typeof setInterval> | undefined;
   let closed = false;

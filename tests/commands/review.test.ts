@@ -8,7 +8,7 @@ import {
   type ChangeSnapshotInput,
 } from "../../src/controller/change-snapshot.ts";
 import { reviewChange } from "../../src/controller/review.ts";
-import { dispatchChangeCommand } from "../../src/runtime/change-command.ts";
+import { dispatchChangeCommand } from "../../src/change/change-command.ts";
 import {
   discoverReviewedArtifacts,
   hashReviewedArtifacts,

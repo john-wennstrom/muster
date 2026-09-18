@@ -1,121 +1,41 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { basename, resolve } from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
-import { z } from "zod";
-import { newRun, runError, runOk, resolveChildRuntime } from "../../extensions/fusion-harness/modules/runtime.ts";
-import type { CollaborationTask } from "../../extensions/fusion-harness/modules/collaboration-graph.ts";
-import { runLegacyBrokeredChild, runLegacyReadOnlyChild } from "../agents/legacy-adapter.ts";
-import { createDependencyReport } from "../agents/reports.ts";
-import { implementChange, resumeChange } from "../controller/implement.ts";
-import { checkpointPlannedManualAction } from "../controller/manual-checkpoint.ts";
-import type { RecoveryPlan } from "../controller/recovery.ts";
-import { compileTaskDag, persistTaskDag } from "../execution/delegation-dag.ts";
-import { computeDiffDigest, computeIndexDigest, computeSourceDigest } from "../execution/change-digests.ts";
-import { GitAdapter } from "../execution/git.ts";
-import { affectedTaskBranch, type ChangeTaskExecutionContext } from "../execution/scheduler.ts";
-import { parseTaskDocument } from "../execution/task-parser.ts";
-import { validateTaskDocument, type ValidatedTask } from "../execution/task-schema.ts";
+import { writeFile } from "node:fs/promises";
+import { createDependencyReport } from "../../agents/reports.ts";
+import { implementChange, resumeChange } from "../../controller/implement.ts";
+import { checkpointPlannedManualAction } from "../../controller/manual-checkpoint.ts";
+import type { RecoveryPlan } from "../../controller/recovery.ts";
+import { compileTaskDag, persistTaskDag } from "../../execution/delegation-dag.ts";
+import { computeDiffDigest, computeIndexDigest, readSourceDigest } from "../../execution/change-digests.ts";
+import { GitAdapter } from "../../execution/git.ts";
+import { loadValidatedTaskDocument } from "../../execution/load-tasks.ts";
+import { affectedTaskBranch, type ChangeTaskExecutionContext } from "../../execution/scheduler.ts";
+import type { ValidatedTask } from "../../execution/task-schema.ts";
 import {
   runTaskPipeline,
   type TaskPipelineBuilderResult,
   type TaskPipelineReviewResult,
   type TaskPipelineVerificationResult,
-} from "../execution/task-runner.ts";
-import { ensureChangeWorktree, type ChangeWorktree } from "../execution/worktree.ts";
-import { OpenSpecAdapter } from "../openspec/adapter.ts";
-import { createChangeUsageStore, changeRunId, recordChangeUsage } from "../persistence/change-usage-store.ts";
+} from "../../execution/task-runner.ts";
+import { ensureChangeWorktree, type ChangeWorktree } from "../../execution/worktree.ts";
+import { OpenSpecAdapter } from "../../openspec/adapter.ts";
+import { openChangeRun } from "../../persistence/run-store.ts";
 import {
   checkpointRecordSchema,
   reviewRecordSchema,
   runManifestSchema,
   taskResultSchema,
-  tddEvidenceRecordSchema,
-  type CheckpointRecord,
   type RunManifest,
-} from "../persistence/records.ts";
-import { dispatchTaskCodeReview, taskCodeReviewSchema } from "../review/code-review.ts";
-import { discoverReviewedArtifacts, hashReviewedArtifacts } from "../review/artifact-digest.ts";
-import { HarnessError } from "../shared/errors.ts";
-import { runHostCommand } from "../tools/host-runner.ts";
-import { usageFromLegacyRun } from "../telemetry/usage.ts";
-import type { CommandOutcome } from "./command.ts";
-import type { AgentRunObserver } from "./agent-progress.ts";
-import { resolveProductionModelStack } from "./planning.ts";
-
-const builderResultSchema = z.object({
-  claim: z.enum(["completed", "blocked", "design_conflict"]),
-  implementationPersisted: z.boolean(),
-  reason: z.string().optional(),
-  conflict: z.object({
-    evidence: z.array(z.string().min(1)).min(1),
-    affectedArtifacts: z.array(z.string().min(1)).min(1),
-    affectedTasks: z.array(z.string().min(1)).min(1),
-    recommendation: z.string().optional(),
-  }).optional(),
-  tddEvidence: tddEvidenceRecordSchema.optional(),
-}).strict();
-
-function parseJson(text: string, label: string): unknown {
-  try {
-    return JSON.parse(text.trim());
-  } catch (cause) {
-    throw new HarnessError("TASK_OUTCOME_INVALID", `${label} did not return one JSON object`, {}, { cause });
-  }
-}
-
-export function parseVerificationCommand(command: string): { executable: string; args: string[] } {
-  const args: string[] = [];
-  let token = "";
-  let quote: "'" | "\"" | null = null;
-  for (const character of command.trim()) {
-    if (quote) {
-      if (character === quote) quote = null;
-      else token += character;
-      continue;
-    }
-    if (character === "'" || character === "\"") {
-      quote = character;
-      continue;
-    }
-    if (/[;&|<>`]/.test(character)) {
-      throw new HarnessError("TASK_OUTCOME_INVALID", "Verification commands cannot contain shell operators", { command });
-    }
-    if (/\s/.test(character)) {
-      if (token) {
-        args.push(token);
-        token = "";
-      }
-    } else token += character;
-  }
-  if (quote) throw new HarnessError("TASK_OUTCOME_INVALID", "Verification command has an unclosed quote", { command });
-  if (token) args.push(token);
-  const executable = args.shift();
-  if (!executable) throw new HarnessError("TASK_OUTCOME_INVALID", "Verification command is empty", { command });
-  return { executable, args };
-}
-
-async function readRecords<T>(
-  store: ReturnType<typeof createChangeUsageStore>,
-  runId: string,
-  directory: string,
-  schema: z.ZodType<T>,
-): Promise<T[]> {
-  const paths = await store.list(runId, directory);
-  return Promise.all(paths.map(async (path) => schema.parse(await store.read(runId, path))));
-}
-
-function collaborationTask(task: ValidatedTask): CollaborationTask {
-  return {
-    id: task.id,
-    assignee: task.role,
-    description: task.description,
-    depends_on: [...task.dependsOn],
-    outputs: [],
-    mode: task.writes.length > 0 ? "write" : "read",
-    reads: [...task.reads],
-    writes: [...task.writes],
-  };
-}
+} from "../../persistence/records.ts";
+import { discoverReviewedArtifacts, hashReviewedArtifacts } from "../../review/artifact-digest.ts";
+import { HarnessError } from "../../shared/errors.ts";
+import type { CommandOutcome } from "../command.ts";
+import type { AgentRunObserver } from "../agent-progress.ts";
+import { resolveModelStack, roleModel } from "../models.ts";
+import type { TaskStepContext } from "./task-steps/context.ts";
+import { runBuilderStep } from "./task-steps/builder.ts";
+import { runVerificationStep } from "./task-steps/verification.ts";
+import { runReviewStep } from "./task-steps/review.ts";
 
 export interface ProductionTaskExecutionPorts {
   runBuilder?(task: ValidatedTask, context: ChangeTaskExecutionContext, signal?: AbortSignal): Promise<TaskPipelineBuilderResult>;
@@ -156,19 +76,7 @@ export async function runProductionImplementation(
   const artifactDigest = await hashReviewedArtifacts(
     await discoverReviewedArtifacts(options.cwd, resolve(status.changeRoot)),
   );
-  const tasksContents = await readFile(tasksPath, "utf8");
-  const parsed = parseTaskDocument(tasksContents, tasksPath);
-  const referencedRequirements = new Set<string>();
-  const referencedScenarios = new Set<string>();
-  for (const task of parsed.tasks) {
-    const metadata = task.metadata as { requirements?: unknown; scenarios?: unknown };
-    if (Array.isArray(metadata.requirements)) for (const value of metadata.requirements) if (typeof value === "string") referencedRequirements.add(value);
-    if (Array.isArray(metadata.scenarios)) for (const value of metadata.scenarios) if (typeof value === "string") referencedScenarios.add(value);
-  }
-  const document = validateTaskDocument(parsed, {
-    requirements: referencedRequirements,
-    scenarios: referencedScenarios,
-  });
+  const { contents: tasksContents, document } = await loadValidatedTaskDocument(tasksPath);
   const tasksDigest = createHash("sha256").update(tasksContents, "utf8").digest("hex");
   const timestamp = (options.now ?? (() => new Date()))().toISOString();
   const dag = compileTaskDag(document.tasks.map((task) => ({
@@ -176,8 +84,8 @@ export async function runProductionImplementation(
     dependsOn: task.dependsOn,
     checked: task.checked,
   })), tasksDigest, timestamp);
-  const runId = changeRunId(options.changeName);
-  const store = createChangeUsageStore(options.cwd);
+  const changeRun = openChangeRun(options.cwd, options.changeName);
+  const { runId, store } = changeRun;
   await persistTaskDag(store, runId, dag);
 
   const planningGit = new GitAdapter(options.cwd, undefined, undefined, options.signal);
@@ -195,8 +103,15 @@ export async function runProductionImplementation(
     worktreeGit.status(),
     worktreeGit.diff(),
   ]);
-  const stack = resolveProductionModelStack(options.argv);
-
+  const stack = resolveModelStack(options.argv);
+  const stepContext: TaskStepContext = {
+    runId,
+    changeName: options.changeName,
+    planningCwd: options.cwd,
+    store,
+    stack,
+    onAgentStart: options.onAgentStart,
+  };
   let manifest: RunManifest;
   let artifactChanged = false;
   try {
@@ -229,10 +144,10 @@ export async function runProductionImplementation(
       artifactDigest,
       tasks: Object.fromEntries(document.tasks.map((task) => [task.id, task.checked ? "completed" : "ready"])),
       modelAssignments: {
-        architect: stack.architect.model,
-        builder: stack.primaryBuilder.model,
-        reviewer: stack.builders.find((slot) => slot.model !== stack.primaryBuilder.model)?.model ?? stack.architect.model,
-        validator: stack.architect.model,
+        architect: roleModel(stack, "architect"),
+        builder: roleModel(stack, "builder"),
+        reviewer: roleModel(stack, "reviewer"),
+        validator: roleModel(stack, "validator"),
       },
       writer: null,
       checkpoints: [],
@@ -242,7 +157,7 @@ export async function runProductionImplementation(
     await store.write(runId, "manifest.json", manifest);
   }
 
-  const checkpoints = await readRecords(store, runId, "checkpoints", checkpointRecordSchema);
+  const checkpoints = await changeRun.readRecords("checkpoints", checkpointRecordSchema);
   const pendingCheckpoints = checkpoints.filter((checkpoint) => checkpoint.status === "pending");
   const recovery: RecoveryPlan = {
     actions: artifactChanged
@@ -305,124 +220,6 @@ export async function runProductionImplementation(
         return { outcome: "awaiting_user" as const };
       }
 
-      const defaultRunBuilder = async (): Promise<TaskPipelineBuilderResult> => {
-        const slot = stack.primaryBuilder;
-        const run = newRun("BUILDER", slot.model, slot);
-        const childId = `builder-${task.id}-${randomUUID()}`;
-        try {
-          await runLegacyBrokeredChild({
-            run,
-            modelStack: stack,
-            onAgentStart: options.onAgentStart,
-            prompt: [
-              `Implement task ${task.id}: ${task.description}`,
-              `Requirements: ${JSON.stringify(task.requirements)}`,
-              `Scenarios: ${JSON.stringify(task.scenarios)}`,
-              `Verification: ${JSON.stringify(task.verify)}`,
-              "Use the available tools and stay within the declared scopes.",
-              "Return exactly one JSON TaskPipelineBuilderResult with claim, implementationPersisted, and any reason/conflict/tddEvidence. No markdown fence.",
-            ].join("\n\n"),
-            systemPrompt: slot.systemPrompt,
-            appendSystemPrompts: slot.appendSystemPrompts,
-            role: "builder",
-            runId,
-            childId,
-            task: collaborationTask(task),
-            existingWriterLease: context.writerLease?.record,
-            thinking: slot.thinking,
-            sessionDir: resolve(options.cwd, ".fusion", "runs", runId, "sessions", childId),
-            cwd: context.worktree.path,
-            timeoutMs: 8 * 60 * 60 * 1000,
-            signal,
-          });
-        } finally {
-          await recordChangeUsage(store, options.changeName, [
-            usageFromLegacyRun(runId, "implementation", run, task.id),
-          ]);
-        }
-        if (!runOk(run)) {
-          return { claim: "blocked" as const, implementationPersisted: false, reason: runError(run) };
-        }
-        return builderResultSchema.parse(parseJson(run.text, `Builder for ${task.id}`));
-      };
-
-      const defaultRunVerification = async (): Promise<TaskPipelineVerificationResult> => {
-        const evidence: string[] = [];
-        for (const command of task.verify) {
-          const parsedCommand = parseVerificationCommand(command);
-          const result = await runHostCommand({
-            worktreePath: context.worktree.path,
-            request: {
-              profile: "verification",
-              executable: parsedCommand.executable,
-              args: parsedCommand.args,
-              cwd: context.worktree.path,
-            },
-            signal,
-          });
-          evidence.push(`${command}: exit ${result.exitCode}`);
-          if (result.exitCode !== 0) return { passed: false, evidence };
-        }
-        return { passed: true, evidence };
-      };
-
-      const defaultRunReview = async (
-        builder: TaskPipelineBuilderResult,
-        verification: TaskPipelineVerificationResult,
-      ): Promise<TaskPipelineReviewResult> => {
-        const currentGit = new GitAdapter(context.worktree.path, undefined, undefined, signal);
-        const currentHead = await currentGit.head();
-        const currentDiff = await currentGit.diff();
-        const sourceDigest = computeSourceDigest(currentHead.commit, currentDiff);
-        const reviewResult = await dispatchTaskCodeReview({
-          runId,
-          taskId: task.id,
-          cwd: context.worktree.path,
-          sessionsRoot: resolve(options.cwd, ".fusion", "runs", runId, "sessions"),
-          author: { model: stack.primaryBuilder.model },
-          candidates: stack.slots.map((slot) => ({ model: slot.model, available: true, readTools: resolveChildRuntime(stack, slot, "read").tools })),
-          contract: { definition: task.description, requirements: task.requirements, scenarios: task.scenarios },
-          diff: { digest: sourceDigest, summary: currentDiff },
-          tests: verification.evidence,
-          scopes: { reads: task.reads, writes: task.writes, violations: [] },
-          tddEvidence: builder.tddEvidence ?? null,
-          runner: async (request) => {
-            const run = newRun("REVIEWER", request.model, stack.slots.find((slot) => slot.model === request.model));
-            try {
-              await runLegacyReadOnlyChild({
-                run,
-                modelStack: stack,
-                onAgentStart: options.onAgentStart,
-                prompt: `${request.prompt}\n\nReturn exactly one JSON review object; no markdown fence.`,
-                role: "reviewer",
-                runId,
-                childId: request.sessionId,
-                taskId: task.id,
-                description: `Review task ${task.id}`,
-                assignee: "reviewer",
-                thinking: "high",
-                sessionDir: request.sessionDir,
-                sessionId: request.sessionId,
-                continueTaskSession: true,
-                cwd: context.worktree.path,
-                timeoutMs: 120_000,
-                signal,
-              });
-            } finally {
-              await recordChangeUsage(store, options.changeName, [
-                usageFromLegacyRun(runId, "implementation", run, task.id),
-              ]);
-            }
-            if (!runOk(run)) throw new HarnessError("REVIEW_ARTIFACT_INVALID", runError(run));
-            return { review: taskCodeReviewSchema.parse(parseJson(run.text, `Reviewer for ${task.id}`)), toolNames: run.toolNames };
-          },
-        });
-        return {
-          approved: reviewResult.decision.status === "approved",
-          findings: reviewResult.decision.status === "repair" ? reviewResult.decision.findings : [],
-        };
-      };
-
       let verificationEvidence: readonly string[] = [];
       let reviewFindings: readonly string[] = [];
       const pipeline = await runTaskPipeline({
@@ -447,28 +244,26 @@ export async function runProductionImplementation(
         requirements: task.requirements,
         scenarios: task.scenarios,
         reviewBudgetAvailable: true,
-        runBuilder: () => options.ports?.runBuilder
+        runBuilder: () => (options.ports?.runBuilder
           ? options.ports.runBuilder(task, context, signal)
-          : defaultRunBuilder(),
-        runVerification: async (builder) => {
+          : runBuilderStep(stepContext, task, context, signal)),
+        runVerification: async () => {
           const result = options.ports?.runVerification
             ? await options.ports.runVerification(task, context, signal)
-            : await defaultRunVerification();
+            : await runVerificationStep(task, context.worktree.path, signal);
           verificationEvidence = result.evidence;
           return result;
         },
         runReview: async ({ builder, verification }) => {
           const result = options.ports?.runReview
             ? await options.ports.runReview(task, builder, verification, context, signal)
-            : await defaultRunReview(builder, verification);
+            : await runReviewStep(stepContext, task, context, builder, verification, signal);
           reviewFindings = result.findings;
           return result;
         },
         persistEvidence: async ({ builder }) => {
           const evidenceGit = new GitAdapter(context.worktree.path, undefined, undefined, signal);
-          const evidenceHead = await evidenceGit.head();
-          const evidenceDiff = await evidenceGit.diff();
-          const sourceDigest = computeSourceDigest(evidenceHead.commit, evidenceDiff);
+          const { sourceDigest } = await readSourceDigest(evidenceGit);
           await store.write(runId, `task-results/${task.id}.json`, taskResultSchema.parse({
             schemaVersion: 1,
             runId,
@@ -556,7 +351,7 @@ export async function runProductionImplementation(
       : result.status === "review_required" || result.status === "paused" || result.status === "blocked" || result.status === "design_conflict"
         ? "blocked" as const
         : "failure" as const;
-  const pendingIds = (await readRecords(store, runId, "checkpoints", checkpointRecordSchema))
+  const pendingIds = (await changeRun.readRecords("checkpoints", checkpointRecordSchema))
     .filter((checkpoint) => checkpoint.status === "pending")
     .map((checkpoint) => checkpoint.id);
   return {
