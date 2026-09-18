@@ -22,12 +22,14 @@ describe("standard agent tools", () => {
     const run = newRun("ARCHITECT", "fixture/model");
     const read = ["read", "grep", "find", "ls"];
     const write = [...read, "bash", "edit", "write"];
-    expect(standardChildRuntime({ run, role: "architect" }).tools).toEqual([...read, "muster_submit_scope"]);
+    expect(standardChildRuntime({ run, role: "architect" }).tools).toEqual(read);
+    expect(standardChildRuntime({ run, role: "architect", evidenceEnabled: true }).tools).toEqual([...read, "muster_submit_scope"]);
     expect(standardChildRuntime({ run, role: "builder" }).tools).toEqual(write);
     expect(standardChildRuntime({ run, role: "builder", writeEnabled: false }).tools).toEqual(read);
-    expect(standardChildRuntime({ run, role: "architect", writeEnabled: true }).tools).toEqual([...write, "muster_submit_scope"]);
+    expect(standardChildRuntime({ run, role: "architect", writeEnabled: true }).tools).toEqual(write);
     expect(standardChildRuntime({ run, role: "reviewer", writeEnabled: true }).tools).toEqual(read);
-    expect(standardChildRuntime({ run, role: "validator" }).tools).toEqual([...read, "write", "muster_submit_gate"]);
+    expect(standardChildRuntime({ run, role: "validator" }).tools).toEqual([...read, "write"]);
+    expect(standardChildRuntime({ run, role: "validator", evidenceEnabled: true }).tools).toEqual([...read, "write", "muster_submit_gate"]);
   });
 
   test("global and slot extensions and tool inheritance are honored", () => {

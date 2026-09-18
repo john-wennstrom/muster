@@ -54,12 +54,18 @@ describe("clean-room child tool boundary", () => {
     expect(brokeredChildRuntime("architect", true).tools).toEqual([
       "muster_read",
       "muster_search",
+      "muster_write",
+      "muster_command",
+    ]);
+    expect(brokeredChildRuntime("architect", true, true).tools).toEqual([
+      "muster_read",
+      "muster_search",
       "muster_submit_scope",
       "muster_write",
       "muster_command",
     ]);
     expect(brokeredChildRuntime("reviewer", true).tools).toEqual(["muster_read", "muster_search"]);
-    expect(brokeredChildRuntime("validator", true).tools).toEqual([
+    expect(brokeredChildRuntime("validator", true, true).tools).toEqual([
       "muster_read",
       "muster_search",
       "muster_submit_gate",
@@ -113,6 +119,35 @@ describe("clean-room child tool boundary", () => {
         content: "after\n",
       })).rejects.toThrow(/read-only/);
       expect(await readFile(targetPath, "utf8")).toBe("before\n");
+    } finally {
+      await broker.close();
+    }
+  });
+
+  test("enforces a bounded broker request budget", async () => {
+    const broker = await startChildBrokerServer({
+      runId: "run-budget",
+      childId: "child-budget",
+      taskId: "preflight",
+      maxRequests: 1,
+      handleRequest: async () => "ok",
+    });
+    try {
+      const configuration = {
+        host: "127.0.0.1",
+        port: broker.port,
+        authToken: broker.identity.authToken,
+        runId: broker.identity.runId,
+        childId: broker.identity.childId,
+        taskId: broker.identity.taskId,
+        role: "architect" as const,
+        writeEnabled: false,
+        toolMode: "brokered" as const,
+      };
+      await expect(requestChildBroker(configuration, "read_file", { path: "one" })).resolves.toBe("ok");
+      await expect(requestChildBroker(configuration, "read_file", { path: "two" })).rejects.toThrow(
+        "Broker request limit exceeded (1)",
+      );
     } finally {
       await broker.close();
     }

@@ -27,6 +27,12 @@ EXPLORE
 
 `AWAITING_USER`, `DESIGN_CONFLICT`, `BLOCKED`, `FAILED`, and `CANCELLED` are side states tracked per task/DAG branch, so unrelated branches can keep making progress. A task enters `AWAITING_USER` whenever it would require secrets/authentication, elevated privileges, a destructive action, or an external side effect, or whenever a design conflict needs a human decision — the affected branch pauses with persisted, secret-free instructions until `/change resume` explicitly confirms it. Any change to a reviewed artifact reopens `REVIEW_REQUIRED`, and any relevant post-verification change invalidates `VERIFIED`.
 
+## Planning cost controls
+
+`/change propose` runs a bounded read-only preflight before creating a change. It stops with a specific question when the requested behavior is ambiguous or already present in the checked-out repository. When planning proceeds, OpenSpec creates the change and supplies the instructions and templates for every generated artifact.
+
+Planning defaults to a 100,000-token / $0.50 phase forecast limit. Override these with `MUSTER_PLANNING_MAX_TOKENS` and `MUSTER_PLANNING_MAX_COST_USD`, or with `--planning-max-tokens` and `--planning-max-cost`. Direct and bounded planning use lower thinking levels; configured architect thinking remains in effect for architectural work.
+
 ## Security boundary
 
 Agents use the standard Pi tools by default: `read`, `grep`, `find`, and `ls` for read-only work; writers also receive `bash`, `edit`, and `write`. Validators additionally receive `write`, as in fusion-harness. Global and per-slot `child.extensions` and `child.tools` settings apply. Scope and gate submission remain harness tools.

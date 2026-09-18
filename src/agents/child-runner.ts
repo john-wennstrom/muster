@@ -32,6 +32,7 @@ export interface ChildBrokerServerOptions {
   childId: string;
   taskId: string;
   handleRequest: (request: BrokerRequestContext) => Promise<unknown>;
+  maxRequests?: number;
   authToken?: string;
   host?: string;
 }
@@ -52,11 +53,13 @@ export interface RunBrokeredChildOptions {
   systemPrompt?: string;
   appendSystemPrompts?: string[];
   role: BrokerChildRole;
+  evidenceEnabled?: boolean;
   writeEnabled?: boolean;
   runId: string;
   childId: string;
   taskId: string;
   handleRequest: ChildBrokerServerOptions["handleRequest"];
+  maxRequests?: number;
   thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   sessionDir: string;
   sessionId?: string;
@@ -69,20 +72,28 @@ export interface RunBrokeredChildOptions {
 
 const CHILD_BROKER_EXTENSION = fileURLToPath(new URL("./child-broker.ts", import.meta.url));
 
-export function brokeredToolNames(role: BrokerChildRole, writeEnabled = role === "builder"): string[] {
+export function brokeredToolNames(
+  role: BrokerChildRole,
+  writeEnabled = role === "builder",
+  evidenceEnabled = false,
+): string[] {
   const tools = ["muster_read", "muster_search"];
-  if (role === "architect") tools.push("muster_submit_scope");
-  if (role === "validator") tools.push("muster_submit_gate");
+  if (evidenceEnabled && role === "architect") tools.push("muster_submit_scope");
+  if (evidenceEnabled && role === "validator") tools.push("muster_submit_gate");
   if (writeEnabled && role !== "reviewer" && role !== "validator") {
     tools.push("muster_write", "muster_command");
   }
   return tools;
 }
 
-export function brokeredChildRuntime(role: BrokerChildRole, writeEnabled = role === "builder"): ResolvedChildRuntime {
+export function brokeredChildRuntime(
+  role: BrokerChildRole,
+  writeEnabled = role === "builder",
+  evidenceEnabled = false,
+): ResolvedChildRuntime {
   return {
     extensions: [CHILD_BROKER_EXTENSION],
-    tools: brokeredToolNames(role, writeEnabled),
+    tools: brokeredToolNames(role, writeEnabled, evidenceEnabled),
   };
 }
 
@@ -92,11 +103,12 @@ function accessForRole(role: BrokerChildRole, writeEnabled = role === "builder")
   return writeEnabled ? "write" : "read";
 }
 
-export function standardChildRuntime(options: Pick<RunBrokeredChildOptions, "role" | "writeEnabled" | "run" | "modelStack">): ResolvedChildRuntime {
+export function standardChildRuntime(options: Pick<RunBrokeredChildOptions, "role" | "evidenceEnabled" | "writeEnabled" | "run" | "modelStack">): ResolvedChildRuntime {
   const runtime = resolveChildRuntime(
     options.modelStack ?? {}, options.run.slot ?? {}, accessForRole(options.role, options.writeEnabled),
   );
-  const evidenceTools = options.role === "architect" ? ["muster_submit_scope"]
+  const evidenceTools = !options.evidenceEnabled ? []
+    : options.role === "architect" ? ["muster_submit_scope"]
     : options.role === "validator" ? ["muster_submit_gate"] : [];
   return {
     extensions: [...new Set([...runtime.extensions, ...(evidenceTools.length ? [CHILD_BROKER_EXTENSION] : [])])],
@@ -120,6 +132,7 @@ export async function startChildBrokerServer(
   };
   const sockets = new Set<Socket>();
   const controllers = new Map<string, AbortController>();
+  let requestCount = 0;
   const server = createServer((socket) => {
     sockets.add(socket);
     socket.setEncoding("utf8");
@@ -164,6 +177,10 @@ export async function startChildBrokerServer(
       const controller = new AbortController();
       controllers.set(message.correlationId, controller);
       try {
+        requestCount += 1;
+        if (options.maxRequests !== undefined && requestCount > options.maxRequests) {
+          throw new Error(`Broker request limit exceeded (${options.maxRequests})`);
+        }
         const output = await options.handleRequest({
           correlationId: message.correlationId,
           tool: message.tool,
@@ -241,9 +258,9 @@ export async function runBrokeredChild(options: RunBrokeredChildOptions): Promis
   const toolMode = options.toolMode ?? "standard";
   const writeEnabled = options.writeEnabled ?? options.role === "builder";
   const childRuntime = toolMode === "brokered"
-    ? brokeredChildRuntime(options.role, writeEnabled)
+    ? brokeredChildRuntime(options.role, writeEnabled, options.evidenceEnabled)
     : standardChildRuntime(options);
-  const broker = toolMode === "brokered" || options.role === "architect" || options.role === "validator"
+  const broker = toolMode === "brokered" || options.evidenceEnabled
     ? await startChildBrokerServer(options) : undefined;
   try {
     return await runChild({

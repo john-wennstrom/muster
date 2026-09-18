@@ -320,6 +320,7 @@ export async function runLegacyBrokeredChild(
     return await runBrokeredChild({
       ...options,
       ...session,
+      evidenceEnabled: Boolean(options.persistEvidence),
       prompt: [
         options.prompt,
         `Task mode: ${options.task.mode}. Declared read scopes: ${JSON.stringify(options.task.reads)}. Declared write scopes: ${JSON.stringify(options.task.writes)}.`,

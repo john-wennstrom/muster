@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { isAbsolute, resolve, sep } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 import {
   type ModelSlot,
   type ModelStack,
+  type Thinking,
 } from "../../../extensions/fusion-harness/modules/model-stack.ts";
 import { newRun, runError, runOk } from "../../../extensions/fusion-harness/modules/runtime.ts";
 import { runLegacyReadOnlyChild } from "../../agents/legacy-adapter.ts";
@@ -18,17 +19,133 @@ import {
 } from "../../controller/planning.ts";
 import { classifyChange } from "../../controller/complexity-router.ts";
 import { OpenSpecAdapter } from "../../openspec/adapter.ts";
-import type { OpenSpecStatus } from "../../openspec/protocol.ts";
+import type { OpenSpecInstructions, OpenSpecStatus } from "../../openspec/protocol.ts";
 import { createChangeUsageStore, recordChangeUsage } from "../../persistence/change-usage-store.ts";
 import { readCliFlag } from "../../shared/cli-flags.ts";
 import { isWithin } from "../../shared/paths.ts";
 import { HarnessError } from "../../shared/errors.ts";
 import { usageFromLegacyRun } from "../../telemetry/usage.ts";
+import { BudgetLedger, type BudgetAmount } from "../../telemetry/budget.ts";
 import type { CommandOutcome } from "../command.ts";
 import { resolveModelStack } from "../models.ts";
 import type { AgentRunObserver } from "../agent-progress.ts";
 
 const PLANNING_TIMEOUT_MS = 30 * 60 * 1000;
+const PREFLIGHT_MAX_TOOL_CALLS = 6;
+const DEFAULT_PLANNING_MAX_TOKENS = 100_000;
+const DEFAULT_PLANNING_MAX_COST_USD = 0.5;
+const DEFAULT_BUDGET_ESTIMATES = {
+  preflight: { totalTokens: 15_000, costUsd: 0.08 },
+  specialist_opinion: { totalTokens: 20_000, costUsd: 0.12 },
+  debate: { totalTokens: 25_000, costUsd: 0.15 },
+  synthesis: { totalTokens: 50_000, costUsd: 0.3 },
+} as const satisfies Record<"preflight" | PlanningAgentRequest["stage"], BudgetAmount>;
+
+const planningPreflightSchema = z.object({
+  disposition: z.enum(["proceed", "needs_clarification", "already_satisfied"]),
+  summary: z.string().min(1),
+  evidence: z.array(z.object({
+    path: z.string().min(1),
+    reason: z.string().min(1),
+  }).strict()).max(8),
+  question: z.string().min(1).optional(),
+}).strict().superRefine((value, context) => {
+  if (value.disposition === "needs_clarification" && !value.question) {
+    context.addIssue({ code: "custom", message: "Clarification disposition requires a question" });
+  }
+});
+
+export type PlanningPreflight = z.infer<typeof planningPreflightSchema>;
+
+export interface PlanningPreflightRequest {
+  changeName: string;
+  prompt: string;
+}
+
+function parsePositiveBudget(value: string, fallback: number, label: string): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new HarnessError("BUDGET_CONFIG_INVALID", `${label} must be a positive number`, { label, value });
+  }
+  return parsed;
+}
+
+function planningBudget(argv: readonly string[], env: NodeJS.ProcessEnv = process.env): BudgetLedger {
+  const totalTokens = parsePositiveBudget(
+    readCliFlag("planning-max-tokens", argv) || env.MUSTER_PLANNING_MAX_TOKENS?.trim() || "",
+    DEFAULT_PLANNING_MAX_TOKENS,
+    "planning max tokens",
+  );
+  const costUsd = parsePositiveBudget(
+    readCliFlag("planning-max-cost", argv) || env.MUSTER_PLANNING_MAX_COST_USD?.trim() || "",
+    DEFAULT_PLANNING_MAX_COST_USD,
+    "planning max cost",
+  );
+  return new BudgetLedger({ phases: { planning: { totalTokens, costUsd } } });
+}
+
+function preflightPrompt(request: PlanningPreflightRequest): string {
+  return [
+    "Determine whether the requested change is needed in the checked-out repository.",
+    `Change: ${request.changeName}`,
+    `User request: ${request.prompt}`,
+    `Use at most ${PREFLIGHT_MAX_TOOL_CALLS} read/search calls. Follow the nearest controlling code path only.`,
+    "Stop as soon as file evidence distinguishes proceed, needs_clarification, or already_satisfied.",
+    "If checked-out behavior already satisfies the request, do not invent adjacent improvements; return already_satisfied and ask which branch, deployment, or entry point still fails.",
+    "If ambiguity prevents a bounded proposal, return needs_clarification with one specific question.",
+    "Return exactly one JSON object: {\"disposition\":\"proceed|needs_clarification|already_satisfied\",\"summary\":\"...\",\"evidence\":[{\"path\":\"repo/relative/path\",\"reason\":\"...\"}],\"question\":\"optional\"}.",
+  ].join("\n\n");
+}
+
+function embeddedJsonObjects(content: string): unknown[] {
+  const objects: unknown[] = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < content.length; index++) {
+    const character = content[index]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"' && depth > 0) {
+      inString = true;
+    } else if (character === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+    } else if (character === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        try {
+          objects.push(JSON.parse(content.slice(start, index + 1)));
+        } catch {
+          // Ignore malformed candidates; the caller reports one structured parse error.
+        }
+        start = -1;
+      }
+    }
+  }
+  return objects;
+}
+
+export function parsePreflight(content: string): PlanningPreflight {
+  const objects = embeddedJsonObjects(content.trim());
+  if (objects.length !== 1) {
+    throw new HarnessError("PLANNING_AGENT_FAILED", "Planning preflight must return exactly one JSON object", {
+      objectCount: objects.length,
+    });
+  }
+  const value = objects[0];
+  const result = planningPreflightSchema.safeParse(value);
+  if (result.success) return result.data;
+  throw new HarnessError("PLANNING_AGENT_FAILED", "Planning preflight returned an invalid disposition", {
+    issues: result.error.issues,
+  });
+}
 
 const artifactBundleSchema = z.object({
   artifacts: z.array(z.object({
@@ -81,7 +198,11 @@ function allowedArtifactPath(changeRoot: string, path: string): string {
   return destination;
 }
 
-function planningPrompt(request: PlanningAgentRequest, status: OpenSpecStatus): string {
+function planningPrompt(
+  request: PlanningAgentRequest,
+  status: OpenSpecStatus,
+  instructions: readonly OpenSpecInstructions[],
+): string {
   const previous = request.priorResults.length
     ? request.priorResults.map((result, index) => `RESULT ${index + 1} (${result.model})\n${result.content}`).join("\n\n")
     : "None";
@@ -91,8 +212,8 @@ function planningPrompt(request: PlanningAgentRequest, status: OpenSpecStatus): 
     `Change: ${request.changeName}`,
     `User request: ${request.prompt}`,
     `Complexity: ${request.complexity.classification} (${request.complexity.reason})`,
-    `Current OpenSpec status: ${JSON.stringify(status)}`,
     `Authoritative context: ${JSON.stringify(request.authoritativeContext)}`,
+    `OpenSpec artifact instructions: ${JSON.stringify(instructions)}`,
     `Prior results:\n${previous}`,
   ];
   if (request.stage !== "synthesis") {
@@ -103,6 +224,19 @@ function planningPrompt(request: PlanningAgentRequest, status: OpenSpecStatus): 
     "Return exactly one JSON object with this shape: {\"artifacts\":[{\"path\":\"proposal.md\",\"content\":\"...\"},{\"path\":\"design.md\",\"content\":\"...\"},{\"path\":\"specs/<capability>/spec.md\",\"content\":\"...\"},{\"path\":\"tasks.md\",\"content\":\"...\"}]}. Do not use markdown fences.",
     "Use OpenSpec delta-spec headings and four-hash WHEN/THEN scenarios. Every tasks.md checkbox must include adjacent yaml harness-task metadata.",
   ].join("\n\n");
+}
+
+export function thinkingForPlanning(classification: ReturnType<typeof classifyChange>["classification"], configured: Thinking): Thinking {
+  if (classification === "direct") return "low";
+  if (classification === "bounded") return "medium";
+  return configured;
+}
+
+function affectedCapability(path: string): string | undefined {
+  const normalized = path.replaceAll("\\", "/");
+  const match = normalized.match(/(?:^|\/)features\/([^/]+)\//)
+    ?? normalized.match(/(?:^|\/)src\/([^/]+)\//);
+  return match?.[1];
 }
 
 function slotForRequest(stack: ModelStack, request: PlanningAgentRequest): ModelSlot {
@@ -123,11 +257,98 @@ export interface ProductionPlanningOptions {
   argv?: readonly string[];
   openSpec?: OpenSpecAdapter;
   modelStack?: ModelStack;
+  budget?: BudgetLedger;
+  budgetEstimates?: Partial<Record<"preflight" | PlanningAgentRequest["stage"], BudgetAmount>>;
+  runPreflight?(request: PlanningPreflightRequest, slot: ModelSlot): Promise<PlanningPreflight>;
   runAgent?(request: PlanningAgentRequest, status: OpenSpecStatus, slot: ModelSlot): Promise<PlanningAgentResult>;
 }
 
 export async function runProductionPlanning(options: ProductionPlanningOptions): Promise<CommandOutcome> {
   const adapter = options.openSpec ?? new OpenSpecAdapter({ cwd: options.cwd, signal: options.signal });
+  const argv = options.argv ?? process.argv;
+  const stack = options.modelStack ?? resolveModelStack(argv);
+  const planningRunId = options.runId ?? `${options.phase}-${options.changeName}`;
+  const usageStore = createChangeUsageStore(options.cwd);
+  const budget = options.budget ?? planningBudget(argv);
+  const budgetEstimates = { ...DEFAULT_BUDGET_ESTIMATES, ...options.budgetEstimates };
+  const runChild = async (input: {
+    prompt: string;
+    slot: ModelSlot;
+    stage: "preflight" | PlanningAgentRequest["stage"];
+    thinking: Thinking;
+    boundedDiscovery?: boolean;
+  }): Promise<string> => {
+    const run = newRun(input.slot.architect ? "ARCHITECT" : "BUILDER", input.slot.model, input.slot);
+    const childId = `${input.stage}-${randomUUID()}`;
+    try {
+      await runLegacyReadOnlyChild({
+        run,
+        modelStack: stack,
+        onAgentStart: options.onAgentStart,
+        prompt: input.prompt,
+        systemPrompt: input.slot.systemPrompt,
+        appendSystemPrompts: input.slot.appendSystemPrompts,
+        role: "architect",
+        runId: planningRunId,
+        childId,
+        taskId: `planning.${input.stage}`,
+        description: `${options.phase} ${options.changeName}: ${input.stage}`,
+        assignee: input.slot.id,
+        thinking: input.thinking,
+        toolMode: input.boundedDiscovery ? "brokered" : "standard",
+        maxRequests: input.boundedDiscovery ? PREFLIGHT_MAX_TOOL_CALLS : undefined,
+        sessionDir: resolve(options.cwd, ".fusion", "runs", planningRunId, "sessions", childId),
+        cwd: options.cwd,
+        timeoutMs: PLANNING_TIMEOUT_MS,
+        signal: options.signal,
+      });
+    } finally {
+      const usage = usageFromLegacyRun(planningRunId, "planning", run, `planning.${input.stage}`);
+      await recordChangeUsage(usageStore, options.changeName, [usage]);
+      budget.record(usage);
+    }
+    if (!runOk(run)) {
+      throw new HarnessError("PLANNING_AGENT_FAILED", `Planning agent failed: ${runError(run)}`, {
+        phase: options.phase,
+        stage: input.stage,
+        model: input.slot.model,
+      });
+    }
+    return run.text;
+  };
+  const preflightBudget = budget.forecast({
+    phase: "planning",
+    role: "architect",
+    activity: "preflight",
+    estimate: budgetEstimates.preflight,
+  });
+  if (preflightBudget.status === "blocked_mandatory") {
+    throw new HarnessError("BUDGET_EXHAUSTED", `Planning preflight is budget-blocked: ${preflightBudget.reason}`, {
+      decision: preflightBudget,
+    });
+  }
+  const preflight = options.runPreflight
+    ? await options.runPreflight({ changeName: options.changeName, prompt: options.prompt }, stack.architect)
+    : parsePreflight(await runChild({
+      prompt: preflightPrompt({ changeName: options.changeName, prompt: options.prompt }),
+      slot: stack.architect,
+      stage: "preflight",
+      thinking: "low",
+      boundedDiscovery: true,
+    }));
+  if (preflight.disposition !== "proceed") {
+    const question = preflight.question
+      ?? "Which branch, deployment, or entry point still exhibits the behavior you want changed?";
+    return {
+      status: "blocked",
+      action: options.phase,
+      changeName: options.changeName,
+      runId: planningRunId,
+      summary: `${preflight.summary}\n\nEvidence:\n${preflight.evidence.map(({ path, reason }) => `- ${path}: ${reason}`).join("\n")}`,
+      next: question,
+      blocker: { kind: "lifecycle", message: question },
+    };
+  }
   if (options.phase === "propose") {
     try {
       await adapter.status(options.changeName);
@@ -138,45 +359,18 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
   }
   const status = await adapter.status(options.changeName);
   const changeRoot = resolve(status.changeRoot);
-  const stack = options.modelStack ?? resolveModelStack(options.argv);
-  const planningRunId = options.runId ?? `${options.phase}-${options.changeName}`;
-  const usageStore = createChangeUsageStore(options.cwd);
+  const artifactIds = status.actionContext.planningArtifacts.length
+    ? status.actionContext.planningArtifacts
+    : status.artifacts.map(({ id }) => id);
+  const instructions = await Promise.all(artifactIds.map((artifact) => adapter.instructions(artifact, options.changeName)));
   const runAgent = options.runAgent ?? (async (request: PlanningAgentRequest, current: OpenSpecStatus, slot: ModelSlot) => {
-    const run = newRun(slot.architect ? "ARCHITECT" : "BUILDER", slot.model, slot);
-    const childId = `${request.stage}-${request.opinionIndex ?? 0}-${randomUUID()}`;
-    try {
-      await runLegacyReadOnlyChild({
-        run,
-        modelStack: stack,
-        onAgentStart: options.onAgentStart,
-        prompt: planningPrompt(request, current),
-        systemPrompt: slot.systemPrompt,
-        appendSystemPrompts: slot.appendSystemPrompts,
-        role: "architect",
-        runId: planningRunId,
-        childId,
-        taskId: `planning.${request.stage}`,
-        description: `${request.phase} ${request.changeName}: ${request.stage}`,
-        assignee: slot.id,
-        thinking: slot.thinking,
-        sessionDir: resolve(options.cwd, ".fusion", "runs", planningRunId, "sessions", childId),
-        cwd: options.cwd,
-        timeoutMs: PLANNING_TIMEOUT_MS,
-        signal: options.signal,
-      });
-    } finally {
-      await recordChangeUsage(usageStore, options.changeName, [
-        usageFromLegacyRun(planningRunId, "planning", run, `planning.${request.stage}`),
-      ]);
-    }
-    if (!runOk(run)) {
-      throw new HarnessError("PLANNING_AGENT_FAILED", `Planning agent failed: ${runError(run)}`, {
-        phase: request.phase,
-        stage: request.stage,
-        model: slot.model,
-      });
-    }
-    return { model: run.model, content: run.text };
+    const content = await runChild({
+      prompt: planningPrompt(request, current, instructions),
+      slot,
+      stage: request.stage,
+      thinking: thinkingForPlanning(request.complexity.classification, slot.thinking),
+    });
+    return { model: slot.model, content };
   });
 
   const dependencies = {
@@ -211,12 +405,11 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
     },
   };
 
+  const affectedFiles = preflight.evidence.map(({ path }) => path);
   const complexity = classifyChange({
-    affectedFiles: Object.values(status.artifactPaths).flatMap((artifact) => artifact.existingOutputPaths),
-    affectedCapabilities: Object.values(status.artifactPaths)
-      .flatMap((artifact) => artifact.existingOutputPaths)
-      .filter((path) => path.includes(`${sep}specs${sep}`)),
-    hasPublicContractChange: Object.keys(status.artifactPaths).includes("specs"),
+    affectedFiles,
+    affectedCapabilities: affectedFiles.map(affectedCapability).filter((value): value is string => Boolean(value)),
+    hasPublicContractChange: /\b(?:public contract|api|schema|protocol)\b/i.test(options.prompt),
     hasDataMigration: /\bmigrat(?:e|ion)\b/i.test(options.prompt),
     hasSecurityBoundaryChange: /\b(?:security|permission|auth)\b/i.test(options.prompt),
     hasDesignAmbiguity: options.phase === "refine" && /\b(?:ambiguous|trade-?off|uncertain)\b/i.test(options.prompt),
@@ -226,11 +419,12 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
     prompt: options.prompt || `${options.phase} ${options.changeName}`,
     complexity,
     optionalBudgetAvailable: true,
-    authoritativeContext: { status, changeRoot },
+    authoritativeContext: { status, changeRoot, preflight },
   };
+  const planningDependencies = { ...dependencies, budget, budgetEstimates };
   const result = options.phase === "propose"
-    ? await propose(input, dependencies)
-    : await refine(input, dependencies);
+    ? await propose(input, planningDependencies)
+    : await refine(input, planningDependencies);
   return {
     status: "success",
     action: options.phase,

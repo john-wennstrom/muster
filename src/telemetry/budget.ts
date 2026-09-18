@@ -35,6 +35,7 @@ export type BudgetActivity =
   | OptionalBudgetActivity
   | ProtectedBudgetActivity
   | "implementation"
+  | "preflight"
   | "synthesis";
 
 export interface BudgetForecastRequest {
