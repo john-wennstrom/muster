@@ -1,6 +1,40 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { delimiter, isAbsolute, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { HarnessError } from "./errors.ts";
+
+// Windows CreateProcess (unlike a shell) will not resolve PATHEXT for a bare
+// command name, so npm/npx/openspec/etc. installed as `.cmd`/`.bat` shims
+// fail with ENOENT under `spawn(..., { shell: false })`. We resolve the shim's
+// full path ourselves and, for `.cmd`/`.bat` shims specifically, spawn it
+// through `cmd.exe` with the executable and arguments kept as separate array
+// elements (never concatenated into a shell string) so quoting is still
+// handled by the child_process layer rather than by us.
+const WINDOWS_EXECUTABLE_EXTENSIONS = [".exe", ".cmd", ".bat", ".com"];
+const WINDOWS_SHELL_EXTENSIONS = new Set([".cmd", ".bat"]);
+
+function resolveExecutable(command: string): string {
+  if (process.platform !== "win32") return command;
+  if (/[\\/]/.test(command) || isAbsolute(command)) return command;
+  if (/\.[^\\/]+$/.test(command)) return command;
+
+  const pathDirs = (process.env.PATH ?? process.env.Path ?? "").split(delimiter);
+  for (const dir of pathDirs) {
+    if (!dir) continue;
+    for (const ext of WINDOWS_EXECUTABLE_EXTENSIONS) {
+      const candidate = join(dir, `${command}${ext}`);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return command;
+}
+
+function requiresWindowsShellWrapper(resolvedCommand: string): boolean {
+  if (process.platform !== "win32") return false;
+  const match = /\.[^\\/]+$/.exec(resolvedCommand);
+  return match !== undefined && match !== null && WINDOWS_SHELL_EXTENSIONS.has(match[0].toLowerCase());
+}
 
 export interface ProcessRunOptions {
   cwd: string;
@@ -46,10 +80,11 @@ export function runProcess(
     let terminalError: HarnessError | undefined;
     let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const child = spawn(command, [...args], {
+    const resolvedCommand = resolveExecutable(command);
+    const child = spawn(resolvedCommand, [...args], {
       cwd: options.cwd,
       env: options.env,
-      shell: false,
+      shell: requiresWindowsShellWrapper(resolvedCommand),
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
