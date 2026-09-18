@@ -73,6 +73,15 @@ export const openSpecStatusSchema = z
   })
   .passthrough();
 
+const instructionDependencySchema = z
+  .object({
+    id: nonEmptyString,
+    done: z.boolean(),
+    path: nonEmptyString,
+    description: z.string(),
+  })
+  .passthrough();
+
 export const openSpecInstructionsSchema = z
   .object({
     changeName: nonEmptyString,
@@ -86,7 +95,7 @@ export const openSpecInstructionsSchema = z
     description: z.string(),
     instruction: z.string(),
     template: z.string(),
-    dependencies: z.array(nonEmptyString),
+    dependencies: z.array(instructionDependencySchema),
     unlocks: z.array(nonEmptyString),
     root: rootSchema,
   })

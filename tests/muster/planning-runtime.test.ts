@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { synthesizeLegacyStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
 import { parsePreflight, runProductionPlanning, thinkingForPlanning } from "../../src/change/phases/planning.ts";
+import { FUSION_DRIVEN_SCHEMA_NAME } from "../../src/openspec/fusion-driven-schema.ts";
 import { HarnessError } from "../../src/shared/errors.ts";
 import { BudgetLedger } from "../../src/telemetry/budget.ts";
 import type { OpenSpecAdapter } from "../../src/openspec/adapter.ts";
@@ -15,7 +16,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-async function fixture() {
+async function fixture(planningArtifacts: string[] = ["proposal", "specs", "design", "tasks"]) {
   const root = await mkdtemp(resolve(tmpdir(), "muster-planning-runtime-"));
   roots.push(root);
   const changeRoot = resolve(root, "openspec", "changes", "add-search");
@@ -33,7 +34,7 @@ async function fixture() {
     actionContext: {
       mode: "repo-local",
       sourceOfTruth: "repo",
-      planningArtifacts: ["proposal", "specs", "design", "tasks"],
+      planningArtifacts,
       linkedContext: [],
       allowedEditRoots: [root],
       requiresAffectedAreaSelection: false,
@@ -133,6 +134,31 @@ describe("production planning runtime", () => {
     expect(await readFile(resolve(subject.changeRoot, "specs", "search", "spec.md"), "utf8")).toContain("Search behavior");
   });
 
+  test("excludes review/verification instructions a fusion-driven schema also tracks as planning artifacts", async () => {
+    const subject = await fixture(["proposal", "specs", "design", "tasks", "review", "verification"]);
+    const outcome = await runProductionPlanning({
+      cwd: subject.root,
+      changeName: "add-search",
+      phase: "refine",
+      prompt: "Add bounded search",
+      openSpec: subject.adapter,
+      modelStack: subject.modelStack,
+      runPreflight: async () => proceed,
+      runAgent: async (_request, _status, slot) => ({
+        model: slot.model,
+        content: JSON.stringify({ artifacts: [
+          { path: "proposal.md", content: "# Proposal" },
+          { path: "design.md", content: "# Design" },
+          { path: "specs/search/spec.md", content: "## Purpose\nSearch behavior contract.\n\n## ADDED Requirements" },
+          { path: "tasks.md", content: "## 1. Search\n" },
+        ] }),
+      }),
+    });
+
+    expect(subject.instructionCalls).toEqual(["proposal", "specs", "design", "tasks"]);
+    expect(outcome.status).toBe("success");
+  });
+
   test("rejects an incomplete synthesis before writing any artifact", async () => {
     const subject = await fixture();
     let error: unknown;
@@ -226,6 +252,7 @@ describe("production planning runtime", () => {
     const subject = await fixture();
     const calls: string[] = [];
     let statusCalls = 0;
+    let createChangeSchema: string | undefined;
     const adapter = {
       status: async () => {
         calls.push("status");
@@ -235,8 +262,9 @@ describe("production planning runtime", () => {
         }
         return await subject.adapter.status("add-search");
       },
-      createChange: async () => {
+      createChange: async (_change: string, _description: string, schema?: string) => {
         calls.push("new-change");
+        createChangeSchema = schema;
         return {};
       },
       instructions: async (artifact: string, change: string) => {
@@ -252,6 +280,9 @@ describe("production planning runtime", () => {
       prompt: "Add bounded search",
       openSpec: adapter,
       modelStack: subject.modelStack,
+      ensureSchema: async () => {
+        calls.push("ensure-schema");
+      },
       runPreflight: async () => {
         calls.push("preflight");
         return proceed;
@@ -270,6 +301,7 @@ describe("production planning runtime", () => {
     expect(calls).toEqual([
       "preflight",
       "status",
+      "ensure-schema",
       "new-change",
       "status",
       "instructions:proposal",
@@ -278,5 +310,6 @@ describe("production planning runtime", () => {
       "instructions:tasks",
       "synthesis",
     ]);
+    expect(createChangeSchema).toBe(FUSION_DRIVEN_SCHEMA_NAME);
   });
 });

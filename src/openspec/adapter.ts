@@ -97,9 +97,9 @@ export class OpenSpecAdapter {
     );
   }
 
-  async createChange(change: string, description: string): Promise<OpenSpecCreate> {
+  async createChange(change: string, description: string, schema?: string): Promise<OpenSpecCreate> {
     return this.structured(
-      ["new", "change", change, "--description", description, "--json"],
+      ["new", "change", change, "--description", description, ...(schema ? ["--schema", schema] : []), "--json"],
       "new change",
       openSpecCreateSchema,
     );

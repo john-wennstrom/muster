@@ -124,4 +124,59 @@ describe("change planning", () => {
     expect(result.policy.budgetDecision).toBe("optional_skipped_budget");
     expect(subject.writes).toHaveLength(1);
   });
+
+  test("retries synthesis once with the rejection reason when writeArtifacts rejects the bundle", async () => {
+    const calls: PlanningAgentRequest[] = [];
+    const writeAttempts: string[] = [];
+    let synthesisCalls = 0;
+    const dependencies: PlanningDependencies = {
+      runAgent: async (request) => {
+        calls.push(request);
+        if (request.stage === "synthesis") {
+          synthesisCalls += 1;
+          return { model: `model-${synthesisCalls}`, content: `synthesis attempt ${synthesisCalls}` };
+        }
+        return { model: "model", content: `${request.stage} result` };
+      },
+      writeArtifacts: async (request) => {
+        writeAttempts.push(request.synthesis.content);
+        if (writeAttempts.length === 1) {
+          throw new Error("Planning synthesis did not return one JSON artifact bundle");
+        }
+      },
+    };
+
+    const result = await propose({
+      changeName: "malformed-first-attempt",
+      prompt: "Fix one local parser",
+      complexity: direct,
+      optionalBudgetAvailable: true,
+    }, dependencies);
+
+    expect(writeAttempts).toEqual(["synthesis attempt 1", "synthesis attempt 2"]);
+    expect(synthesisCalls).toBe(2);
+    const secondSynthesisCall = calls.filter((call) => call.stage === "synthesis")[1];
+    expect(secondSynthesisCall?.priorResults.at(-1)?.model).toBe("validator");
+    expect(secondSynthesisCall?.priorResults.at(-1)?.content).toContain(
+      "Planning synthesis did not return one JSON artifact bundle",
+    );
+    expect(result.artifactsWritten).toBe(true);
+  });
+
+  test("stops retrying once maxSynthesisAttempts is exhausted and surfaces the last error", async () => {
+    const dependencies: PlanningDependencies = {
+      runAgent: async (request) => ({ model: "model", content: `${request.stage} result` }),
+      writeArtifacts: async () => {
+        throw new Error("still invalid");
+      },
+      maxSynthesisAttempts: 2,
+    };
+
+    await expect(propose({
+      changeName: "always-invalid",
+      prompt: "Fix one local parser",
+      complexity: direct,
+      optionalBudgetAvailable: true,
+    }, dependencies)).rejects.toThrow("still invalid");
+  });
 });

@@ -19,21 +19,31 @@ import {
 } from "../../controller/planning.ts";
 import { classifyChange } from "../../controller/complexity-router.ts";
 import { OpenSpecAdapter } from "../../openspec/adapter.ts";
+import { ensureFusionDrivenSchemaInstalled, FUSION_DRIVEN_SCHEMA_NAME } from "../../openspec/fusion-driven-schema.ts";
 import type { OpenSpecInstructions, OpenSpecStatus } from "../../openspec/protocol.ts";
 import { createChangeUsageStore, recordChangeUsage } from "../../persistence/change-usage-store.ts";
 import { readCliFlag } from "../../shared/cli-flags.ts";
 import { isWithin } from "../../shared/paths.ts";
 import { HarnessError } from "../../shared/errors.ts";
 import { usageFromLegacyRun } from "../../telemetry/usage.ts";
-import { BudgetLedger, type BudgetAmount } from "../../telemetry/budget.ts";
+import { BudgetLedger, type BudgetAmount, type BudgetLimit } from "../../telemetry/budget.ts";
 import type { CommandOutcome } from "../command.ts";
 import { resolveModelStack } from "../models.ts";
 import type { AgentRunObserver } from "../agent-progress.ts";
 
+/**
+ * The artifacts `propose`/`refine` actually write (matches `allowedArtifactPath`
+ * below). A schema like `fusion-driven` also tracks `review`/`verification` as
+ * "planning artifacts", but those are separate phases (change/phases/review.ts,
+ * verification.ts) — pulling their instructions into every specialist/debate/
+ * synthesis prompt here would just be unused prompt weight.
+ */
+const PLANNING_WRITABLE_ARTIFACT_IDS: ReadonlySet<string> = new Set(["proposal", "specs", "design", "tasks"]);
+
 const PLANNING_TIMEOUT_MS = 30 * 60 * 1000;
 const PREFLIGHT_MAX_TOOL_CALLS = 6;
-const DEFAULT_PLANNING_MAX_TOKENS = 100_000;
-const DEFAULT_PLANNING_MAX_COST_USD = 0.5;
+const DEFAULT_PLANNING_MAX_TOKENS = 1_000_000;
+const DEFAULT_PLANNING_MAX_COST_USD = 1.5;
 const DEFAULT_BUDGET_ESTIMATES = {
   preflight: { totalTokens: 15_000, costUsd: 0.08 },
   specialist_opinion: { totalTokens: 20_000, costUsd: 0.12 },
@@ -62,27 +72,39 @@ export interface PlanningPreflightRequest {
   prompt: string;
 }
 
-function parsePositiveBudget(value: string, fallback: number, label: string): number {
+const UNLIMITED_BUDGET_VALUES = new Set(["unlimited", "none", "off"]);
+
+/** Returns `undefined` for "unlimited"/"none"/"off", meaning that dimension is not capped. */
+function parseBudgetLimit(value: string, fallback: number, label: string): number | undefined {
   if (!value) return fallback;
+  if (UNLIMITED_BUDGET_VALUES.has(value.trim().toLowerCase())) return undefined;
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new HarnessError("BUDGET_CONFIG_INVALID", `${label} must be a positive number`, { label, value });
+    throw new HarnessError(
+      "BUDGET_CONFIG_INVALID",
+      `${label} must be a positive number, or "unlimited"/"none"/"off" to disable the cap`,
+      { label, value },
+    );
   }
   return parsed;
 }
 
 function planningBudget(argv: readonly string[], env: NodeJS.ProcessEnv = process.env): BudgetLedger {
-  const totalTokens = parsePositiveBudget(
+  const totalTokens = parseBudgetLimit(
     readCliFlag("planning-max-tokens", argv) || env.MUSTER_PLANNING_MAX_TOKENS?.trim() || "",
     DEFAULT_PLANNING_MAX_TOKENS,
     "planning max tokens",
   );
-  const costUsd = parsePositiveBudget(
+  const costUsd = parseBudgetLimit(
     readCliFlag("planning-max-cost", argv) || env.MUSTER_PLANNING_MAX_COST_USD?.trim() || "",
     DEFAULT_PLANNING_MAX_COST_USD,
     "planning max cost",
   );
-  return new BudgetLedger({ phases: { planning: { totalTokens, costUsd } } });
+  const limit: BudgetLimit = {
+    ...(totalTokens !== undefined ? { totalTokens } : {}),
+    ...(costUsd !== undefined ? { costUsd } : {}),
+  };
+  return new BudgetLedger({ phases: Object.keys(limit).length > 0 ? { planning: limit } : {} });
 }
 
 function preflightPrompt(request: PlanningPreflightRequest): string {
@@ -222,7 +244,7 @@ function planningPrompt(
   return [
     ...common,
     "Return exactly one JSON object with this shape: {\"artifacts\":[{\"path\":\"proposal.md\",\"content\":\"...\"},{\"path\":\"design.md\",\"content\":\"...\"},{\"path\":\"specs/<capability>/spec.md\",\"content\":\"...\"},{\"path\":\"tasks.md\",\"content\":\"...\"}]}. Do not use markdown fences.",
-    "Use OpenSpec delta-spec headings and four-hash WHEN/THEN scenarios. Every tasks.md checkbox must include adjacent yaml harness-task metadata.",
+    "Use OpenSpec delta-spec headings and four-hash WHEN/THEN scenarios. Follow the tasks artifact's own instructions and template above for how to structure each checkbox.",
   ].join("\n\n");
 }
 
@@ -261,6 +283,7 @@ export interface ProductionPlanningOptions {
   budgetEstimates?: Partial<Record<"preflight" | PlanningAgentRequest["stage"], BudgetAmount>>;
   runPreflight?(request: PlanningPreflightRequest, slot: ModelSlot): Promise<PlanningPreflight>;
   runAgent?(request: PlanningAgentRequest, status: OpenSpecStatus, slot: ModelSlot): Promise<PlanningAgentResult>;
+  ensureSchema?(): Promise<void>;
 }
 
 export async function runProductionPlanning(options: ProductionPlanningOptions): Promise<CommandOutcome> {
@@ -354,14 +377,17 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
       await adapter.status(options.changeName);
     } catch (error) {
       if (!(error instanceof HarnessError) || error.code !== "OPENSPEC_COMMAND_FAILED") throw error;
-      await adapter.createChange(options.changeName, options.prompt || `Plan ${options.changeName}`);
+      const ensureSchema = options.ensureSchema ?? (() => ensureFusionDrivenSchemaInstalled().then(() => undefined));
+      await ensureSchema();
+      await adapter.createChange(options.changeName, options.prompt || `Plan ${options.changeName}`, FUSION_DRIVEN_SCHEMA_NAME);
     }
   }
   const status = await adapter.status(options.changeName);
   const changeRoot = resolve(status.changeRoot);
-  const artifactIds = status.actionContext.planningArtifacts.length
+  const artifactIds = (status.actionContext.planningArtifacts.length
     ? status.actionContext.planningArtifacts
-    : status.artifacts.map(({ id }) => id);
+    : status.artifacts.map(({ id }) => id)
+  ).filter((id) => PLANNING_WRITABLE_ARTIFACT_IDS.has(id));
   const instructions = await Promise.all(artifactIds.map((artifact) => adapter.instructions(artifact, options.changeName)));
   const runAgent = options.runAgent ?? (async (request: PlanningAgentRequest, current: OpenSpecStatus, slot: ModelSlot) => {
     const content = await runChild({

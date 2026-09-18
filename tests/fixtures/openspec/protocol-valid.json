@@ -42,7 +42,9 @@
     "description": "Initial proposal",
     "instruction": "Create the proposal.",
     "template": "## Why",
-    "dependencies": [],
+    "dependencies": [
+      { "id": "proposal", "done": true, "path": "proposal.md", "description": "Initial proposal document outlining the change" }
+    ],
     "unlocks": ["specs", "design"],
     "root": { "path": "/project", "source": "nearest" }
   },

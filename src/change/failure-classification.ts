@@ -46,6 +46,7 @@ export const failureClassifications = {
   OPENSPEC_CAPABILITY_MISSING: { blocker: "external_capability" },
   OPENSPEC_COMMAND_FAILED: { blocker: "external_capability" },
   OPENSPEC_INVALID_JSON: { blocker: "external_capability" },
+  OPENSPEC_SCHEMA_INSTALL_FAILED: { blocker: "external_capability" },
   OPENSPEC_SCHEMA_MISMATCH: { blocker: "external_capability" },
   PROCESS_SPAWN_FAILED: { blocker: "external_capability" },
   PROCESS_TIMEOUT: { blocker: "external_capability" },

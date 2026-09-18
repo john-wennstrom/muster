@@ -55,6 +55,14 @@ export interface PlanningDependencies {
   specialistOpinionCount?: number;
   budget?: BudgetEvaluator;
   budgetEstimates?: Partial<Record<PlanningAgentStage, BudgetAmount>>;
+  /**
+   * Total synthesis attempts (1 = no retry) when `writeArtifacts` rejects the
+   * synthesis output — e.g. a hand-escaped JSON bundle with one bad quote.
+   * Re-running the whole `/change propose` is a full preflight + specialist
+   * pass; feeding the exact parse/validation error back for one corrected
+   * synthesis attempt is far cheaper and usually enough. Defaults to 2.
+   */
+  maxSynthesisAttempts?: number;
 }
 
 export interface PlanningResult {
@@ -167,20 +175,41 @@ async function runPlanning(
       { decision: synthesisBudget },
     );
   }
-  const synthesis = await dependencies.runAgent({
+  const debated = debate ? [...opinions, debate] : opinions;
+  const maxSynthesisAttempts = Math.max(1, dependencies.maxSynthesisAttempts ?? 2);
+  let synthesis = await dependencies.runAgent({
     ...baseRequest,
     policy,
     stage: "synthesis",
-    priorResults: debate ? [...opinions, debate] : opinions,
+    priorResults: debated,
   });
-
-  await dependencies.writeArtifacts({
-    phase,
-    changeName: input.changeName,
-    synthesis,
-    opinions,
-    debate,
-  });
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await dependencies.writeArtifacts({
+        phase,
+        changeName: input.changeName,
+        synthesis,
+        opinions,
+        debate,
+      });
+      break;
+    } catch (error) {
+      if (attempt >= maxSynthesisAttempts) throw error;
+      const reason = error instanceof Error ? error.message : String(error);
+      synthesis = await dependencies.runAgent({
+        ...baseRequest,
+        policy,
+        stage: "synthesis",
+        priorResults: [
+          ...debated,
+          {
+            model: "validator",
+            content: `Your previous response was rejected: ${reason}\n\nReturn exactly one valid JSON object of the required shape, with no markdown fences and no text outside the object. Every double quote that appears inside a string value must be escaped as \\", including quoted phrases inside task descriptions or prose — never a raw " inside a JSON string.`,
+          },
+        ],
+      });
+    }
+  }
 
   return {
     phase,
