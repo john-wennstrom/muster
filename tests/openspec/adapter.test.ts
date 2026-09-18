@@ -53,6 +53,7 @@ describe("OpenSpec adapter", () => {
       if (key === "instructions apply --change add-search --json") return result(args, JSON.stringify(fixture.apply));
       if (key === "validate add-search --type change --strict --json") return result(args, JSON.stringify(fixture.validate));
       if (key === "archive add-search --json --yes") return result(args, JSON.stringify(fixture.archive));
+      if (key === "new change add-search --description Add search --json") return result(args, JSON.stringify(fixture.create));
       return result(args, "", `unexpected command: ${key}`, 2);
     };
     const adapter = new OpenSpecAdapter({ cwd, timeoutMs: 3_000, runner });
@@ -63,6 +64,7 @@ describe("OpenSpec adapter", () => {
     expect((await adapter.applyInstructions("add-search")).state).toBe("ready");
     expect((await adapter.validate("add-search")).items[0]?.valid).toBeTrue();
     expect((await adapter.archive("add-search")).archive.change).toBe("add-search");
+    expect((await adapter.createChange("add-search", "Add search")).change.id).toBe("add-search");
 
     expect(calls.every((call) => call.options.cwd === cwd)).toBeTrue();
     expect(calls.every((call) => call.options.timeoutMs === 3_000)).toBeTrue();
@@ -71,6 +73,14 @@ describe("OpenSpec adapter", () => {
       "add-search",
       "--json",
       "--yes",
+    ]);
+    expect(calls.map((call) => call.args)).toContainEqual([
+      "new",
+      "change",
+      "add-search",
+      "--description",
+      "Add search",
+      "--json",
     ]);
   });
 

@@ -29,7 +29,22 @@ import { parseReviewArtifact } from "../review/review-artifact.ts";
 import { parseVerificationArtifact } from "../review/verification-artifact.ts";
 import { HarnessError } from "../shared/errors.ts";
 import { usageFromLegacyRun, type UsagePhase } from "../telemetry/usage.ts";
-import type { ChangeCommandDependencies } from "./change-command.ts";
+import { renderChangeStatus, type ChangeCommandDependencies } from "./change-command.ts";
+import {
+  createCommandRunContext,
+  createCommandRunId,
+  renderCommandOutcome,
+  resolveProductionChange,
+  validateChangeSlug,
+  type CommandOutcome,
+  type ResolvedChange,
+  type ResolveProductionChangeOptions,
+} from "./command-runtime.ts";
+import { resolveProductionModelStack, runProductionPlanning } from "./planning-runtime.ts";
+import { runProductionReview } from "./review-runtime.ts";
+import { runProductionImplementation } from "./implementation-runtime.ts";
+import { runProductionFinish, runProductionVerification } from "./verification-runtime.ts";
+import type { AgentRunObserver } from "./agent-progress.ts";
 
 // Last-resort fallback only — used when no --fh-config/--architect is configured and no
 // MUSTER_EXPLORE_MODEL override is set. Mirrors fusion-harness's own DEFAULT_ARCHITECT.
@@ -109,6 +124,27 @@ async function readOptional(path: string): Promise<string | null> {
 export interface ProductionRuntimeOptions {
   cwd?: string;
   now?: () => string;
+  signal?: AbortSignal;
+  argv?: readonly string[];
+  onAgentStart?: AgentRunObserver;
+  runners?: {
+    explore?(options: {
+      cwd: string;
+      prompt: string;
+      signal?: AbortSignal;
+    }): Promise<CommandOutcome>;
+    planning?: typeof runProductionPlanning;
+    review?: typeof runProductionReview;
+    implementation?: typeof runProductionImplementation;
+    verification?: typeof runProductionVerification;
+    finish?: typeof runProductionFinish;
+  };
+  ports?: {
+    resolveChange?(options: ResolveProductionChangeOptions): Promise<ResolvedChange>;
+    loadSnapshot?(options: ProductionRuntimeOptions & { changeName: string }): Promise<ChangeSnapshot | null>;
+    loadUsage?(options: ProductionRuntimeOptions & { changeName: string }): Promise<ChangeUsageSummary | null>;
+    activateChange?(options: ProductionRuntimeOptions & { changeName: string }): Promise<void>;
+  };
 }
 
 export async function loadProductionChangeSnapshot(
@@ -116,11 +152,21 @@ export async function loadProductionChangeSnapshot(
 ): Promise<ChangeSnapshot | null> {
   const cwd = options.cwd ?? process.cwd();
   const now = options.now ?? (() => new Date().toISOString());
-  const changeRoot = resolve(cwd, "openspec", "changes", options.changeName);
+  let resolvedChange;
+  try {
+    resolvedChange = await resolveProductionChange({
+      planningHome: cwd,
+      changeName: options.changeName,
+    });
+  } catch (error) {
+    if (error instanceof HarnessError && error.code === "CHANGE_NOT_FOUND") return null;
+    throw error;
+  }
+  const changeRoot = resolvedChange.changeRoot;
   const tasksPath = resolve(changeRoot, "tasks.md");
   if (!(await pathExists(tasksPath))) return null;
 
-  const git = new GitAdapter(cwd);
+  const git = new GitAdapter(cwd, undefined, undefined, options.signal);
   const identity = await git.identity();
   const head = await git.head();
   const statusEntries = await git.status();
@@ -134,7 +180,7 @@ export async function loadProductionChangeSnapshot(
 
   let planningComplete = false;
   try {
-    const status = await new OpenSpecAdapter({ cwd }).status(options.changeName);
+    const status = await new OpenSpecAdapter({ cwd, signal: options.signal }).status(options.changeName);
     planningComplete = status.isPlanningComplete;
   } catch {
     planningComplete = false;
@@ -240,25 +286,38 @@ export async function touchActiveChange(options: ProductionRuntimeOptions & { ch
   await setActiveChange(store, options.changeName, options.now);
 }
 
-export function createProductionExploreDependencies(cwd: string): ExploreDependencies {
+export function createProductionExploreDependencies(
+  cwd: string,
+  signal?: AbortSignal,
+  options: {
+    argv?: readonly string[];
+    onAgentStart?: AgentRunObserver;
+    runChild?: typeof runLegacyReadOnlyChild;
+  } = {},
+): ExploreDependencies {
   return {
     async runAgent(request) {
-      const model = resolveExploreModel();
-      const run = newRun("ARCHITECT", model);
+      const slot = resolveProductionModelStack(options.argv).architect;
+      const model = resolveExploreModel(process.env, options.argv);
+      const run = newRun("ARCHITECT", model, { ...slot, model });
       const runId = `explore-${randomUUID()}`;
-      await runLegacyReadOnlyChild({
+      await (options.runChild ?? runLegacyReadOnlyChild)({
         run,
+        onAgentStart: options.onAgentStart,
         prompt: renderExplorePrompt(request),
+        systemPrompt: slot.systemPrompt,
+        appendSystemPrompts: slot.appendSystemPrompts,
         role: "architect",
         runId,
         childId: "explore",
         taskId: "change.explore",
         description: "Read-only exploration for /change explore",
-        assignee: "explore",
-        thinking: "medium",
+        assignee: slot.id,
+        thinking: slot.thinking,
         sessionDir: resolve(cwd, ".fusion", "runs", runId, "sessions", "explore"),
         cwd,
         timeoutMs: EXPLORE_CHILD_TIMEOUT_MS,
+        signal,
       });
       if (!runOk(run)) {
         throw new HarnessError(
@@ -276,32 +335,240 @@ export function createProductionChangeCommandDependencies(
   options: ProductionRuntimeOptions = {},
 ): ChangeCommandDependencies {
   const cwd = options.cwd ?? process.cwd();
+  const resolvedChanges = new Map<string, ResolvedChange>();
+  const resolveChange = async (candidate: string, allowMissing: boolean): Promise<ResolvedChange> => {
+    const name = validateChangeSlug(candidate);
+    if (options.ports?.resolveChange) {
+      return options.ports.resolveChange({ planningHome: cwd, changeName: name, allowMissing });
+    }
+    const adapter = new OpenSpecAdapter({ cwd, signal: options.signal });
+    try {
+      const status = await adapter.status(name);
+      if (status.changeName !== name) {
+        throw new HarnessError(
+          "CHANGE_SLUG_COLLISION",
+          `OpenSpec resolved ${name} as a different change identity`,
+          { requested: name, resolved: status.changeName },
+        );
+      }
+      return resolveProductionChange({
+        planningHome: status.planningHome.root,
+        changesDirectory: status.planningHome.changesDir,
+        changeRoot: status.changeRoot,
+        changeName: name,
+      });
+      if (run.status === "aborted") {
+        throw new HarnessError("PROCESS_CANCELLED", "Exploration cancelled", { runId });
+      }
+    } catch (error) {
+      if (!allowMissing || !(error instanceof HarnessError) || error.code !== "OPENSPEC_COMMAND_FAILED") throw error;
+      return resolveProductionChange({ planningHome: cwd, changeName: name, allowMissing: true });
+    }
+  };
   return {
-    async resolveChangeName(explicit) {
+    forInvocation(context) {
+      return createProductionChangeCommandDependencies({
+        ...options,
+        cwd: context.cwd ?? cwd,
+        signal: context.signal ?? options.signal,
+        onAgentStart: context.onAgentStart ?? options.onAgentStart,
+      });
+    },
+    async resolveChangeName(explicit, action) {
       const store = createChangeUsageStore(cwd);
       if (explicit) {
-        await setActiveChange(store, explicit, options.now);
-        return explicit;
+        const change = await resolveChange(explicit, action === "propose");
+        resolvedChanges.set(change.name, change);
+        return change.name;
       }
-      return getActiveChange(store);
+      const remembered = await getActiveChange(store);
+      if (!remembered) return null;
+      const change = await resolveChange(remembered, false);
+      resolvedChanges.set(change.name, change);
+      return change.name;
     },
-    loadSnapshot: (changeName) => loadProductionChangeSnapshot({ ...options, cwd, changeName }),
-    loadChangeUsage: (changeName) => loadProductionChangeUsage({ ...options, cwd, changeName }),
+    activateChange: (changeName) => (options.ports?.activateChange ?? touchActiveChange)({ ...options, cwd, changeName }),
+    async createRunContext(command, context) {
+      const change = command.changeName
+        ? resolvedChanges.get(command.changeName) ?? await resolveProductionChange({
+          planningHome: cwd,
+          changeName: command.changeName,
+          allowMissing: command.action === "propose",
+        })
+        : undefined;
+      const stack = command.action === "status" ? undefined : resolveProductionModelStack(options.argv);
+      const stateful = ["implement", "resume", "verify", "finish"].includes(command.action);
+      return createCommandRunContext({
+        action: command.action,
+        repositoryCwd: cwd,
+        planningHome: change?.planningHome ?? cwd,
+        change,
+        runId: command.action === "status" || command.action === "explore"
+          ? undefined
+          : stateful && command.changeName
+            ? changeRunId(command.changeName)
+            : createCommandRunId(command.action, command.changeName),
+        models: {
+          architect: stack?.architect.model,
+          builder: stack?.primaryBuilder.model,
+          reviewer: stack?.builders.find((slot) => slot.model !== stack.architect.model)?.model ?? stack?.primaryBuilder.model,
+          validator: stack?.architect.model,
+        },
+        signal: options.signal ?? context.signal,
+        output: {
+          write(outcome) {
+            const rendered = renderCommandOutcome(outcome);
+            if (context.sendMessage) context.sendMessage(rendered);
+            else context.ui.notify(rendered, outcome.status === "failure" ? "error" : outcome.status === "success" ? "info" : "warning");
+          },
+        },
+      });
+    },
+    loadSnapshot: (changeName) => (options.ports?.loadSnapshot ?? loadProductionChangeSnapshot)({ ...options, cwd, changeName }),
+    loadChangeUsage: (changeName) => (options.ports?.loadUsage ?? loadProductionChangeUsage)({ ...options, cwd, changeName }),
     handlers: {
       async explore(command, context) {
         const prompt = command.arguments.join(" ").trim();
         if (!prompt) {
-          context.ui.notify("Usage: /change explore <prompt>", "warning");
-          return;
+          return {
+            status: "blocked" as const,
+            action: "explore" as const,
+            summary: "Usage: /change explore <prompt>",
+          };
+        }
+        if (options.runners?.explore) {
+          return options.runners.explore({ cwd, prompt, signal: options.signal ?? context.signal });
         }
         const authoritativeContext = command.changeName ? { changeName: command.changeName } : undefined;
         const exploration = await explore(
           { prompt, authoritativeContext },
-          createProductionExploreDependencies(cwd),
+          createProductionExploreDependencies(cwd, options.signal ?? context.signal, {
+            argv: options.argv,
+            onAgentStart: context.onAgentStart ?? options.onAgentStart,
+          }),
         );
-        // ui.notify is a transient toast — unsuited to a multi-paragraph analysis.
-        if (context.sendMessage) context.sendMessage(exploration.analysis.content);
-        else context.ui.notify(exploration.analysis.content, "info");
+        return {
+          status: "success" as const,
+          action: "explore" as const,
+          summary: exploration.analysis.content,
+        };
+      },
+      async propose(command, context) {
+        if (!command.changeName) {
+          return {
+            status: "blocked" as const,
+            action: "propose" as const,
+            summary: "Usage: /change propose <change> <goal>",
+            next: "/change propose <change> <goal>",
+          };
+        }
+        return (options.runners?.planning ?? runProductionPlanning)({
+          cwd,
+          changeName: command.changeName,
+          phase: "propose",
+          onAgentStart: context.onAgentStart ?? options.onAgentStart,
+          runId: context.run?.runId,
+          prompt: command.arguments.join(" ").trim(),
+          signal: options.signal,
+          argv: options.argv,
+        });
+      },
+      async refine(command, context) {
+        return (options.runners?.planning ?? runProductionPlanning)({
+          cwd,
+          changeName: command.changeName!,
+          phase: "refine",
+          onAgentStart: context.onAgentStart ?? options.onAgentStart,
+          runId: context.run?.runId,
+          prompt: command.arguments.join(" ").trim(),
+          signal: options.signal,
+          argv: options.argv,
+        });
+      },
+      async review(command, context) {
+        return (options.runners?.review ?? runProductionReview)({
+          onAgentStart: context.onAgentStart ?? options.onAgentStart,
+          cwd,
+          changeName: command.changeName!,
+          prompt: command.arguments.join(" ").trim() || undefined,
+          signal: options.signal,
+          argv: options.argv,
+          runId: context.run?.runId,
+        });
+      },
+      async implement(command, context) {
+        const snapshot = await (options.ports?.loadSnapshot ?? loadProductionChangeSnapshot)({
+          ...options,
+          cwd,
+          changeName: command.changeName!,
+        });
+        return (options.runners?.implementation ?? runProductionImplementation)({
+          onAgentStart: context.onAgentStart ?? options.onAgentStart,
+          cwd,
+          changeName: command.changeName!,
+          reviewFreshness: snapshot?.freshness.review ?? "missing",
+          signal: options.signal,
+          argv: options.argv,
+        });
+      },
+      async resume(command, context) {
+        const snapshot = await (options.ports?.loadSnapshot ?? loadProductionChangeSnapshot)({
+          ...options,
+          cwd,
+          changeName: command.changeName!,
+        });
+        return (options.runners?.implementation ?? runProductionImplementation)({
+          cwd,
+          changeName: command.changeName!,
+          reviewFreshness: snapshot?.freshness.review ?? "missing",
+          checkpointId: command.arguments[0]!,
+          onAgentStart: context.onAgentStart ?? options.onAgentStart,
+          confirmedBy: context.actor ?? "local-user",
+          signal: options.signal,
+          argv: options.argv,
+        });
+      },
+      async verify(command) {
+        return (options.runners?.verification ?? runProductionVerification)({
+          cwd,
+          changeName: command.changeName!,
+          signal: options.signal,
+          argv: options.argv,
+        });
+      },
+      async finish(command) {
+        return (options.runners?.finish ?? runProductionFinish)({
+          cwd,
+          changeName: command.changeName!,
+          signal: options.signal,
+          argv: options.argv,
+        });
+      },
+      async status(command) {
+        const snapshot = await (options.ports?.loadSnapshot ?? loadProductionChangeSnapshot)({
+          ...options,
+          cwd,
+          changeName: command.changeName!,
+        });
+        if (!snapshot) {
+          return {
+            status: "blocked" as const,
+            action: "status" as const,
+            changeName: command.changeName,
+            summary: `Change ${command.changeName} does not have a readable production snapshot.`,
+          };
+        }
+        const usage = await (options.ports?.loadUsage ?? loadProductionChangeUsage)({
+          ...options,
+          cwd,
+          changeName: command.changeName!,
+        });
+        return {
+          status: "success" as const,
+          action: "status" as const,
+          changeName: command.changeName,
+          summary: renderChangeStatus(snapshot, usage),
+        };
       },
     },
   };

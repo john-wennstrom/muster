@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { resolve } from "node:path";
 import type { ChangeSnapshot } from "../../src/controller/change-snapshot.ts";
 import { finishChange } from "../../src/controller/finish.ts";
 import { verifyChange } from "../../src/controller/verify.ts";
@@ -132,7 +133,7 @@ describe("change verify and finish commands", () => {
 
     expect(events).toEqual([
       "validate",
-      "write:/repo/openspec/changes/add-search/verification.md",
+      `write:${resolve("/repo/openspec/changes/add-search/verification.md")}`,
     ]);
     expect(written).toMatchObject({ result: "PASS", artifactDigest, sourceDigest });
     expect(result.nextAction).toBe("finish");

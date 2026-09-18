@@ -38,6 +38,7 @@ export interface LegacyTaskBrokerOptions {
     AcquireWriterLeaseOptions,
     "lockDirectory" | "processAlive" | "reconcileStaleOwner" | "now"
   >;
+  existingWriterLease?: WriterLeaseRecord;
   persistEvidence?: (
     tool: "submit_gate" | "submit_scope",
     input: Readonly<Record<string, unknown>>,
@@ -56,8 +57,10 @@ export interface RunLegacyBrokeredChildOptions extends Omit<
   RunBrokeredChildOptions,
   "handleRequest" | "taskId" | "writeEnabled"
 > {
+  onAgentStart?: (run: RunBrokeredChildOptions["run"]) => void;
   task: CollaborationTask;
   lease?: LegacyTaskBrokerOptions["lease"];
+  existingWriterLease?: WriterLeaseRecord;
   persistEvidence?: LegacyTaskBrokerOptions["persistEvidence"];
   continueTaskSession?: boolean;
 }
@@ -173,17 +176,30 @@ export async function createLegacyTaskBroker(
   const identity = await new GitAdapter(options.cwd).identity();
   const worktreePath = identity.root;
   let lease: WriterLease | null = null;
+  let writerLease = options.existingWriterLease ?? null;
   if (options.task.mode === "write") {
-    lease = await acquireWriterLease({
-      identity: {
-        repositoryId: identity.id,
-        worktreePath,
-        runId: options.runId,
-        taskId: options.task.id,
-        command: `legacy:${options.role}`,
-      },
-      ...options.lease,
-    });
+    if (writerLease) {
+      if (
+        writerLease.repositoryId !== identity.id ||
+        resolve(writerLease.worktreePath) !== resolve(worktreePath) ||
+        writerLease.runId !== options.runId ||
+        writerLease.taskId !== options.task.id
+      ) {
+        throw new Error(`Existing writer lease does not belong to task ${options.task.id}`);
+      }
+    } else {
+      lease = await acquireWriterLease({
+        identity: {
+          repositoryId: identity.id,
+          worktreePath,
+          runId: options.runId,
+          taskId: options.task.id,
+          command: `legacy:${options.role}`,
+        },
+        ...options.lease,
+      });
+      writerLease = lease.record;
+    }
   }
   const authorization: AuthorizationContext = {
     role: options.role,
@@ -195,13 +211,13 @@ export async function createLegacyTaskBroker(
     worktreePath,
     readScopes: options.task.reads,
     writeScopes: options.task.writes,
-    writerLease: lease?.record ?? null,
+    writerLease,
   };
 
   return {
     repositoryId: identity.id,
     worktreePath,
-    writerLease: lease?.record ?? null,
+    writerLease,
     async handleRequest(request) {
       const input = requestObject(request.input);
       const targetPath = request.tool === "command"
@@ -264,6 +280,7 @@ export async function createLegacyTaskBroker(
 export async function runLegacyBrokeredChild(
   options: RunLegacyBrokeredChildOptions,
 ) {
+  options.onAgentStart?.(options.run);
   const broker = await createLegacyTaskBroker({
     cwd: options.cwd,
     runId: options.runId,
@@ -271,6 +288,7 @@ export async function runLegacyBrokeredChild(
     role: options.role,
     task: options.task,
     lease: options.lease,
+    existingWriterLease: options.existingWriterLease,
     persistEvidence: options.persistEvidence,
   });
   try {

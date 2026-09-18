@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import {
@@ -9,6 +9,7 @@ import {
   renderExplorePrompt,
   resolveExploreModel,
 } from "../../src/muster/production-runtime.ts";
+import { changeSubcommands } from "../../src/muster/change-command.ts";
 import { loadChangeUsageSummary, createChangeUsageStore } from "../../src/persistence/change-usage-store.ts";
 import { runProcess } from "../../src/shared/process.ts";
 
@@ -77,6 +78,53 @@ async function mktempRoot(): Promise<string> {
 }
 
 describe("production change snapshot", () => {
+  test("default production dependencies provide every advertised handler", () => {
+    const dependencies = createProductionChangeCommandDependencies({ cwd: process.cwd(), argv: [] });
+    for (const action of changeSubcommands) {
+      expect(dependencies.handlers[action], `missing production handler for ${action}`).toBeFunction();
+    }
+  });
+
+  test("invocation dependency construction follows the host cwd and cancellation signal", async () => {
+    const root = await mktempRoot();
+    await mkdir(resolve(root, "openspec", "changes"), { recursive: true });
+    const abort = new AbortController();
+    const calls: Array<{ cwd: string; signal?: AbortSignal; runId?: string }> = [];
+    const dependencies = createProductionChangeCommandDependencies({
+      cwd: "C:\\extension-startup",
+      argv: [],
+      runners: {
+        planning: async (options) => {
+          calls.push({ cwd: options.cwd, signal: options.signal, runId: options.runId });
+          return { status: "success", action: options.phase, changeName: options.changeName, summary: "planned" };
+        },
+      },
+    });
+    const invocation = await dependencies.forInvocation?.({
+      cwd: root,
+      signal: abort.signal,
+      ui: { notify: () => undefined },
+    });
+    const command = { action: "propose" as const, changeName: "new-change", arguments: ["Goal"] };
+    const run = await invocation!.createRunContext?.(command, {
+      cwd: root,
+      signal: abort.signal,
+      ui: { notify: () => undefined },
+    });
+    await invocation!.handlers.propose?.(command, {
+      cwd: root,
+      signal: abort.signal,
+      run,
+      ui: { notify: () => undefined },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.cwd).toBe(root);
+    expect(calls[0]?.signal).toBe(abort.signal);
+    expect(calls[0]?.runId).toBe(run?.runId);
+    expect(run?.planningHome).toBe(await realpath(root));
+  });
+
   test("returns null when the change does not exist", async () => {
     const root = await mktempRoot();
     await git(root, "init");
@@ -100,12 +148,14 @@ describe("production change snapshot", () => {
     expect(snapshot!.pendingCheckpointIds).toEqual([]);
   });
 
-  test("resolveChangeName persists and recalls the active change", async () => {
+  test("change resolution is read-only until the caller activates the validated change", async () => {
     const root = await repositoryWithChange("add-search");
     const dependencies = createProductionChangeCommandDependencies({ cwd: root });
 
     expect(await dependencies.resolveChangeName(undefined)).toBeNull();
-    expect(await dependencies.resolveChangeName("add-search")).toBe("add-search");
+    expect(await dependencies.resolveChangeName("add-search", "status")).toBe("add-search");
+    expect(await dependencies.resolveChangeName(undefined)).toBeNull();
+    await dependencies.activateChange?.("add-search");
     expect(await dependencies.resolveChangeName(undefined)).toBe("add-search");
   });
 

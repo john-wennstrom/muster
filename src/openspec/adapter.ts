@@ -2,12 +2,14 @@ import { handshakeOpenSpec, type OpenSpecHandshake } from "./handshake.ts";
 import {
   openSpecApplySchema,
   openSpecArchiveSchema,
+  openSpecCreateSchema,
   openSpecInstructionsSchema,
   openSpecStatusSchema,
   openSpecValidateSchema,
   parseOpenSpecJson,
   type OpenSpecApplyInstructions,
   type OpenSpecArchive,
+  type OpenSpecCreate,
   type OpenSpecInstructions,
   type OpenSpecStatus,
   type OpenSpecValidation,
@@ -92,6 +94,14 @@ export class OpenSpecAdapter {
       ["archive", change, "--json", "--yes"],
       "archive",
       openSpecArchiveSchema,
+    );
+  }
+
+  async createChange(change: string, description: string): Promise<OpenSpecCreate> {
+    return this.structured(
+      ["new", "change", change, "--description", description, "--json"],
+      "new change",
+      openSpecCreateSchema,
     );
   }
 

@@ -5,7 +5,10 @@ import {
   registerChangeCommand,
   type ChangeCommandDependencies,
 } from "./change-command.ts";
-import { createProductionChangeCommandDependencies } from "./production-runtime.ts";
+import {
+  createProductionChangeCommandDependencies,
+  type ProductionRuntimeOptions,
+} from "./production-runtime.ts";
 
 export { registerFusionHarness };
 export { changeSubcommands };
@@ -13,8 +16,9 @@ export { changeSubcommands };
 export default function registerMuster(
   pi: ExtensionAPI,
   dependencies?: ChangeCommandDependencies,
+  productionOptions: ProductionRuntimeOptions = {},
 ): void {
-  const resolvedDependencies = dependencies ?? createProductionChangeCommandDependencies();
+  const resolvedDependencies = dependencies ?? createProductionChangeCommandDependencies(productionOptions);
   registerFusionHarness(pi, { changeController: resolvedDependencies });
   registerChangeCommand(pi, resolvedDependencies);
 }

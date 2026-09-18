@@ -57,15 +57,17 @@ These are implemented building blocks, not a greenfield backlog:
 
 Target: design sections 11, 12, 24, 25, 27-29, 33 and 40. Owners: [production runtime](../src/muster/production-runtime.ts), [dispatcher](../src/muster/change-command.ts), [planning](../src/controller/planning.ts), [review](../src/controller/review.ts), [implementation](../src/controller/implement.ts), [verification](../src/controller/verify.ts), [finish](../src/controller/finish.ts).
 
-- [ ] **Unwired:** supply production handlers for `propose`, `refine`, `review`, `implement`, `verify`, `finish`, and `resume`. Assemble the existing controllers with real OpenSpec, Git, store, broker, child, and UI dependencies. Do not substitute legacy execution for the new gates.
-- [ ] **Partial:** define one command-run context carrying the invocation's repository cwd, resolved planning home, change, worktree, run identity, models, cancellation signal, and output sink. The current factory captures `process.cwd()` and does not receive the Pi command context's cwd.
-- [ ] **Gap:** validate explicit change identifiers and resolved paths before filesystem reads or active-change persistence. Cover traversal, absolute paths, invalid slugs, nonexistent changes, and slug collisions. Do not let an invalid invocation overwrite a valid active change.
-- [ ] **Partial:** keep read-only `status` free of incidental active-change mutations, or explicitly revise/document that contract. Currently `resolveChangeName(explicit)` writes active state even for status and commands subsequently rejected by prerequisites.
-- [ ] **Partial:** allow standalone exploration without requiring a healthy active-change snapshot. Dispatch currently loads the remembered change before invoking explore, so malformed tasks or state can prevent unrelated exploration.
-- [ ] **Gap:** make prerequisite guidance name exact missing artifacts, stale digests, unavailable models, or pending checkpoint IDs. Avoid misleading `/implement is not available` wording for a missing `/change implement` handler while a distinct legacy `/implement` is registered.
-- [ ] **Acceptance risk:** test default `registerMuster()` dependencies by actually invoking every advertised action. A registration test or an injected handler map is insufficient. Require a persistent success, blocked, cancelled, or failure result for every invocation.
+- [x] **Unwired:** supply production handlers for `propose`, `refine`, `review`, `implement`, `verify`, `finish`, and `resume`. Assemble the existing controllers with real OpenSpec, Git, store, broker, child, and UI dependencies. Do not substitute legacy execution for the new gates.
+- [x] **Partial:** define one command-run context carrying the invocation's repository cwd, resolved planning home, change, worktree, run identity, models, cancellation signal, and output sink. The current factory captures `process.cwd()` and does not receive the Pi command context's cwd.
+- [x] **Gap:** validate explicit change identifiers and resolved paths before filesystem reads or active-change persistence. Cover traversal, absolute paths, invalid slugs, nonexistent changes, and slug collisions. Do not let an invalid invocation overwrite a valid active change.
+- [x] **Partial:** keep read-only `status` free of incidental active-change mutations, or explicitly revise/document that contract. Currently `resolveChangeName(explicit)` writes active state even for status and commands subsequently rejected by prerequisites.
+- [x] **Partial:** allow standalone exploration without requiring a healthy active-change snapshot. Dispatch currently loads the remembered change before invoking explore, so malformed tasks or state can prevent unrelated exploration.
+- [x] **Gap:** make prerequisite guidance name exact missing artifacts, stale digests, unavailable models, or pending checkpoint IDs. Avoid misleading `/implement is not available` wording for a missing `/change implement` handler while a distinct legacy `/implement` is registered.
+- [x] **Acceptance risk:** test default `registerMuster()` dependencies by actually invoking every advertised action. A registration test or an injected handler map is insufficient. Require a persistent success, blocked, cancelled, or failure result for every invocation.
 
 Acceptance: every listed command reaches its intended production controller; errors explain the actual blocker; no missing-handler fallback remains for advertised supported actions.
+
+Validation (2026-09-18): the P0.1 focused suite passes 71 tests, typecheck passes, and strict OpenSpec validation passes. The complete Bun suite passes 311 of 328 tests; 17 existing Windows fixture failures require symlink privileges or use POSIX separator, long-path, or LF-only expectations and are outside this production-command assembly change.
 
 ### P0.2 Visible agent execution and results
 

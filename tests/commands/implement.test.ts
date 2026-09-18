@@ -303,6 +303,8 @@ describe("change implement and resume commands", () => {
     });
 
     expect(snapshotsLoaded).toBe(0);
-    expect(notifications).toEqual([changeResumeUsage]);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toContain(changeResumeUsage);
+    expect(notifications[0]).toContain("Status: blocked");
   });
 });

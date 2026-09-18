@@ -13,7 +13,7 @@ const PORTABLE_ENVIRONMENT = ["PATH", "PATHEXT", "SystemRoot", "WINDIR", "TEMP",
 export const COMMAND_PROFILES: Readonly<Record<string, CommandProfile>> = {
   verification: {
     id: "verification",
-    executables: ["bun", "node", "npm", "npx", "git"],
+    executables: ["bun", "node", "npm", "npx", "git", "openspec"],
     maximumTimeoutMs: 120_000,
     environment: PORTABLE_ENVIRONMENT,
   },

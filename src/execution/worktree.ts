@@ -56,7 +56,8 @@ export async function ensureChangeWorktree(
   const slug = changeSlug(options.changeName);
   const branch = `muster/${slug}`;
   const targetPath = resolve(options.worktreesRoot, slug);
-  if (options.recordedPath && resolve(options.recordedPath) !== targetPath) {
+  const canonicalTargetPath = await canonicalizePath(targetPath);
+  if (options.recordedPath && pathKey(await canonicalizePath(options.recordedPath)) !== pathKey(canonicalTargetPath)) {
     return unsafe("Recorded worktree path does not match deterministic selection", {
       recordedPath: options.recordedPath,
       targetPath,
@@ -64,7 +65,7 @@ export async function ensureChangeWorktree(
   }
 
   const worktrees = await planningGit.worktrees();
-  const existing = worktrees.find((worktree) => resolve(worktree.path) === targetPath);
+  const existing = worktrees.find((worktree) => pathKey(worktree.path) === pathKey(canonicalTargetPath));
   if (existing) {
     if (existing.branch !== `refs/heads/${branch}` || !existing.head) {
       return unsafe("Existing worktree does not match the change branch", {
@@ -126,4 +127,16 @@ export async function ensureChangeWorktree(
     head: selectedHead.commit,
     reused: false,
   };
+}
+
+function pathKey(path: string): string {
+  const absolute = resolve(path);
+  return process.platform === "win32" ? absolute.toLocaleLowerCase("en-US") : absolute;
+}
+
+async function canonicalizePath(path: string): Promise<string> {
+  return realpath(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return resolve(path);
+    throw error;
+  });
 }

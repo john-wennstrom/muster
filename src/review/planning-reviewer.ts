@@ -29,6 +29,7 @@ export interface PlanningReviewerRequest {
   sessionDir: string;
   access: "read";
   tools: readonly string[];
+  signal?: AbortSignal;
 }
 
 export interface PlanningReviewerResponse {
@@ -52,6 +53,7 @@ export interface PlanningReviewDispatchOptions {
   candidates: readonly ReviewModelCandidate[];
   prompt: string;
   runner: PlanningReviewerRunner;
+  signal?: AbortSignal;
 }
 
 export interface PlanningReviewAssignment {
@@ -108,6 +110,7 @@ export async function runBrokeredPlanningReviewer(
     continueTaskSession: true,
     cwd: request.cwd,
     timeoutMs: 120_000,
+    signal: request.signal,
   });
   if (run.status !== "done") {
     throw new HarnessError(
@@ -170,6 +173,7 @@ export async function dispatchPlanningReview(
     sessionDir: resolve(options.sessionsRoot, "planning-review", sessionId),
     access: "read",
     tools: REVIEW_TOOLS,
+    signal: options.signal,
   };
   const response = await options.runner(request);
 

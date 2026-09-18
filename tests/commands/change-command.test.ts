@@ -65,15 +65,16 @@ describe("change command", () => {
     const subject = harness("REVIEW_REQUIRED");
     await dispatchChangeCommand("implement add-search", subject.context, subject.dependencies);
     expect(subject.mutations).toEqual([]);
-    expect(subject.notifications[0]).toContain("Next: /change review add-search");
+    expect(subject.sentMessages[0]).toContain("Next: /change review add-search");
+    expect(subject.sentMessages[0]).toContain("review.md");
   });
 
   test("renders derived status without a mutating handler", async () => {
     const subject = harness("AWAITING_USER");
     await dispatchChangeCommand("status add-search", subject.context, subject.dependencies);
-    expect(subject.notifications[0]).toContain("Lifecycle: AWAITING_USER");
-    expect(subject.notifications[0]).toContain(HOST_EXECUTION_SECURITY_NOTICE);
-    expect(subject.notifications[0]).not.toMatch(/\bsandboxed\b/i);
+    expect(subject.sentMessages[0]).toContain("Lifecycle: AWAITING_USER");
+    expect(subject.sentMessages[0]).toContain(HOST_EXECUTION_SECURITY_NOTICE);
+    expect(subject.sentMessages[0]).not.toMatch(/\bsandboxed\b/i);
     expect(subject.mutations).toEqual([]);
   });
 
@@ -84,7 +85,7 @@ describe("change command", () => {
     await dispatchChangeCommand("explore why is the retry loop slow", subject.context, subject.dependencies);
     expect(seen).toEqual([{
       action: "explore",
-      changeName: "add-search",
+      changeName: undefined,
       arguments: ["why", "is", "the", "retry", "loop", "slow"],
     }]);
   });
@@ -97,6 +98,31 @@ describe("change command", () => {
     await dispatchChangeCommand("explore why is the retry loop slow", subject.context, subject.dependencies);
     expect(subject.sentMessages).toEqual(["## Findings\nThe retry loop lacks backoff."]);
     expect(subject.notifications).toEqual([]);
+  });
+
+  test("standalone exploration never resolves or loads a remembered change", async () => {
+    const subject = harness();
+    let resolved = false;
+    let loaded = false;
+    subject.dependencies.resolveChangeName = async () => { resolved = true; return "add-search"; };
+    subject.dependencies.loadSnapshot = async () => { loaded = true; return snapshot("READY"); };
+    subject.dependencies.handlers.explore = async () => undefined;
+
+    await dispatchChangeCommand("explore inspect the parser", subject.context, subject.dependencies);
+
+    expect(resolved).toBe(false);
+    expect(loaded).toBe(false);
+  });
+
+  test("status and rejected mutations do not activate a change", async () => {
+    const subject = harness("REVIEW_REQUIRED");
+    const activated: string[] = [];
+    subject.dependencies.activateChange = async (changeName) => { activated.push(changeName); };
+
+    await dispatchChangeCommand("status add-search", subject.context, subject.dependencies);
+    await dispatchChangeCommand("implement add-search", subject.context, subject.dependencies);
+
+    expect(activated).toEqual([]);
   });
 });
 

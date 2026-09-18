@@ -74,5 +74,14 @@
       "specsUpdated": ["search"]
     },
     "root": { "path": "/project", "source": "nearest" }
+  },
+  "create": {
+    "change": {
+      "id": "add-search",
+      "path": "/project/openspec/changes/add-search",
+      "metadataPath": "/project/openspec/changes/add-search/.openspec.yaml",
+      "schema": "spec-driven"
+    },
+    "root": { "path": "/project", "source": "nearest" }
   }
 }

@@ -1,6 +1,6 @@
 ## 1. Invocation Context and Change Resolution
 
-- [ ] 1.1 Define immutable command-run context, role-model assignment, output-sink, blocker, and terminal-outcome types; adapt production dependency construction to use an invocation factory and verify repository cwd, planning home, cancellation, and output are preserved in `tests/muster/production-runtime.test.ts`.
+- [x] 1.1 Define immutable command-run context, role-model assignment, output-sink, blocker, and terminal-outcome types; adapt production dependency construction to use an invocation factory and verify repository cwd, planning home, cancellation, and output are preserved in `tests/muster/production-runtime.test.ts`.
 
   ```yaml harness-task
   id: "1.1"
@@ -14,7 +14,7 @@
   manual: null
   ```
 
-- [ ] 1.2 Implement canonical change-slug and resolved-path validation using the OpenSpec planning home, including traversal, absolute path, invalid grammar, missing directory, symlink escape, and case/normalization collision checks; verify rejection happens before filesystem reads outside the change root or active-state writes.
+- [x] 1.2 Implement canonical change-slug and resolved-path validation using the OpenSpec planning home, including traversal, absolute path, invalid grammar, missing directory, symlink escape, and case/normalization collision checks; verify rejection happens before filesystem reads outside the change root or active-state writes.
 
   ```yaml harness-task
   id: "1.2"
@@ -30,7 +30,7 @@
 
 ## 2. Dispatcher and Outcome Contract
 
-- [ ] 2.1 Refactor dispatch into explicit explore, status, propose, and existing-change paths; make explore skip active-change resolution and snapshot loading, make status read-only, and persist an active change only after a mutating action passes validation and lifecycle prerequisites.
+- [x] 2.1 Refactor dispatch into explicit explore, status, propose, and existing-change paths; make explore skip active-change resolution and snapshot loading, make status read-only, and persist an active change only after a mutating action passes validation and lifecycle prerequisites.
 
   ```yaml harness-task
   id: "2.1"
@@ -44,7 +44,7 @@
   manual: null
   ```
 
-- [ ] 2.2 Centralize exactly-once persistent rendering for success, blocked, cancelled, and failure outcomes; map known snapshot, controller, adapter, routing, and checkpoint errors to concrete blocker details and verify unexpected errors no longer disappear as transient notifications.
+- [x] 2.2 Centralize exactly-once persistent rendering for success, blocked, cancelled, and failure outcomes; map known snapshot, controller, adapter, routing, and checkpoint errors to concrete blocker details and verify unexpected errors no longer disappear as transient notifications.
 
   ```yaml harness-task
   id: "2.2"
@@ -60,7 +60,7 @@
 
 ## 3. Planning and Review Assembly
 
-- [ ] 3.1 Build invocation-scoped model-stack resolution and brokered read-only planning-agent execution for specialist, debate, and synthesis stages; fail before dispatch when a mandatory role cannot be routed and verify phase/stage prompts, fresh sessions, cancellation, usage, and model assignments.
+- [x] 3.1 Build invocation-scoped model-stack resolution and brokered read-only planning-agent execution for specialist, debate, and synthesis stages; fail before dispatch when a mandatory role cannot be routed and verify phase/stage prompts, fresh sessions, cancellation, usage, and model assignments.
 
   ```yaml harness-task
   id: "3.1"
@@ -74,7 +74,7 @@
   manual: null
   ```
 
-- [ ] 3.2 Assemble `propose` and `refine` handlers with deterministic complexity inputs, OpenSpec artifact instructions, change-root-scoped artifact writes, controller calls, usage persistence, and terminal outcomes; verify both handlers create only instruction-resolved artifacts and retain planning-controller gates.
+- [x] 3.2 Assemble `propose` and `refine` handlers with deterministic complexity inputs, OpenSpec artifact instructions, change-root-scoped artifact writes, controller calls, usage persistence, and terminal outcomes; verify both handlers create only instruction-resolved artifacts and retain planning-controller gates.
 
   ```yaml harness-task
   id: "3.2"
@@ -88,7 +88,7 @@
   manual: null
   ```
 
-- [ ] 3.3 Assemble `review` with canonical artifact discovery, digest stability, author identity, eligible model candidates, a fresh brokered read-only reviewer, durable review output, usage, and an exact next action; verify approved, revise, changed-during-review, and unavailable-reviewer paths.
+- [x] 3.3 Assemble `review` with canonical artifact discovery, digest stability, author identity, eligible model candidates, a fresh brokered read-only reviewer, durable review output, usage, and an exact next action; verify approved, revise, changed-during-review, and unavailable-reviewer paths.
 
   ```yaml harness-task
   id: "3.3"
@@ -104,7 +104,7 @@
 
 ## 4. Implementation and Resume Assembly
 
-- [ ] 4.1 Build the implementation-run preparer that loads typed apply instructions, parses structured tasks, compiles the dependency DAG, selects or creates the controller-owned worktree, creates or validates the run manifest, loads persisted evidence, and produces a recovery plan; verify identity mismatch, stale review, corrupt evidence, and missing worktree fail closed.
+- [x] 4.1 Build the implementation-run preparer that loads typed apply instructions, parses structured tasks, compiles the dependency DAG, selects or creates the controller-owned worktree, creates or validates the run manifest, loads persisted evidence, and produces a recovery plan; verify identity mismatch, stale review, corrupt evidence, and missing worktree fail closed.
 
   ```yaml harness-task
   id: "4.1"
@@ -118,7 +118,7 @@
   manual: null
   ```
 
-- [ ] 4.2 Assemble production task execution with fresh brokered builders and reviewers, task capsules, role/path authorization, audited host commands, TDD/debugging policies, global writer leasing, scheduler cancellation, evidence persistence, and checkbox synchronization; verify no legacy executor bypasses these gates.
+- [x] 4.2 Assemble production task execution with fresh brokered builders and reviewers, task capsules, role/path authorization, audited host commands, TDD/debugging policies, global writer leasing, scheduler cancellation, evidence persistence, and checkbox synchronization; verify no legacy executor bypasses these gates.
 
   ```yaml harness-task
   id: "4.2"
@@ -132,7 +132,7 @@
   manual: null
   ```
 
-- [ ] 4.3 Wire the `implement` handler to the implementation controller using the prepared production flow and persist success, blocked, design-conflict, awaiting-user, cancelled, and failed run states with exact next actions.
+- [x] 4.3 Wire the `implement` handler to the implementation controller using the prepared production flow and persist success, blocked, design-conflict, awaiting-user, cancelled, and failed run states with exact next actions.
 
   ```yaml harness-task
   id: "4.3"
@@ -146,7 +146,7 @@
   manual: null
   ```
 
-- [ ] 4.4 Wire `resume` to validate one pending checkpoint, confirm it atomically with the invocation actor, execute the corresponding recovery action, and continue through the same production implementation flow; verify unknown, mismatched, already-confirmed, and multiple-pending checkpoint guidance.
+- [x] 4.4 Wire `resume` to validate one pending checkpoint, confirm it atomically with the invocation actor, execute the corresponding recovery action, and continue through the same production implementation flow; verify unknown, mismatched, already-confirmed, and multiple-pending checkpoint guidance.
 
   ```yaml harness-task
   id: "4.4"
@@ -162,7 +162,7 @@
 
 ## 5. Verification and Finish Assembly
 
-- [ ] 5.1 Build production final-validation collectors for typed OpenSpec validation, tasks, persisted manifests/evidence, required test commands, unresolved findings, design alignment, review/source freshness, dependency reports, and Git/worktree state; verify unavailable or inconsistent inputs produce named failing gates rather than synthetic success.
+- [x] 5.1 Build production final-validation collectors for typed OpenSpec validation, tasks, persisted manifests/evidence, required test commands, unresolved findings, design alignment, review/source freshness, dependency reports, and Git/worktree state; verify unavailable or inconsistent inputs produce named failing gates rather than synthetic success.
 
   ```yaml harness-task
   id: "5.1"
@@ -176,7 +176,7 @@
   manual: null
   ```
 
-- [ ] 5.2 Wire `verify` to run the production collectors through the verification controller, write digest-bound `verification.md`, persist validation evidence and usage, and return `finish` only on PASS; verify PASS, FAIL, stale digest, cancellation, and artifact-write failure outcomes.
+- [x] 5.2 Wire `verify` to run the production collectors through the verification controller, write digest-bound `verification.md`, persist validation evidence and usage, and return `finish` only on PASS; verify PASS, FAIL, stale digest, cancellation, and artifact-write failure outcomes.
 
   ```yaml harness-task
   id: "5.2"
@@ -190,7 +190,7 @@
   manual: null
   ```
 
-- [ ] 5.3 Wire `finish` to recompute current artifact and source digests, call the finish controller, and delegate the sole archive side effect to the typed OpenSpec adapter; verify failed/stale verification never archives and successful finish emits the archive result.
+- [x] 5.3 Wire `finish` to recompute current artifact and source digests, call the finish controller, and delegate the sole archive side effect to the typed OpenSpec adapter; verify failed/stale verification never archives and successful finish emits the archive result.
 
   ```yaml harness-task
   id: "5.3"
@@ -206,7 +206,7 @@
 
 ## 6. Default Registration Acceptance
 
-- [ ] 6.1 Change default `registerMuster()` wiring to create an invocation-scoped production runtime while preserving an explicit injected-dependency compatibility seam; verify registered commands use the host cwd and advertised actions cannot be registered without handlers.
+- [x] 6.1 Change default `registerMuster()` wiring to create an invocation-scoped production runtime while preserving an explicit injected-dependency compatibility seam; verify registered commands use the host cwd and advertised actions cannot be registered without handlers.
 
   ```yaml harness-task
   id: "6.1"
@@ -220,7 +220,7 @@
   manual: null
   ```
 
-- [ ] 6.2 Add a fixture-backed acceptance sweep that invokes every advertised action through default `registerMuster()` dependencies, replaces only external process/model ports, and asserts exactly one persistent success, blocked, cancelled, or failure result plus controller-specific evidence and no missing-handler or legacy fallback.
+- [x] 6.2 Add a fixture-backed acceptance sweep that invokes every advertised action through default `registerMuster()` dependencies, replaces only external process/model ports, and asserts exactly one persistent success, blocked, cancelled, or failure result plus controller-specific evidence and no missing-handler or legacy fallback.
 
   ```yaml harness-task
   id: "6.2"
@@ -234,7 +234,7 @@
   manual: null
   ```
 
-- [ ] 6.3 Run the focused command/runtime suites, the complete Bun suite, typecheck, and strict OpenSpec validation; update `docs/roadmap.md` P0.1 checkboxes only for behavior proven by the acceptance sweep and record any remaining platform limitation instead of marking acceptance complete.
+- [x] 6.3 Run the focused command/runtime suites, the complete Bun suite, typecheck, and strict OpenSpec validation; update `docs/roadmap.md` P0.1 checkboxes only for behavior proven by the acceptance sweep and record any remaining platform limitation instead of marking acceptance complete.
 
   ```yaml harness-task
   id: "6.3"

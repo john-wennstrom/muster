@@ -204,7 +204,11 @@ export function runChild(opts: {
 						if (run.tpsSegmentStart !== undefined) run.tpsSeconds += Math.max(0, now - run.tpsSegmentStart) / 1000;
 						run.tpsSegmentStart = now;
 					}
-					if (msg.usage.cost?.total) run.costUsd += msg.usage.cost.total;
+					const cost = msg.usage.cost?.total;
+					if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) {
+						run.costUsd += cost;
+						run.costReported = true;
+					}
 					// Matches pi's calculateContextTokens: `totalTokens || input+output+read+write`
 					// (|| not ??, so a provider reporting 0 falls through to the sum).
 					const ctxTokens =
@@ -251,6 +255,7 @@ export function runChild(opts: {
 		const invocation = piInvocation(args);
 		const proc = spawn(invocation.command, invocation.args, {
 			cwd: opts.cwd,
+			windowsHide: true,
 			shell: false,
 			detached: process.platform !== "win32", // own process group so cancellation reaches tool/bash descendants
 			stdio: ["ignore", "pipe", "pipe"],

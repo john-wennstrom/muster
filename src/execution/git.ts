@@ -225,11 +225,18 @@ export class GitAdapter {
   }
 
   async worktrees(): Promise<GitWorktree[]> {
-    return parseWorktreePorcelain((await this.command([
+    const worktrees = parseWorktreePorcelain((await this.command([
       "worktree",
       "list",
       "--porcelain",
       "-z",
     ])).stdout);
+    return Promise.all(worktrees.map(async (worktree) => ({
+      ...worktree,
+      path: await realpath(worktree.path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return resolve(worktree.path);
+        throw error;
+      }),
+    })));
   }
 }

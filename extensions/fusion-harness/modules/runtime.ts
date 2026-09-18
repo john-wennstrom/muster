@@ -162,6 +162,7 @@ export interface AgentRun {
 	tokensIn: number;
 	tokensOut: number;
 	costUsd: number;
+	costReported?: boolean; // distinguish a provider-reported zero from missing pricing
 	toolCalls: number;
 	toolNames: string[];
 	toolEvents: Array<{ name: string; argument: string }>;

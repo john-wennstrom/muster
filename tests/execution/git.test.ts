@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import {
@@ -65,7 +65,7 @@ describe("Git adapter", () => {
     expect(await adapter.diff()).toContain("changed");
     expect((await adapter.refs()).some((ref) => ref.name === "refs/heads/master" || ref.name === "refs/heads/main")).toBeTrue();
     expect(await adapter.worktrees()).toContainEqual(expect.objectContaining({
-      path: root,
+      path: await realpath(root),
       head,
       detached: true,
     }));

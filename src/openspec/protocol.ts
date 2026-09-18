@@ -167,6 +167,18 @@ export const openSpecArchiveSchema = z
   })
   .passthrough();
 
+export const openSpecCreateSchema = z
+  .object({
+    change: z.object({
+      id: nonEmptyString,
+      path: nonEmptyString,
+      metadataPath: nonEmptyString,
+      schema: nonEmptyString,
+    }).passthrough(),
+    root: rootSchema,
+  })
+  .passthrough();
+
 export const openSpecSchemas = {
   context: openSpecContextSchema,
   status: openSpecStatusSchema,
@@ -174,6 +186,7 @@ export const openSpecSchemas = {
   apply: openSpecApplySchema,
   validate: openSpecValidateSchema,
   archive: openSpecArchiveSchema,
+  create: openSpecCreateSchema,
 } as const;
 
 export function parseOpenSpecJson<TSchema extends ZodType>(
@@ -214,3 +227,4 @@ export type OpenSpecInstructions = z.infer<typeof openSpecInstructionsSchema>;
 export type OpenSpecApplyInstructions = z.infer<typeof openSpecApplySchema>;
 export type OpenSpecValidation = z.infer<typeof openSpecValidateSchema>;
 export type OpenSpecArchive = z.infer<typeof openSpecArchiveSchema>;
+export type OpenSpecCreate = z.infer<typeof openSpecCreateSchema>;
