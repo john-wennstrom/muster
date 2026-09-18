@@ -118,7 +118,7 @@ describe("orchestration contracts", () => {
   });
 
   test("child access is resolved centrally", () => {
-    expect(source).toContain("resolveChildRuntime(stack: ModelStack, slot: ModelSlot, access: ChildAccess)");
+    expect(source).toContain('resolveChildRuntime(stack: Pick<ModelStack, "child">, slot: Pick<ModelSlot, "child">, access: ChildAccess)');
     expect(source).toContain('if (access === "none") return { extensions: [], tools: [] }');
     expect(source).toContain('for (const extension of runtime.extensions) args.push("-e", resolveChildExtensionSource(extension))');
     expect(source).toContain('if (opts.access === "none") args.push("--no-tools")');

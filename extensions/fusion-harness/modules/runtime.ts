@@ -79,7 +79,7 @@ function resolveToolList(globalEntry: string[] | ChildToolRule | undefined, slot
  * Access controls are owned by orchestration (the caller). Slot config only declares
  * capabilities that MAY be added when that access mode allows them.
  */
-export function resolveChildRuntime(stack: ModelStack, slot: ModelSlot, access: ChildAccess): ResolvedChildRuntime {
+export function resolveChildRuntime(stack: Pick<ModelStack, "child">, slot: Pick<ModelSlot, "child">, access: ChildAccess): ResolvedChildRuntime {
 	if (access === "none") return { extensions: [], tools: [] };
 
 	const globalChild = stack.child;

@@ -104,7 +104,7 @@ export function registerCollaborateCommand(pi: ExtensionAPI, h: HarnessDeps): vo
 				await fs.promises.mkdir(proposalsDir, { recursive: true });
 				await Promise.all(runs.map(async (run) => {
 					const slot = run.slot!;
-					await runLegacyReadOnlyChild({ run, prompt: collabProposePrompt(slot, stack, prompt), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, taskId: `proposal.${slot.id}`, description: "Propose a collaboration plan", assignee: slot.id, thinking: slot.thinking, ...initialSpawns.get(slot.id)!, cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
+					await runLegacyReadOnlyChild({ modelStack: h.modelStack(), run, prompt: collabProposePrompt(slot, stack, prompt), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, taskId: `proposal.${slot.id}`, description: "Propose a collaboration plan", assignee: slot.id, thinking: slot.thinking, ...initialSpawns.get(slot.id)!, cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
 					await h.save(proposalsDir, `${slot.id}.md`, runOk(run) ? run.text : `FAILED: ${runError(run)}`);
 				}));
 				if (stopper.stopped()) {
@@ -125,7 +125,7 @@ export function registerCollaborateCommand(pi: ExtensionAPI, h: HarnessDeps): vo
 				for (let attempt = 1; attempt <= 3; attempt++) {
 					ctx.ui.setStatus(CUSTOM_TYPE, `collaborate: architect merging plans into a delegation graph${attempt > 1 ? ` (repair ${attempt - 1})` : ""}…`);
 					const delegatePrompt = collabDelegatePrompt(stack, prompt, collabDir, planPath) + (planError ? `\n\nPREVIOUS PLAN VALIDATION FAILED:\n${planError}\nRewrite the complete corrected plan.` : "");
-					await runLegacyReadOnlyChild({ run: architectRun, prompt: delegatePrompt, systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_COLLAB_COORDINATOR.md"), appendSystemPrompts: stack.architect.appendSystemPrompts, role: "architect", runId: path.basename(artifactsDir), childId: stack.architect.id, taskId: "architect.delegation", description: "Create the collaboration delegation plan", assignee: stack.architect.id, thinking: stack.architect.thinking, ...h.slotNextSpawn(stack.architect, architectRun, initialSpawns.get(stack.architect.id)!, ctx), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
+					await runLegacyReadOnlyChild({ modelStack: h.modelStack(), run: architectRun, prompt: delegatePrompt, systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_COLLAB_COORDINATOR.md"), appendSystemPrompts: stack.architect.appendSystemPrompts, role: "architect", runId: path.basename(artifactsDir), childId: stack.architect.id, taskId: "architect.delegation", description: "Create the collaboration delegation plan", assignee: stack.architect.id, thinking: stack.architect.thinking, ...h.slotNextSpawn(stack.architect, architectRun, initialSpawns.get(stack.architect.id)!, ctx), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
 					if (stopper.stopped()) {
 						h.stoppedPanel("fh-collaborate", runs, artifactsDir, startedAt, "Stopped while the architect was producing the delegation graph.");
 						return;
@@ -205,7 +205,7 @@ export function registerCollaborateCommand(pi: ExtensionAPI, h: HarnessDeps): vo
 						maxConcurrentWriteEnabledChildren = Math.max(maxConcurrentWriteEnabledChildren, activeWriters);
 					}
 					try {
-						await runLegacyBrokeredChild({ run, prompt: collabExecutePrompt(slot, prompt, task, taskHandoff(task)), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, task, thinking: slot.thinking, ...h.slotNextSpawn(slot, run, initialSpawns.get(slot.id)!, ctx), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
+						await runLegacyBrokeredChild({ modelStack: h.modelStack(), run, prompt: collabExecutePrompt(slot, prompt, task, taskHandoff(task)), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, task, thinking: slot.thinking, ...h.slotNextSpawn(slot, run, initialSpawns.get(slot.id)!, ctx), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
 					} finally {
 						if (write) activeWriters--;
 					}
@@ -282,7 +282,7 @@ export function registerCollaborateCommand(pi: ExtensionAPI, h: HarnessDeps): vo
 						reads: [...new Set(plan.tasks.flatMap((task) => task.reads))],
 						writes: [...new Set(plan.tasks.flatMap((task) => task.writes))],
 					};
-					await runLegacyBrokeredChild({ run: architectRun, prompt: collabCoordinatePrompt(prompt, reportsDir, planPath), systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_COLLAB_COORDINATOR.md"), appendSystemPrompts: stack.architect.appendSystemPrompts, role: "architect", runId: path.basename(artifactsDir), childId: stack.architect.id, task: finalTask, thinking: stack.architect.thinking, ...h.slotNextSpawn(stack.architect, architectRun, initialSpawns.get(stack.architect.id)!, ctx), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
+					await runLegacyBrokeredChild({ modelStack: h.modelStack(), run: architectRun, prompt: collabCoordinatePrompt(prompt, reportsDir, planPath), systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_COLLAB_COORDINATOR.md"), appendSystemPrompts: stack.architect.appendSystemPrompts, role: "architect", runId: path.basename(artifactsDir), childId: stack.architect.id, task: finalTask, thinking: stack.architect.thinking, ...h.slotNextSpawn(stack.architect, architectRun, initialSpawns.get(stack.architect.id)!, ctx), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
 				} finally {
 					activeWriters--;
 				}
@@ -414,6 +414,8 @@ export function registerAutoValidateCommand(pi: ExtensionAPI, h: HarnessDeps): v
 					writes: [],
 				};
 				await runLegacyBrokeredChild({
+
+					modelStack: h.modelStack(),
 					run: validator,
 					prompt: validatorPrompt(prompt, ctx.cwd, scriptPath),
 					systemPrompt: validatorSystem(scriptPath),
@@ -513,6 +515,8 @@ export function registerAutoValidateCommand(pi: ExtensionAPI, h: HarnessDeps): v
 				// ── 3. Build → validate loop ──
 				const scopePlanner = newRun("ARCHITECT", aModel, h.modelStack().architect);
 				const scopePlan = await runLegacyScopePlannerChild({
+
+					modelStack: h.modelStack(),
 					run: scopePlanner,
 					description: prompt,
 					plannedTaskId: "builder.implementation",
@@ -551,6 +555,8 @@ export function registerAutoValidateCommand(pi: ExtensionAPI, h: HarnessDeps): v
 								: firstSpawn;
 					ctx.ui.setStatus(CUSTOM_TYPE, `auto-validate: builder — round ${round}/${maxV}…`);
 					await runLegacyBrokeredChild({
+
+						modelStack: h.modelStack(),
 						run: builder,
 						prompt: round === 1 ? builderPrompt(prompt, script) : correctionPrompt(round, maxV, lastGate!.code, lastGate!.output, triageBrief, gateUpdate),
 						systemPrompt: h.roleSystemPrompt("builder"),
@@ -655,6 +661,8 @@ export function registerAutoValidateCommand(pi: ExtensionAPI, h: HarnessDeps): v
 							/* keep the in-memory copy */
 						}
 						await runLegacyBrokeredChild({
+
+							modelStack: h.modelStack(),
 							run: validator,
 							prompt: triagePrompt(prompt, round, maxV, builder.text, gateHistory, artifactsDir),
 							systemPrompt: triageSystem(scriptPath),

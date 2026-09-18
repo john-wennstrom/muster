@@ -1,11 +1,11 @@
 import { resolve } from "node:path";
 import { z } from "zod";
+import { READONLY_TOOLS } from "../../extensions/fusion-harness/modules/runtime.ts";
 import { createFreshRoleSession } from "../agents/role-runner.ts";
 import { HarnessError } from "../shared/errors.ts";
 import type { ReviewModelCandidate } from "./planning-reviewer.ts";
 
-const REVIEW_TOOLS = ["muster_read", "muster_search"] as const;
-const reviewToolSet = new Set<string>(REVIEW_TOOLS);
+const REVIEW_TOOLS = READONLY_TOOLS.split(",");
 const nonEmptyString = z.string().min(1);
 
 const taskCodeReviewFindingSchema = z.object({
@@ -147,6 +147,8 @@ export async function dispatchTaskCodeReview(
   options: TaskCodeReviewDispatchOptions,
 ): Promise<TaskCodeReviewDispatchResult> {
   const reviewer = selectReviewer(options.candidates, options.author.model);
+  const tools = reviewer.readTools ?? REVIEW_TOOLS;
+  const reviewToolSet = new Set([...tools, "muster_read", "muster_search"]);
   const session = createFreshRoleSession(
     resolve(options.sessionsRoot, "task-review"),
     options.runId,
@@ -168,7 +170,7 @@ export async function dispatchTaskCodeReview(
     prompt: renderTaskCodeReviewPrompt(options),
     ...session,
     access: "read",
-    tools: REVIEW_TOOLS,
+    tools,
   });
   const deniedTools = [...new Set(response.toolNames.filter((tool) => !reviewToolSet.has(tool)))];
   if (deniedTools.length > 0) {
@@ -202,7 +204,7 @@ export async function dispatchTaskCodeReview(
       reviewerSessionId: session.sessionId,
       differentModelAssigned: reviewer.model !== options.author.model,
       access: "read",
-      tools: REVIEW_TOOLS,
+      tools,
     },
     decision: requiredFindings.length > 0
       ? { status: "repair", findings: requiredFindings }

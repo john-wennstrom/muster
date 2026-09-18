@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import {
   validateCollaborationPlan,
@@ -27,6 +27,7 @@ import {
   type RunBrokeredChildOptions,
 } from "./child-runner.ts";
 import { createFreshRoleSession } from "./role-runner.ts";
+import { runProcess } from "../shared/process.ts";
 
 export interface LegacyTaskBrokerOptions {
   cwd: string;
@@ -143,30 +144,44 @@ function requiredString(input: Record<string, unknown>, field: string): string {
   return value;
 }
 
-async function searchFiles(root: string, query: string, limit = 200): Promise<string[]> {
+async function searchFiles(
+  root: string,
+  query: string,
+  authorization: AuthorizationContext,
+  request: BrokerRequestContext,
+  limit = 200,
+): Promise<string[]> {
+  // Enumerate source files through Git so ignored dependency/cache trees are never walked.
+  // Literal pathspecs prevent a filename from changing the search scope.
+  const listing = await runProcess("git", [
+    "--literal-pathspecs", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--",
+    relative(authorization.worktreePath, root).split(sep).join("/") || ".",
+  ], { cwd: authorization.worktreePath, signal: request.signal, timeoutMs: 30_000 });
+  if (listing.exitCode !== 0) throw new Error(`Cannot list searchable files: ${listing.stderr}`);
   const results: string[] = [];
-  const visit = async (directory: string): Promise<void> => {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (results.length >= limit) return;
-      const path = resolve(directory, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name !== ".git" && !entry.isSymbolicLink()) await visit(path);
-        continue;
-      }
-      if (!entry.isFile()) continue;
-      let contents: string;
-      try {
-        contents = await readFile(path, "utf8");
-      } catch {
-        continue;
-      }
-      for (const [index, line] of contents.split(/\r?\n/).entries()) {
-        if (line.includes(query)) results.push(`${relative(root, path).split(sep).join("/")}:${index + 1}:${line}`);
-        if (results.length >= limit) return;
-      }
+  for (const path of new Set(listing.stdout.split("\0").filter(Boolean))) {
+    request.signal.throwIfAborted();
+    if (path.split("/").some((segment) => [".git", ".fusion", "node_modules"].includes(segment))) continue;
+    const decision = await authorizeToolRequest(authorization, {
+      tool: "read_file", targetPath: path, correlationId: request.correlationId, requestBytes: 0,
+    });
+    if (!decision.allowed || !decision.canonicalPath) continue;
+    let contents: string;
+    try {
+      const stat = await lstat(decision.canonicalPath);
+      if (!stat.isFile() || stat.size > 2 * 1024 * 1024) continue;
+      contents = await readFile(decision.canonicalPath, { encoding: "utf8", signal: request.signal });
+    } catch (error) {
+      request.signal.throwIfAborted();
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
     }
-  };
-  await visit(root);
+    if (contents.includes("\0")) continue;
+    for (const [index, line] of contents.split(/\r?\n/).entries()) {
+      if (line.includes(query)) results.push(`${path}:${index + 1}:${line.slice(0, 1000)}`);
+      if (results.length >= limit) return results;
+    }
+  }
   return results;
 }
 
@@ -234,13 +249,13 @@ export async function createLegacyTaskBroker(
       if (!decision.allowed) throw new Error(decision.reason);
       if (request.tool === "submit_gate" || request.tool === "submit_scope") {
         if (!options.persistEvidence) throw new Error("No parent evidence persistence handler is configured");
-        return options.persistEvidence("submit_gate", input);
+        return options.persistEvidence(request.tool, input);
       }
       if (!decision.canonicalPath) throw new Error("Authorized filesystem tool has no canonical path");
 
       if (request.tool === "read_file") return readFile(decision.canonicalPath, "utf8");
       if (request.tool === "search") {
-        return searchFiles(decision.canonicalPath, requiredString(input, "query"));
+        return searchFiles(decision.canonicalPath, requiredString(input, "query"), authorization, request);
       }
       if (request.tool === "write_file") {
         const content = requiredString(input, "content");
@@ -281,17 +296,18 @@ export async function runLegacyBrokeredChild(
   options: RunLegacyBrokeredChildOptions,
 ) {
   options.onAgentStart?.(options.run);
-  const broker = await createLegacyTaskBroker({
-    cwd: options.cwd,
-    runId: options.runId,
-    childId: options.childId,
-    role: options.role,
-    task: options.task,
-    lease: options.lease,
-    existingWriterLease: options.existingWriterLease,
-    persistEvidence: options.persistEvidence,
-  });
+  let broker: LegacyTaskBroker | undefined;
   try {
+    broker = await createLegacyTaskBroker({
+      cwd: options.cwd,
+      runId: options.runId,
+      childId: options.childId,
+      role: options.role,
+      task: options.task,
+      lease: options.lease,
+      existingWriterLease: options.existingWriterLease,
+      persistEvidence: options.persistEvidence,
+    });
     const freshSession = createFreshRoleSession(
       options.sessionDir,
       options.runId,
@@ -304,14 +320,25 @@ export async function runLegacyBrokeredChild(
     return await runBrokeredChild({
       ...options,
       ...session,
+      prompt: [
+        options.prompt,
+        `Task mode: ${options.task.mode}. Declared read scopes: ${JSON.stringify(options.task.reads)}. Declared write scopes: ${JSON.stringify(options.task.writes)}.`,
+        options.task.mode === "read" ? "Do not modify repository files." : "Keep repository changes within the declared write scopes.",
+      ].join("\n\n"),
       fork: options.continueTaskSession ? options.fork : undefined,
       resume: options.continueTaskSession ? options.resume : undefined,
       taskId: options.task.id,
       writeEnabled: options.task.mode === "write",
       handleRequest: broker.handleRequest,
     });
+  } catch (error) {
+    options.run.status = options.signal?.aborted ? "aborted" : "failed";
+    options.run.errorMessage = error instanceof Error ? error.message : String(error);
+    options.run.exitCode = options.signal?.aborted ? 130 : 1;
+    options.run.endedAt = Date.now();
+    throw error;
   } finally {
-    await broker.close();
+    await broker?.close();
   }
 }
 

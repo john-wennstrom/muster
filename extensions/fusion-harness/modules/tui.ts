@@ -148,7 +148,7 @@ export function mdLines(text: string, colW: number): string[] {
 
 /** `◆ ARCHITECT | name | model` — the role-colored label that opens every column and cell. */
 export const roleLabelStr = (theme: any, role: Role, model: string, bold = true, sep = " | ", slot?: ModelSlot) => {
-	const roleName = slot ? (slot.architect ? "ARCHITECT" : "BUILDER") : role;
+	const roleName = slot && (role === "ARCHITECT" || role === "BUILDER") ? (slot.architect ? "ARCHITECT" : "BUILDER") : role;
 	const label = `${ROLE_GLYPH[role]} ${roleName}${slot ? ` | ${slot.name}` : ""}`;
 	if (slot) return fgHex(slot.color, bold ? theme.bold(label) : label) + theme.fg("dim", sep) + fgHex(slot.color, shortModel(model));
 	return theme.fg(ROLE_COLOR[role], bold ? theme.bold(label) : label) + theme.fg("dim", sep) + theme.fg(ROLE_COLOR[role], shortModel(model));
@@ -156,7 +156,7 @@ export const roleLabelStr = (theme: any, role: Role, model: string, bold = true,
 
 export const statLabelStr = (theme: any, stat: AgentStat): string => {
 	if (!stat.color || !stat.slotName) return roleLabelStr(theme, stat.role, stat.model);
-	const roleName = stat.architect ? "ARCHITECT" : "BUILDER";
+	const roleName = stat.role === "ARCHITECT" || stat.role === "BUILDER" ? (stat.architect ? "ARCHITECT" : "BUILDER") : stat.role;
 	return fgHex(stat.color, theme.bold(`${ROLE_GLYPH[stat.role]} ${roleName} | ${stat.slotName}`)) + theme.fg("dim", " | ") + fgHex(stat.color, shortModel(stat.model));
 };
 

@@ -62,7 +62,7 @@ export function registerFusionCommand(pi: ExtensionAPI, h: HarnessDeps): void {
 
 			const runs = slots.map(h.newSlotRun);
 			const initialSpawns = new Map(slots.map((slot) => [slot.id, h.slotInitialSpawn(slot, ctx, path.join(artifactsDir, "agents", slot.id))]));
-			const fuser = newRun("FUSION", stack.architect.model);
+			const fuser = newRun("FUSION", stack.architect.model, stack.architect);
 			const stopper = h.startStoppable(ctx, "fh-fusion");
 			const stopWidget = h.startGridWidget(ctx, "fh-fusion", runs, fuser, startedAt);
 			let writerLease: WriterLease | undefined;
@@ -75,7 +75,7 @@ export function registerFusionCommand(pi: ExtensionAPI, h: HarnessDeps): void {
 					const slot = run.slot!;
 					const agentDir = path.join(artifactsDir, "agents", slot.id);
 					await fs.promises.mkdir(agentDir, { recursive: true });
-					await runLegacyReadOnlyChild({ run, prompt: workerPrompt(slot, stack, prompt), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, taskId: `fusion.source-${slot.id}`, description: "Research evidence for fusion", assignee: slot.id, thinking: slot.thinking, ...initialSpawns.get(slot.id)!, cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
+					await runLegacyReadOnlyChild({ modelStack: h.modelStack(), run, prompt: workerPrompt(slot, stack, prompt), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, taskId: `fusion.source-${slot.id}`, description: "Research evidence for fusion", assignee: slot.id, thinking: slot.thinking, ...initialSpawns.get(slot.id)!, cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
 					await h.save(agentDir, "answer.md", runOk(run) ? run.text : `FAILED: ${runError(run)}`);
 				}));
 				if (stopper.stopped()) {
@@ -94,6 +94,8 @@ export function registerFusionCommand(pi: ExtensionAPI, h: HarnessDeps): void {
 				}
 				const scopePlanner = newRun("ARCHITECT", stack.architect.model, stack.architect);
 				const scopePlan = await runLegacyScopePlannerChild({
+
+					modelStack: h.modelStack(),
 					run: scopePlanner,
 					description: `${prompt}\n\nFusion instruction: ${fusionInstruction}`,
 					plannedTaskId: "fusion.implementation",
@@ -115,7 +117,7 @@ export function registerFusionCommand(pi: ExtensionAPI, h: HarnessDeps): void {
 					return;
 				}
 				ctx.ui.setStatus(CUSTOM_TYPE, "fusion: temporary sole-writer agent merging and implementing…");
-				await runLegacyBrokeredChild({ run: fuser, prompt: fuserPrompt(fusionInstruction, prompt, runs, fuser.model, stack.architect.thinking, artifactsDir), systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_FUSION.md"), appendSystemPrompts: stack.architect.appendSystemPrompts, role: "architect", runId: path.basename(artifactsDir), childId: "fusion", task: scopePlan.task, thinking: stack.architect.thinking, sessionDir: path.join(artifactsDir, "fusion"), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
+				await runLegacyBrokeredChild({ modelStack: h.modelStack(), run: fuser, prompt: fuserPrompt(fusionInstruction, prompt, runs, fuser.model, stack.architect.thinking, artifactsDir), systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_FUSION.md"), appendSystemPrompts: stack.architect.appendSystemPrompts, role: "architect", runId: path.basename(artifactsDir), childId: "fusion", task: scopePlan.task, thinking: stack.architect.thinking, sessionDir: path.join(artifactsDir, "fusion"), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs(), signal: stopper.signal });
 				if (stopper.stopped()) {
 					h.stoppedPanel("fh-fusion", [...runs, fuser], artifactsDir, startedAt, "The temporary FUSION writer was stopped; source work remains on disk.");
 					return;

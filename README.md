@@ -29,7 +29,9 @@ EXPLORE
 
 ## Security boundary
 
-Beta host commands are brokered and audited, but these controls do not provide operating-system process or network isolation. Approved commands run as the current operating-system user and can reach resources available to that account. See the [security model](docs/security.md) for the enforced controls and residual risks.
+Agents use the standard Pi tools by default: `read`, `grep`, `find`, and `ls` for read-only work; writers also receive `bash`, `edit`, and `write`. Validators additionally receive `write`, as in fusion-harness. Global and per-slot `child.extensions` and `child.tools` settings apply. Scope and gate submission remain harness tools.
+
+Standard agent tools run directly on the host. Profiled host commands are brokered and audited; these controls do not provide operating-system process or network isolation. Standard tool operations do not pass through the broker's per-operation path and command checks. Writer leases still serialize writing tasks. See the [security model](docs/security.md) for details.
 
 OCI or native process and network isolation is a non-blocking post-beta hardening item behind the command-runner interface. It is tracked in the [roadmap](docs/roadmap.md) and is not a beta capability.
 

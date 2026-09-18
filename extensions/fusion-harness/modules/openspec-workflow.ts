@@ -121,7 +121,7 @@ async function atomicWrite(file: string, content: string): Promise<void> {
 async function runReadOnlyAgent(h: HarnessDeps, ctx: any, slot: ModelSlot, prompt: string): Promise<AgentRun> {
 	const run = newRun("ARCHITECT", slot.model, slot);
 	const artifactsDir = await h.mkArtifacts();
-	await runLegacyReadOnlyChild({ run, prompt, systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: "architect", runId: path.basename(artifactsDir), childId: slot.id, taskId: "openspec.artifact", description: "Read OpenSpec context and produce an artifact", assignee: slot.id, thinking: slot.thinking, ...h.slotInitialSpawn(slot, ctx, artifactsDir), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs() });
+	await runLegacyReadOnlyChild({ modelStack: h.modelStack(), run, prompt, systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: "architect", runId: path.basename(artifactsDir), childId: slot.id, taskId: "openspec.artifact", description: "Read OpenSpec context and produce an artifact", assignee: slot.id, thinking: slot.thinking, ...h.slotInitialSpawn(slot, ctx, artifactsDir), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs() });
 	return run;
 }
 
@@ -134,7 +134,7 @@ export async function runDebate(h: HarnessDeps, ctx: any, change: string, contex
 		await Promise.all(runs.map(async (run) => {
 			const slot = run.slot!;
 			const artifactsDir = await h.mkArtifacts();
-			await runLegacyReadOnlyChild({ run, prompt: openSpecDebatePrompt(change, context), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, taskId: `openspec.debate-${slot.id}`, description: `Debate OpenSpec change ${change}`, assignee: slot.id, thinking: slot.thinking, ...h.slotInitialSpawn(slot, ctx, artifactsDir), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs() });
+			await runLegacyReadOnlyChild({ modelStack: h.modelStack(), run, prompt: openSpecDebatePrompt(change, context), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, taskId: `openspec.debate-${slot.id}`, description: `Debate OpenSpec change ${change}`, assignee: slot.id, thinking: slot.thinking, ...h.slotInitialSpawn(slot, ctx, artifactsDir), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs() });
 		}));
 		return { runs, text: runs.map((run) => `## ${run.model}\n${runOk(run) ? run.text : runError(run)}`).join("\n\n") };
 	} finally {
@@ -161,7 +161,7 @@ export async function runOpenSpecCollaboratePhase(h: HarnessDeps, ctx: any, chan
 		await Promise.all(proposalRuns.map(async (run) => {
 			const slot = run.slot!;
 			const artifactsDir = await h.mkArtifacts();
-			await runLegacyReadOnlyChild({ run, prompt: collabProposePrompt(slot, stack, `Implement OpenSpec change ${change}, phase ${phase.number} — ${phase.title}. Propose concrete work for only these tasks:\n${taskText}\n\n${context}`), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, taskId: `openspec.proposal-${phase.number}-${slot.id}`, description: `Propose work for OpenSpec phase ${phase.number}`, assignee: slot.id, thinking: slot.thinking, ...h.slotInitialSpawn(slot, ctx, artifactsDir), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs() });
+			await runLegacyReadOnlyChild({ modelStack: h.modelStack(), run, prompt: collabProposePrompt(slot, stack, `Implement OpenSpec change ${change}, phase ${phase.number} — ${phase.title}. Propose concrete work for only these tasks:\n${taskText}\n\n${context}`), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, taskId: `openspec.proposal-${phase.number}-${slot.id}`, description: `Propose work for OpenSpec phase ${phase.number}`, assignee: slot.id, thinking: slot.thinking, ...h.slotInitialSpawn(slot, ctx, artifactsDir), cwd: ctx.cwd, timeoutMs: h.childTimeoutMs() });
 		}));
 	} finally { proposalWidget(); h.absorbRuns(proposalRuns); await recordChangeAgentRuns({ cwd: ctx.cwd, changeName: change, phase: "implementation", runs: proposalRuns }); }
 	h.panel({ kind: "multi", command: "implement", title: "IMPLEMENT — COLLABORATION PROPOSALS", ok: proposalRuns.every(runOk), prompt: change, sources: proposalRuns.map(toStat), answers: proposalRuns.map((run) => ({ role: run.role, model: run.model, text: runOk(run) ? run.text : `FAILED: ${runError(run)}`, slotId: run.slot?.id, slotName: run.slot?.name, color: run.slot?.color, primary: run.slot?.primary })) }, proposalRuns.map((run) => `## ${run.slot?.name ?? run.model}\n${runOk(run) ? run.text : runError(run)}`).join("\n\n"));
@@ -180,6 +180,8 @@ export async function runOpenSpecCollaboratePhase(h: HarnessDeps, ctx: any, chan
 			: "";
 		const prompt = `${basePlanPrompt}${repairHint}`;
 		await runLegacyReadOnlyChild({
+
+			modelStack: h.modelStack(),
 			run: planRun,
 			prompt,
 			systemPrompt: contractSystemPrompt(stack.architect.systemPrompt, "SYSTEM_PROMPT_COLLAB_COORDINATOR.md"),
@@ -255,7 +257,7 @@ export async function runOpenSpecCollaboratePhase(h: HarnessDeps, ctx: any, chan
 				const handoff = `OpenSpec task ${original.id}. Requirements: ${original.requirements.join(", ") || "see specs"}. Scenarios: ${original.scenarios.join(", ") || "see specs"}. Verify commands: ${original.verifyCommands.join(", ") || "none"}.`;
 				taskState.set(task.id, task.mode === "read" ? "reading" : "writing");
 				renderBoard();
-				await runLegacyBrokeredChild({ run, prompt: collabExecutePrompt(slot, `Implement OpenSpec change ${change}, phase ${phase.number} — ${phase.title}.`, task, handoff), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: `legacy-${change}-${phase.number}`, childId: slot.id, task, thinking: slot.thinking, ...h.slotNextSpawn(slot, run, h.slotInitialSpawn(slot, ctx, await h.mkArtifacts()), ctx), cwd: ctx.cwd, timeoutMs: h.buildTimeoutMs() });
+				await runLegacyBrokeredChild({ modelStack: h.modelStack(), run, prompt: collabExecutePrompt(slot, `Implement OpenSpec change ${change}, phase ${phase.number} — ${phase.title}.`, task, handoff), systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: `legacy-${change}-${phase.number}`, childId: slot.id, task, thinking: slot.thinking, ...h.slotNextSpawn(slot, run, h.slotInitialSpawn(slot, ctx, await h.mkArtifacts()), ctx), cwd: ctx.cwd, timeoutMs: h.buildTimeoutMs() });
 				if (!runOk(run)) {
 					taskState.set(task.id, "failed");
 					renderBoard();

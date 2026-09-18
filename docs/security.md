@@ -1,12 +1,14 @@
 # Security Model
 
-Muster is a correctness-ready beta. Beta host commands are brokered and audited, but these controls do not provide operating-system process or network isolation.
+Muster is a correctness-ready beta. Standard agent tools run directly on the host. Profiled host commands are brokered and audited; these controls do not provide operating-system process or network isolation.
 
 ## Trust boundary
 
-The parent controller, broker, and host command runner are trusted enforcement components. Child agents request structured operations through the broker instead of receiving a generic shell or unrestricted mutation tools.
+Child agents default to the original fusion-harness tool sets: `read`, `grep`, `find`, and `ls` for read-only tasks; writers also get `bash`, `edit`, and `write`; validators get the read tools plus `write`. Global and per-slot child extension/tool configuration is honored. These standard tools execute directly in the child. Declared task paths are included in the prompt, but the broker does not enforce those paths for standard tools. Writer leases still serialize writing tasks.
 
-The command path enforces:
+The parent controller retains lifecycle and evidence checks. `muster_submit_scope` and `muster_submit_gate` submit structured evidence through the broker. Internal callers can explicitly select `toolMode: "brokered"` to use the restricted filesystem/command replacements.
+
+The optional brokered command path enforces:
 
 - authenticated broker requests and role-specific tool allowlists;
 - canonical worktree and declared path checks;
@@ -23,9 +25,9 @@ The implementation contracts are defined in [command-profile.ts](../src/tools/co
 
 Approved commands execute on the host with the permissions of the current operating-system user. A process can access files outside the repository or communicate over the network when the host account and host configuration permit it. Environment minimization does not prevent a process from discovering credentials stored elsewhere on the host.
 
-Repository diff auditing detects unauthorized repository changes after a command runs and rejects its evidence. It cannot undo non-repository filesystem changes, network requests, or other host side effects. Run Muster only in repositories and on machines where that remaining access is acceptable.
+For commands routed through the audited host runner, repository diff auditing detects unauthorized repository changes after a command runs and rejects its evidence. Standard child `bash`, `edit`, and `write` operations do not receive that per-command audit. Auditing cannot undo non-repository filesystem changes, network requests, or other host side effects.
 
-Commands classified as requiring authentication, elevated permission, destructive action, or an external side effect stop at a persisted manual checkpoint before execution. Never enter credentials into an agent-visible prompt; complete authentication directly through the relevant trusted tool or terminal.
+Controller-managed tasks classified as requiring authentication, elevated permission, destructive action, or an external side effect stop at a persisted manual checkpoint before execution. This controller check does not intercept arbitrary commands issued through the standard child `bash` tool.
 
 ## Future isolation
 

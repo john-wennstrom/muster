@@ -1187,6 +1187,8 @@ export default function (pi: ExtensionAPI, options: FusionHarnessOptions = {}) {
 		try {
 			const scopePlanner = newRun("ARCHITECT", modelStack().architect.model, modelStack().architect);
 			const scopePlan = await runLegacyScopePlannerChild({
+
+				modelStack: modelStack(),
 				run: scopePlanner,
 				description: prompt,
 				plannedTaskId: "only.implementation",
@@ -1206,7 +1208,7 @@ export default function (pi: ExtensionAPI, options: FusionHarnessOptions = {}) {
 				panel({ kind: "error", command: "fh-only", ok: false, agent: toStat(run), artifactsDir }, error instanceof Error ? error.message : String(error));
 				return;
 			}
-			await runLegacyBrokeredChild({ run, prompt, systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, task: scopePlan.task, thinking: slot.thinking, ...slotInitialSpawn(slot, ctx, path.join(artifactsDir, slot.id)), cwd: ctx.cwd, timeoutMs: childTimeoutMs(), signal: stopper.signal });
+			await runLegacyBrokeredChild({ modelStack: modelStack(), run, prompt, systemPrompt: slot.systemPrompt, appendSystemPrompts: slot.appendSystemPrompts, role: slot.architect ? "architect" : "builder", runId: path.basename(artifactsDir), childId: slot.id, task: scopePlan.task, thinking: slot.thinking, ...slotInitialSpawn(slot, ctx, path.join(artifactsDir, slot.id)), cwd: ctx.cwd, timeoutMs: childTimeoutMs(), signal: stopper.signal });
 			if (stopper.stopped()) {
 				stoppedPanel("fh-only", [run], artifactsDir, startedAt, `${slot.name} was stopped mid-answer.`);
 				return;

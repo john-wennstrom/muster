@@ -6,7 +6,7 @@ export interface CommandProfile {
 }
 
 export const HOST_EXECUTION_SECURITY_NOTICE =
-  "Beta host commands are brokered and audited, but these controls do not provide operating-system process or network isolation.";
+  "Standard agent tools run directly on the host. Profiled host commands are brokered and audited; these controls do not provide operating-system process or network isolation.";
 
 const PORTABLE_ENVIRONMENT = ["PATH", "PATHEXT", "SystemRoot", "WINDIR", "TEMP", "TMP"] as const;
 

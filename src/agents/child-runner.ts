@@ -1,6 +1,8 @@
 import { createServer, type Socket } from "node:net";
 import { fileURLToPath } from "node:url";
 import { runChild } from "../../extensions/fusion-harness/modules/child-runner.ts";
+import { resolveChildRuntime } from "../../extensions/fusion-harness/modules/runtime.ts";
+import type { ModelStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
 import type {
   AgentRun,
   ChildAccess,
@@ -42,6 +44,9 @@ export interface ChildBrokerServer {
 }
 
 export interface RunBrokeredChildOptions {
+  /** Standard Pi tools are the default; brokered filesystem tools are opt-in. */
+  toolMode?: "standard" | "brokered";
+  modelStack?: Pick<ModelStack, "child">;
   run: AgentRun;
   prompt: string;
   systemPrompt?: string;
@@ -81,10 +86,22 @@ export function brokeredChildRuntime(role: BrokerChildRole, writeEnabled = role 
   };
 }
 
-function accessForRole(role: BrokerChildRole): ChildAccess {
-  if (role === "builder") return "write";
+function accessForRole(role: BrokerChildRole, writeEnabled = role === "builder"): ChildAccess {
+  if (role === "reviewer") return "read";
   if (role === "validator") return "validator";
-  return "read";
+  return writeEnabled ? "write" : "read";
+}
+
+export function standardChildRuntime(options: Pick<RunBrokeredChildOptions, "role" | "writeEnabled" | "run" | "modelStack">): ResolvedChildRuntime {
+  const runtime = resolveChildRuntime(
+    options.modelStack ?? {}, options.run.slot ?? {}, accessForRole(options.role, options.writeEnabled),
+  );
+  const evidenceTools = options.role === "architect" ? ["muster_submit_scope"]
+    : options.role === "validator" ? ["muster_submit_gate"] : [];
+  return {
+    extensions: [...new Set([...runtime.extensions, ...(evidenceTools.length ? [CHILD_BROKER_EXTENSION] : [])])],
+    tools: [...new Set([...runtime.tools, ...evidenceTools])],
+  };
 }
 
 function send(socket: Socket, message: BrokerMessage): void {
@@ -221,15 +238,21 @@ export async function startChildBrokerServer(
 }
 
 export async function runBrokeredChild(options: RunBrokeredChildOptions): Promise<AgentRun> {
-  const broker = await startChildBrokerServer(options);
+  const toolMode = options.toolMode ?? "standard";
+  const writeEnabled = options.writeEnabled ?? options.role === "builder";
+  const childRuntime = toolMode === "brokered"
+    ? brokeredChildRuntime(options.role, writeEnabled)
+    : standardChildRuntime(options);
+  const broker = toolMode === "brokered" || options.role === "architect" || options.role === "validator"
+    ? await startChildBrokerServer(options) : undefined;
   try {
     return await runChild({
       run: options.run,
       prompt: options.prompt,
       systemPrompt: options.systemPrompt,
       appendSystemPrompts: options.appendSystemPrompts,
-      access: accessForRole(options.role),
-      childRuntime: brokeredChildRuntime(options.role, options.writeEnabled),
+      access: accessForRole(options.role, options.writeEnabled),
+      childRuntime,
       thinking: options.thinking,
       sessionDir: options.sessionDir,
       sessionId: options.sessionId,
@@ -239,12 +262,13 @@ export async function runBrokeredChild(options: RunBrokeredChildOptions): Promis
       timeoutMs: options.timeoutMs,
       signal: options.signal,
       environment: {
-        ...broker.environment,
+        ...broker?.environment,
+        MUSTER_TOOL_MODE: toolMode,
         MUSTER_BROKER_ROLE: options.role,
-        MUSTER_BROKER_WRITE_ENABLED: options.writeEnabled ? "1" : "0",
+        MUSTER_BROKER_WRITE_ENABLED: writeEnabled ? "1" : "0",
       },
     });
   } finally {
-    await broker.close();
+    await broker?.close();
   }
 }

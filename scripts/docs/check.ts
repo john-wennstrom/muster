@@ -82,7 +82,7 @@ async function validateLinks(path: string, markdown: string): Promise<number> {
 function validateFences(path: string, markdown: string): string[] {
   const examples: string[] = [];
   let fence: { marker: string; language: string; lines: string[] } | null = null;
-  for (const [index, line] of markdown.split("\n").entries()) {
+  for (const [index, line] of markdown.split(/\r?\n/).entries()) {
     const marker = line.match(/^(`{3,}|~{3,})([^\s]*)\s*$/);
     if (!fence && marker) {
       assertCondition(marker[2], `${displayPath(path)}:${index + 1} code fence needs a language`);

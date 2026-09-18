@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { ModelStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
+import { resolveChildRuntime } from "../../extensions/fusion-harness/modules/runtime.ts";
 import { runLegacyReadOnlyChild } from "../agents/legacy-adapter.ts";
 import { reviewChange } from "../controller/review.ts";
 import { OpenSpecAdapter } from "../openspec/adapter.ts";
@@ -34,7 +35,7 @@ export async function runProductionReview(options: ProductionReviewOptions): Pro
   const runner = options.runner ?? ((request) => runBrokeredPlanningReviewer(request, async (childOptions) => {
     try {
       childOptions.run.slot = stack.slots.find((slot) => slot.model === childOptions.run.model);
-      return await runLegacyReadOnlyChild({ ...childOptions, onAgentStart: options.onAgentStart });
+      return await runLegacyReadOnlyChild({ ...childOptions, modelStack: stack, onAgentStart: options.onAgentStart });
     } finally {
       await recordChangeUsage(store, options.changeName, [
         usageFromLegacyRun(runId, "planning", childOptions.run, "planning.review"),
@@ -48,7 +49,7 @@ export async function runProductionReview(options: ProductionReviewOptions): Pro
     runId,
     sessionsRoot: resolve(options.cwd, ".fusion", "runs", runId, "sessions"),
     author: { model: stack.architect.model },
-    candidates: stack.slots.map((slot) => ({ model: slot.model, available: true })),
+    candidates: stack.slots.map((slot) => ({ model: slot.model, available: true, readTools: resolveChildRuntime(stack, slot, "read").tools })),
     prompt: options.prompt,
     signal: options.signal,
     runner,

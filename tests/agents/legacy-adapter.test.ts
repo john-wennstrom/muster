@@ -57,6 +57,46 @@ function request(tool: string, input: unknown) {
 }
 
 describe("legacy task broker adapter", () => {
+  test("scope evidence retains its tool identity alongside standard tools", async () => {
+    const { root, task } = await fixture();
+    const submitted: string[] = [];
+    const broker = await createLegacyTaskBroker({
+      cwd: root, runId: "scope", childId: "planner", role: "architect",
+      task: { ...task, mode: "read", writes: [] },
+      persistEvidence: async (tool) => { submitted.push(tool); return { accepted: true }; },
+    });
+    try {
+      await broker.handleRequest(request("submit_scope", { reads: ["src/**"], writes: ["src/file.ts"] }));
+      expect(submitted).toEqual(["submit_scope"]);
+    } finally {
+      await broker.close();
+    }
+  });
+
+  test("search includes untracked source, skips ignored dependencies and run logs, and supports file scopes", async () => {
+    const { root, task } = await fixture();
+    await writeFile(resolve(root, ".gitignore"), "node_modules/\nignored/\n");
+    for (const directory of ["node_modules", "ignored", ".fusion"]) {
+      await mkdir(resolve(root, directory));
+      await writeFile(resolve(root, directory, "noise.txt"), "skill should not appear\n");
+    }
+    await writeFile(resolve(root, "src", "untracked.ts"), "skill marker\n");
+    const broker = await createLegacyTaskBroker({
+      cwd: root, runId: "search", childId: "architect", role: "architect",
+      task: { ...task, mode: "read", reads: ["**"], writes: [] },
+    });
+    try {
+      expect(await broker.handleRequest(request("search", { query: "skill" }))).toEqual(["src/untracked.ts:1:skill marker"]);
+      expect(await broker.handleRequest(request("search", { query: "before", path: "src/file.ts" }))).toEqual(["src/file.ts:1:before"]);
+      expect(await broker.handleRequest(request("search", { query: "before", path: "src" }))).toEqual(["src/file.ts:1:before"]);
+      const aborted = request("search", { query: "skill" });
+      aborted.signal = AbortSignal.abort();
+      await expect(broker.handleRequest(aborted)).rejects.toMatchObject({ code: "PROCESS_CANCELLED" });
+    } finally {
+      await broker.close();
+    }
+  });
+
   test("validates a bounded read-only scope-planning result", async () => {
     const task = await planLegacyWriteTask({
       id: "1.scope",

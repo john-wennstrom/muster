@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import { newRun, type AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import { newRun, READONLY_TOOLS, type AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
 import {
   runLegacyReadOnlyChild,
   type RunLegacyReadOnlyChildOptions,
@@ -11,12 +11,12 @@ import {
   type PlanningReviewArtifact,
 } from "./review-artifact.ts";
 
-const REVIEW_TOOLS = ["muster_read", "muster_search"] as const;
-const reviewToolSet = new Set<string>(REVIEW_TOOLS);
+const REVIEW_TOOLS = READONLY_TOOLS.split(",");
 
 export interface ReviewModelCandidate {
   model: string;
   available: boolean;
+  readTools?: readonly string[];
 }
 
 export interface PlanningReviewerRequest {
@@ -155,6 +155,8 @@ export async function dispatchPlanningReview(
     options.author.model,
   );
   const sessionId = randomUUID();
+  const tools = candidate.readTools ?? REVIEW_TOOLS;
+  const reviewToolSet = new Set([...tools, "muster_read", "muster_search"]);
   if (sessionId === options.author.sessionId) {
     throw new HarnessError(
       "REVIEW_TOOL_DENIED",
@@ -172,7 +174,7 @@ export async function dispatchPlanningReview(
     sessionId,
     sessionDir: resolve(options.sessionsRoot, "planning-review", sessionId),
     access: "read",
-    tools: REVIEW_TOOLS,
+    tools,
     signal: options.signal,
   };
   const response = await options.runner(request);
@@ -216,7 +218,7 @@ export async function dispatchPlanningReview(
       differentModelPreferred: differentModelAvailable,
       differentModelAssigned: candidate.model !== options.author.model,
       access: "read",
-      tools: REVIEW_TOOLS,
+      tools,
     },
   };
 }

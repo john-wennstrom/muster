@@ -175,6 +175,7 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
     try {
       await runLegacyReadOnlyChild({
         run,
+        modelStack: stack,
         onAgentStart: options.onAgentStart,
         prompt: planningPrompt(request, current),
         systemPrompt: slot.systemPrompt,

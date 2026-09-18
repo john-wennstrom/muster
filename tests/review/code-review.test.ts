@@ -27,6 +27,22 @@ const baseOptions = {
 };
 
 describe("task code review", () => {
+  test("accepts the selected review slot's configured read tools", async () => {
+    const result = await dispatchTaskCodeReview({
+      ...baseOptions,
+      candidates: [{ model: "anthropic/reviewer", available: true, readTools: ["read", "grep", "find", "ls", "symbols"] }],
+      runner: async (request) => {
+        expect(request.tools).toContain("symbols");
+        return {
+          review: createTaskCodeReview({ runId: request.runId, taskId: request.taskId, reviewedAt: "2026-09-12T12:00:00.000Z", model: request.model, sourceDigest: "a".repeat(64), findings: [] }),
+          toolNames: ["grep", "symbols"],
+        };
+      },
+    });
+    expect(result.decision.status).toBe("approved");
+    expect(result.assignment.tools).toContain("symbols");
+  });
+
   test("dispatches complete evidence in a fresh read-only reviewer session", async () => {
     const requests: Parameters<TaskCodeReviewerRunner>[0][] = [];
     const runner: TaskCodeReviewerRunner = async (request) => {
@@ -40,7 +56,7 @@ describe("task code review", () => {
           sourceDigest: "a".repeat(64),
           findings: [],
         }),
-        toolNames: ["muster_read", "muster_search"],
+        toolNames: ["read", "grep", "find", "ls"],
       };
     };
 
@@ -50,7 +66,7 @@ describe("task code review", () => {
     expect(requests[0]).toMatchObject({
       model: "anthropic/reviewer",
       access: "read",
-      tools: ["muster_read", "muster_search"],
+      tools: ["read", "grep", "find", "ls"],
     });
     expect(requests[0]?.sessionId).not.toBe("builder-session");
     expect(requests[0]?.sessionId).not.toBe(requests[1]?.sessionId);

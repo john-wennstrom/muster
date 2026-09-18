@@ -10,6 +10,7 @@ export interface ChildBrokerConfiguration extends BrokerPeerIdentity {
   port: number;
   role: BrokerChildRole;
   writeEnabled: boolean;
+  toolMode?: "standard" | "brokered";
 }
 
 export type ChildBrokerRequest = (
@@ -42,6 +43,7 @@ export function childBrokerConfigurationFromEnvironment(): ChildBrokerConfigurat
     taskId: requiredEnvironment("MUSTER_BROKER_TASK_ID"),
     role: role as BrokerChildRole,
     writeEnabled: process.env.MUSTER_BROKER_WRITE_ENABLED === "1",
+    toolMode: process.env.MUSTER_TOOL_MODE === "brokered" ? "brokered" : "standard",
   };
 }
 
@@ -117,20 +119,22 @@ export function registerChildBrokerTools(
   configuration: ChildBrokerConfiguration,
   request: ChildBrokerRequest = (tool, input, signal) => requestChildBroker(configuration, tool, input, signal),
 ): void {
-  pi.registerTool({
-    name: "muster_read",
-    label: "Read",
-    description: "Read one authorized file through the parent broker.",
-    parameters: Type.Object({ path: Type.String() }),
-    execute: async (_id, params, signal) => textResult(await request("read_file", params, signal)),
-  });
-  pi.registerTool({
-    name: "muster_search",
-    label: "Search",
-    description: "Search authorized repository content through the parent broker.",
-    parameters: Type.Object({ query: Type.String(), path: Type.Optional(Type.String()) }),
-    execute: async (_id, params, signal) => textResult(await request("search", params, signal)),
-  });
+  if (configuration.toolMode === "brokered") {
+    pi.registerTool({
+      name: "muster_read",
+      label: "Read",
+      description: "Read one authorized file through the parent broker.",
+      parameters: Type.Object({ path: Type.String() }),
+      execute: async (_id, params, signal) => textResult(await request("read_file", params, signal)),
+    });
+    pi.registerTool({
+      name: "muster_search",
+      label: "Search",
+      description: "Search literal text in authorized tracked and non-ignored untracked files through the parent broker. Optional path limits the search. Returns up to 200 matching lines; skips binary files, files over 2 MiB, node_modules, and .fusion run logs.",
+      parameters: Type.Object({ query: Type.String(), path: Type.Optional(Type.String()) }),
+      execute: async (_id, params, signal) => textResult(await request("search", params, signal)),
+    });
+  }
   if (configuration.role === "architect") {
     pi.registerTool({
       name: "muster_submit_scope",
@@ -152,7 +156,7 @@ export function registerChildBrokerTools(
       execute: async (_id, params, signal) => textResult(await request("submit_gate", params, signal)),
     });
   }
-  if (!configuration.writeEnabled || configuration.role === "reviewer" || configuration.role === "validator") return;
+  if (configuration.toolMode !== "brokered" || !configuration.writeEnabled || configuration.role === "reviewer" || configuration.role === "validator") return;
   pi.registerTool({
     name: "muster_write",
     label: "Write",

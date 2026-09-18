@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { basename, resolve } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
-import { newRun, runError, runOk } from "../../extensions/fusion-harness/modules/runtime.ts";
+import { newRun, runError, runOk, resolveChildRuntime } from "../../extensions/fusion-harness/modules/runtime.ts";
 import type { CollaborationTask } from "../../extensions/fusion-harness/modules/collaboration-graph.ts";
 import { runLegacyBrokeredChild, runLegacyReadOnlyChild } from "../agents/legacy-adapter.ts";
 import { createDependencyReport } from "../agents/reports.ts";
@@ -39,6 +39,7 @@ import { HarnessError } from "../shared/errors.ts";
 import { runHostCommand } from "../tools/host-runner.ts";
 import { usageFromLegacyRun } from "../telemetry/usage.ts";
 import type { CommandOutcome } from "./command-runtime.ts";
+import type { AgentRunObserver } from "./agent-progress.ts";
 import { resolveProductionModelStack } from "./planning-runtime.ts";
 
 const builderResultSchema = z.object({
@@ -130,7 +131,7 @@ export interface ProductionTaskExecutionPorts {
 }
 
 export interface ProductionImplementationOptions {
-  onAgentStart?: import("./agent-progress.ts").AgentRunObserver;
+  onAgentStart?: AgentRunObserver;
   cwd: string;
   changeName: string;
   reviewFreshness: "missing" | "current" | "stale";
@@ -311,13 +312,14 @@ export async function runProductionImplementation(
         try {
           await runLegacyBrokeredChild({
             run,
+            modelStack: stack,
             onAgentStart: options.onAgentStart,
             prompt: [
               `Implement task ${task.id}: ${task.description}`,
               `Requirements: ${JSON.stringify(task.requirements)}`,
               `Scenarios: ${JSON.stringify(task.scenarios)}`,
               `Verification: ${JSON.stringify(task.verify)}`,
-              "Use the brokered tools and stay within the declared scopes.",
+              "Use the available tools and stay within the declared scopes.",
               "Return exactly one JSON TaskPipelineBuilderResult with claim, implementationPersisted, and any reason/conflict/tddEvidence. No markdown fence.",
             ].join("\n\n"),
             systemPrompt: slot.systemPrompt,
@@ -378,7 +380,7 @@ export async function runProductionImplementation(
           cwd: context.worktree.path,
           sessionsRoot: resolve(options.cwd, ".fusion", "runs", runId, "sessions"),
           author: { model: stack.primaryBuilder.model },
-          candidates: stack.slots.map((slot) => ({ model: slot.model, available: true })),
+          candidates: stack.slots.map((slot) => ({ model: slot.model, available: true, readTools: resolveChildRuntime(stack, slot, "read").tools })),
           contract: { definition: task.description, requirements: task.requirements, scenarios: task.scenarios },
           diff: { digest: sourceDigest, summary: currentDiff },
           tests: verification.evidence,
@@ -389,6 +391,7 @@ export async function runProductionImplementation(
             try {
               await runLegacyReadOnlyChild({
                 run,
+                modelStack: stack,
                 onAgentStart: options.onAgentStart,
                 prompt: `${request.prompt}\n\nReturn exactly one JSON review object; no markdown fence.`,
                 role: "reviewer",

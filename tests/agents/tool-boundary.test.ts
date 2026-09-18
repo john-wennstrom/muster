@@ -37,6 +37,7 @@ describe("clean-room child tool boundary", () => {
       taskId: "7.5",
       role: "reviewer",
       writeEnabled: false,
+      toolMode: "brokered",
     };
 
     registerChildBrokerTools(pi, base, async () => null);

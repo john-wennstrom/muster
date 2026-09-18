@@ -24,15 +24,23 @@ export function createAgentProgress(options: {
     try {
       options.ui.setWidget?.(key, (_tui, theme) => ({
         render(width: number) {
-          const grid = new AgentGrid(runs.length, (index, columnWidth) => {
-            const run = runs[index]!;
-            return [
-              ...liveColumn(theme, run, columnWidth),
-              theme.fg("dim", run.model),
-              theme.fg("dim", agentUsageLine(run)),
-            ];
-          });
-          return fitLines([`MUSTER · /change ${options.command}`, ...grid.render(width)], width);
+          const active = runs.filter((run) => run.status === "pending" || run.status === "working");
+          const visible = active.length ? active : runs.slice(-5);
+          const lines = [`MUSTER · /change ${options.command}`];
+          // AgentGrid supports five columns; later tasks must remain visible too.
+          for (let offset = 0; offset < visible.length; offset += 5) {
+            const group = visible.slice(offset, offset + 5);
+            const grid = new AgentGrid(group.length, (index, columnWidth) => {
+              const run = group[index]!;
+              return [
+                ...liveColumn(theme, run, columnWidth),
+                theme.fg("dim", run.model),
+                theme.fg("dim", agentUsageLine(run)),
+              ];
+            });
+            lines.push(...grid.render(width));
+          }
+          return fitLines(lines, width);
         },
         invalidate() {},
       }), { placement: "aboveEditor" });
@@ -59,6 +67,7 @@ export function createAgentProgress(options: {
       if (!runs.length) return;
       options.sendMessage([
         `Agent usage · /change ${options.command}`,
+        "",
         ...runs.map((run) => {
           const elapsed = run.startedAt ? (run.endedAt ?? Date.now()) - run.startedAt : run.ms;
           return `- ${run.role}${run.slot ? ` · ${run.slot.name}` : ""} · ${run.model} · ${run.status} · ${Math.round(elapsed / 1000)}s · ${agentUsageLine(run)}`;

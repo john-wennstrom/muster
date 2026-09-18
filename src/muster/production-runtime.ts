@@ -297,12 +297,14 @@ export function createProductionExploreDependencies(
 ): ExploreDependencies {
   return {
     async runAgent(request) {
-      const slot = resolveProductionModelStack(options.argv).architect;
+      const stack = resolveProductionModelStack(options.argv);
+      const slot = stack.architect;
       const model = resolveExploreModel(process.env, options.argv);
       const run = newRun("ARCHITECT", model, { ...slot, model });
       const runId = `explore-${randomUUID()}`;
       await (options.runChild ?? runLegacyReadOnlyChild)({
         run,
+        modelStack: stack,
         onAgentStart: options.onAgentStart,
         prompt: renderExplorePrompt(request),
         systemPrompt: slot.systemPrompt,
@@ -319,6 +321,9 @@ export function createProductionExploreDependencies(
         timeoutMs: EXPLORE_CHILD_TIMEOUT_MS,
         signal,
       });
+      if (run.status === "aborted") {
+        throw new HarnessError("PROCESS_CANCELLED", "Exploration cancelled", { runId });
+      }
       if (!runOk(run)) {
         throw new HarnessError(
           "EXPLORE_AGENT_FAILED",
@@ -357,9 +362,6 @@ export function createProductionChangeCommandDependencies(
         changeRoot: status.changeRoot,
         changeName: name,
       });
-      if (run.status === "aborted") {
-        throw new HarnessError("PROCESS_CANCELLED", "Exploration cancelled", { runId });
-      }
     } catch (error) {
       if (!allowMissing || !(error instanceof HarnessError) || error.code !== "OPENSPEC_COMMAND_FAILED") throw error;
       return resolveProductionChange({ planningHome: cwd, changeName: name, allowMissing: true });

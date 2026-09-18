@@ -172,6 +172,9 @@ export function runChild(opts: {
 				run.sessionRef = event.id; // remember the child's session so later rounds can resume it
 			} else if (event.type === "message_end" && event.message?.role === "assistant") {
 				const msg = event.message;
+				if (typeof msg.provider === "string" && typeof msg.model === "string") {
+					run.model = `${msg.provider}/${msg.model}`;
+				}
 				let finalizedText = "";
 				for (const part of msg.content ?? []) {
 					// A turn's reasoning arrives as `thinking` parts (pi-ai ThinkingContent) — a

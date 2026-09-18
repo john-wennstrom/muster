@@ -21,11 +21,25 @@ const review = createReviewArtifact({
 });
 
 describe("planning reviewer dispatch", () => {
+  test("accepts configured read tools for the selected slot", async () => {
+    const result = await dispatchPlanningReview({
+      runId: "run-1", changeName: "add-search", cwd: "/repo", sessionsRoot: "/tmp/muster-sessions",
+      author: { model: "openai/author" },
+      candidates: [{ model: "openai/reviewer", available: true, readTools: ["read", "grep", "find", "ls", "symbols"] }],
+      prompt: "Review planning.",
+      runner: async (request) => {
+        expect(request.tools).toContain("symbols");
+        return { review, toolNames: ["find", "symbols"] };
+      },
+    });
+    expect(result.assignment.tools).toContain("symbols");
+  });
+
   test("prefers a different eligible model and records assignment evidence", async () => {
     const requests: Parameters<PlanningReviewerRunner>[0][] = [];
     const runner: PlanningReviewerRunner = async (request) => {
       requests.push(request);
-      return { review: { ...review, model: request.model }, toolNames: ["muster_read", "muster_search"] };
+      return { review: { ...review, model: request.model }, toolNames: ["read", "grep", "find", "ls"] };
     };
 
     const result = await dispatchPlanningReview({
@@ -45,7 +59,7 @@ describe("planning reviewer dispatch", () => {
     expect(requests[0]).toMatchObject({
       model: "anthropic/reviewer",
       access: "read",
-      tools: ["muster_read", "muster_search"],
+      tools: ["read", "grep", "find", "ls"],
     });
     expect(requests[0]?.sessionId).not.toBe("author-session");
     expect(result.assignment).toMatchObject({
@@ -98,7 +112,7 @@ describe("planning reviewer dispatch", () => {
     })).rejects.toMatchObject({ code: "REVIEW_TOOL_DENIED" } as HarnessError);
   });
 
-  test("runs a fresh reviewer through brokered read-only tools", async () => {
+  test("runs a fresh reviewer with standard read-only tools", async () => {
     const requests: Array<{ role: string; taskId: string }> = [];
     const result = await runBrokeredPlanningReviewer({
       runId: "run-1",
@@ -109,7 +123,7 @@ describe("planning reviewer dispatch", () => {
       sessionId: "review-session",
       sessionDir: "/tmp/review-session",
       access: "read",
-      tools: ["muster_read", "muster_search"],
+      tools: ["read", "grep", "find", "ls"],
     }, async (request) => {
       requests.push({ role: request.role, taskId: request.taskId });
       request.run.status = "done";
