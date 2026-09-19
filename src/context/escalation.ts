@@ -1,3 +1,4 @@
+import { CAPSULE_AUTHORIZE_AT, CAPSULE_AUTHORIZE_CONFIDENCE } from "../judgment/gates.ts";
 import type { TaskCapsule } from "./assembler.ts";
 
 export interface ContextEscalationSource {
@@ -85,5 +86,23 @@ export async function escalateContext(
       inputTokens: source.tokenEstimate,
       measurement: "estimated",
     },
+  };
+}
+
+/**
+ * Builds the `authorize` callback for `escalateContext` from a capsule's stored ranking. It
+ * approves only a slice the capsule lists as available, within the remaining tokens, that the
+ * ranking scored at the bar or above with enough confidence; a slice with no ranking is never
+ * approved on the ranking's account. `escalateContext` runs every refusal check before it
+ * calls the callback, so this can only approve among what a task could already request: it
+ * narrows nothing that was allowed and widens nothing that was refused.
+ */
+export function authorizeFromRanking(capsule: TaskCapsule): EscalateContextOptions["authorize"] {
+  return (request, source) => {
+    if (!capsule.available.includes(source.id) || source.tokenEstimate > request.remainingTokens) return false;
+    const ranking = capsule.ranking;
+    if (!ranking || !Object.hasOwn(ranking, source.id)) return false;
+    const entry = ranking[source.id]!;
+    return entry.score >= CAPSULE_AUTHORIZE_AT && entry.confidence >= CAPSULE_AUTHORIZE_CONFIDENCE;
   };
 }

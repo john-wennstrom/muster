@@ -228,3 +228,44 @@ export function preflightQuestions(candidateCount: number): readonly QuestionEnt
   }
   return entries;
 }
+
+/**
+ * context.capsule_ranking: how necessary each slice of a task's context is to completing the
+ * task. One rubric question per slice. The wording says what necessity means because a bare
+ * "is this relevant?" answers yes to anything in the same area: a file that shares names with
+ * the task is related, and only a file the work depends on is needed.
+ */
+export const CAPSULE_RANKING_LEVELS = ["unrelated", "background", "useful", "required"] as const;
+
+export function capsuleRankingQuestionId(index: number): string {
+  return `slice_${index}_necessity`;
+}
+
+/** The index a per-slice question identifier names, or null for any other identifier. */
+export function parseCapsuleRankingQuestionId(id: string): number | null {
+  const match = /^slice_(\d+)_necessity$/.exec(id);
+  return match ? Number(match[1]) : null;
+}
+
+const sliceReference = (index: number): string =>
+  `slice ${index}, the entry with index ${index} in the state's slices list`;
+
+/** One necessity rubric per slice, in slice order. */
+export function capsuleRankingQuestions(sliceCount: number): readonly QuestionEntry[] {
+  const entries: QuestionEntry[] = [];
+  for (let index = 1; index <= sliceCount; index += 1) {
+    entries.push([
+      capsuleRankingQuestionId(index),
+      score(
+        `How necessary is ${sliceReference(index)}, to completing the task described in the state? Necessity means the slice is needed to do the work, not that it is topically related to the task: a slice that shares names or sits in the same area but that the work does not depend on is at most background. Judge each slice on its own, without regard to the other slices.`,
+        [
+          "Unrelated: the work does not touch or depend on this slice.",
+          "Background: related to the task, but the work can be done correctly without reading it.",
+          "Useful: the work is easier or safer with this slice, but could proceed without it.",
+          "Required: the work cannot be done correctly without this slice.",
+        ],
+      ),
+    ]);
+  }
+  return entries;
+}

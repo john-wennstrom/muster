@@ -2,6 +2,8 @@ import { HarnessError } from "../shared/errors.ts";
 import type { JsonValue, JudgmentAnswer, JudgmentAnswers, JudgmentQuestions } from "./client.ts";
 import {
   COMPLEXITY_QUESTION_IDS,
+  capsuleRankingQuestions,
+  parseCapsuleRankingQuestionId,
   PREFLIGHT_QUESTION_IDS,
   complexityQuestions,
   parsePreflightCandidateQuestionId,
@@ -314,9 +316,117 @@ export const planningPreflightDecision = defineDecision<PreflightInput, Prefligh
 });
 
 /**
+ * context.capsule_ranking: how necessary each of a task's relevant slices is, on a rubric of
+ * unrelated (0), background (1), useful (2), and required (3). The answer is an expectation
+ * that can fall between levels, so every threshold is a comparison against it and nothing
+ * interpolates it into a magnitude. The gate returns every scored slice; what to do with a
+ * score is the assembler's and the escalation check's business, using the bands below. The
+ * bands are starting points for calibration.
+ */
+export const CAPSULE_DEMOTE_BELOW = 0.5;
+export const CAPSULE_DEMOTE_CONFIDENCE = 0.7;
+export const CAPSULE_OVERSIZED_AT = 2.5;
+export const CAPSULE_OVERSIZED_CONFIDENCE = 0.7;
+export const CAPSULE_AUTHORIZE_AT = 1.5;
+export const CAPSULE_AUTHORIZE_CONFIDENCE = 0.6;
+
+export interface CapsuleRankingSliceInput {
+  /** Repository-relative path of a file-backed slice, when it has one. */
+  readonly path?: string;
+  /** At most 600 bytes of the slice's content. */
+  readonly excerpt: string;
+}
+
+export interface CapsuleRankingInput {
+  /** The task contract, rendered as the fields the builder is given. */
+  readonly task: {
+    readonly definition: string;
+    readonly requirements: readonly string[];
+    readonly scenarios: readonly string[];
+    readonly decisions: readonly string[];
+    readonly readScopes: readonly string[];
+    readonly writeScopes: readonly string[];
+    readonly acceptance: readonly string[];
+  };
+  readonly slices: readonly CapsuleRankingSliceInput[];
+}
+
+/** The state sent for the call: exactly the task contract and each slice's path and excerpt. */
+export function capsuleRankingState(input: CapsuleRankingInput): JsonValue {
+  return {
+    task: {
+      definition: input.task.definition,
+      requirements: [...input.task.requirements],
+      scenarios: [...input.task.scenarios],
+      decisions: [...input.task.decisions],
+      readScopes: [...input.task.readScopes],
+      writeScopes: [...input.task.writeScopes],
+      acceptance: [...input.task.acceptance],
+    },
+    slices: input.slices.map(({ path, excerpt }, position) => ({
+      index: position + 1,
+      ...(path === undefined ? {} : { path }),
+      excerpt,
+    })),
+  };
+}
+
+export interface CapsuleRankingSliceAnswer {
+  /** One-based, matching the slice's index in the state. */
+  readonly index: number;
+  readonly score: number;
+  readonly confidence: number;
+}
+
+export interface CapsuleRankingGateValue {
+  readonly slices: readonly CapsuleRankingSliceAnswer[];
+}
+
+/** Every scored slice, in slice order; a slice whose answer is missing or not a score is left out. */
+export function capsuleRankingAnswers(answers: JudgmentAnswers): CapsuleRankingSliceAnswer[] {
+  const scored: CapsuleRankingSliceAnswer[] = [];
+  for (const id of Object.keys(answers)) {
+    const index = parseCapsuleRankingQuestionId(id);
+    const answer = scoreOf(answers, id);
+    if (index === null || !answer || !Number.isFinite(answer.score) || !Number.isFinite(answer.confidence)) continue;
+    scored.push({ index, score: answer.score, confidence: answer.confidence });
+  }
+  return scored.sort((left, right) => left.index - right.index);
+}
+
+export const contextCapsuleRankingDecision = defineDecision<CapsuleRankingInput, CapsuleRankingGateValue>({
+  id: "context.capsule_ranking",
+  version: 1,
+  // Demoting a confidently unrelated slice reduces what a builder is given; ordering advises
+  // which context to prioritize. Uncertainty demotes nothing and leaves list order alone.
+  effects: ["reduces_work", "adds_advice"],
+  representativeInput: {
+    task: {
+      definition: "Retry `parseInvoice` when the invoice_total is missing",
+      requirements: ["A missing invoice_total is retried once"],
+      scenarios: ["Missing total is retried"],
+      decisions: ["Retries reuse the existing withRetry helper"],
+      readScopes: ["src/billing/**"],
+      writeScopes: ["src/billing/**", "tests/billing/**"],
+      acceptance: ["Focused tests pass"],
+    },
+    slices: [
+      { path: "src/billing/invoice.ts", excerpt: "12: export function parseInvoice(input) {" },
+      { excerpt: "Design note: retries use the shared helper." },
+    ],
+  },
+  questions: (input) => capsuleRankingQuestions(input.slices.length),
+  gate: (answers) => {
+    const slices = capsuleRankingAnswers(answers);
+    return slices.length > 0 ? act({ slices }) : abstain("no slice was scored");
+  },
+});
+
+/**
  * Every decision the harness can ask. Later changes append here; none modifies another's.
  */
 export const judgmentCatalog: readonly AnyDecision[] = [
   planningComplexityDecision,
   planningPreflightDecision,
+  contextCapsuleRankingDecision,
 ];

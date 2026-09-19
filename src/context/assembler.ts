@@ -1,5 +1,11 @@
 import type { DependencyReport } from "../agents/reports.ts";
 import { renderDependencyReports } from "../agents/reports.ts";
+import {
+  CAPSULE_DEMOTE_BELOW,
+  CAPSULE_DEMOTE_CONFIDENCE,
+  CAPSULE_OVERSIZED_AT,
+  CAPSULE_OVERSIZED_CONFIDENCE,
+} from "../judgment/gates.ts";
 
 export type ContextPriority = "required" | "relevant" | "available" | "excluded";
 
@@ -7,6 +13,22 @@ export interface ContextSlice {
   id: string;
   priority: ContextPriority;
   content: string;
+  tokenEstimate: number;
+  /** Repository path of a file-backed slice, so the credential denylist can be applied to it. Ignored here. */
+  path?: string;
+}
+
+/** A slice's judged necessity: an expectation over unrelated (0), background, useful, and required (3). */
+export interface SliceRanking {
+  score: number;
+  confidence: number;
+}
+
+/** Rankings by slice identifier; a slice without an entry is unscored. */
+export type CapsuleRanking = Readonly<Record<string, SliceRanking>>;
+
+export interface OversizedRequiredSlice extends SliceRanking {
+  id: string;
   tokenEstimate: number;
 }
 
@@ -27,6 +49,8 @@ export interface AssembleTaskCapsuleOptions {
   requiredTokenEstimate: number;
   dependencyReports?: readonly DependencyReport[];
   slices?: readonly ContextSlice[];
+  /** When supplied, relevant slices are packed by judged necessity rather than list order. */
+  ranking?: CapsuleRanking;
 }
 
 export interface TaskCapsule {
@@ -37,6 +61,10 @@ export interface TaskCapsule {
   included: readonly { id: string; priority: Exclude<ContextPriority, "excluded"> }[];
   available: readonly string[];
   excluded: readonly string[];
+  /** Present only when a ranking was supplied: the ranking of every slice it scored. */
+  ranking?: CapsuleRanking;
+  /** Present only when a ranking was supplied: slices judged required that did not fit. */
+  oversizedRequired?: readonly OversizedRequiredSlice[];
 }
 
 export class ContextAssemblyError extends Error {
@@ -59,6 +87,43 @@ function validateTokenEstimate(value: number, id: string): number {
     );
   }
   return value;
+}
+
+function rankingOf(ranking: CapsuleRanking | undefined, id: string): SliceRanking | undefined {
+  if (!ranking || !Object.hasOwn(ranking, id)) return undefined;
+  const entry = ranking[id]!;
+  return Number.isFinite(entry.score) && Number.isFinite(entry.confidence) ? entry : undefined;
+}
+
+/** Confidently judged unnecessary: below the floor, at or above the confidence. Anything else is not. */
+export function isDemotedByRanking(entry: SliceRanking | undefined): boolean {
+  return entry !== undefined && entry.score < CAPSULE_DEMOTE_BELOW && entry.confidence >= CAPSULE_DEMOTE_CONFIDENCE;
+}
+
+/** Confidently judged required: at or above the floor and the confidence. */
+export function isRequiredByRanking(entry: SliceRanking | undefined): boolean {
+  return entry !== undefined && entry.score >= CAPSULE_OVERSIZED_AT && entry.confidence >= CAPSULE_OVERSIZED_CONFIDENCE;
+}
+
+/**
+ * The order relevant slices are considered in: ranked slices by descending score times
+ * confidence, ties in list order, then unranked slices in list order. Slices the ranking
+ * confidently demotes are not candidates.
+ */
+function rankedOrder(
+  candidates: readonly ContextSlice[],
+  ranking: CapsuleRanking,
+): ContextSlice[] {
+  return candidates
+    .map((slice, position) => ({ slice, position, entry: rankingOf(ranking, slice.id) }))
+    .filter(({ entry }) => !isDemotedByRanking(entry))
+    .sort((left, right) => {
+      if ((left.entry === undefined) !== (right.entry === undefined)) return left.entry === undefined ? 1 : -1;
+      const leftRank = left.entry ? left.entry.score * left.entry.confidence : 0;
+      const rightRank = right.entry ? right.entry.score * right.entry.confidence : 0;
+      return rightRank - leftRank || left.position - right.position;
+    })
+    .map(({ slice }) => slice);
 }
 
 function requiredContent(
@@ -125,13 +190,28 @@ export function assembleTaskCapsule(options: AssembleTaskCapsuleOptions): TaskCa
     requiredContent(options.contract, options.dependencyReports ?? []),
     ...unexpectedRequired.map((slice) => slice.content),
   ];
-  for (const slice of slices.filter((candidate) => candidate.priority === "relevant")) {
-    if (tokenEstimate + slice.tokenEstimate > budget) continue;
+  const relevant = slices.filter((candidate) => candidate.priority === "relevant");
+  const ranking = options.ranking;
+  const oversizedRequired: OversizedRequiredSlice[] = [];
+  for (const slice of ranking ? rankedOrder(relevant, ranking) : relevant) {
+    if (tokenEstimate + slice.tokenEstimate > budget) {
+      const entry = rankingOf(ranking, slice.id);
+      if (entry && isRequiredByRanking(entry)) {
+        oversizedRequired.push({ id: slice.id, ...entry, tokenEstimate: slice.tokenEstimate });
+      }
+      continue;
+    }
     tokenEstimate += slice.tokenEstimate;
     included.push({ id: slice.id, priority: "relevant" });
     contents.push(slice.content);
   }
-  const available = slices.filter((slice) => slice.priority === "available").map((slice) => slice.id);
+  // Without a ranking a relevant slice that is left out is simply left out, as it always was.
+  // With one, every relevant slice that is left out is available on demand.
+  const includedIds = new Set(included.map((slice) => slice.id));
+  const available = slices
+    .filter((slice) => slice.priority === "available"
+      || (ranking !== undefined && slice.priority === "relevant" && !includedIds.has(slice.id)))
+    .map((slice) => slice.id);
   if (available.length) contents.push(`## Available On Demand\n${available.map((id) => `- ${id}`).join("\n")}`);
   const excluded = slices.filter((slice) => slice.priority === "excluded").map((slice) => slice.id);
   return {
@@ -142,5 +222,16 @@ export function assembleTaskCapsule(options: AssembleTaskCapsuleOptions): TaskCa
     included,
     available,
     excluded,
+    ...(ranking
+      ? {
+          ranking: Object.fromEntries(
+            slices.flatMap((slice) => {
+              const entry = rankingOf(ranking, slice.id);
+              return entry ? [[slice.id, { score: entry.score, confidence: entry.confidence }] as const] : [];
+            }),
+          ),
+          oversizedRequired,
+        }
+      : {}),
   };
 }
