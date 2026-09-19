@@ -83,6 +83,37 @@ describe("hierarchical budgets", () => {
     expect(isProtectedMandatoryActivity("manual_checkpoint")).toBe(true);
   });
 
+  test("skips judgment as optional work and never blocks a mandatory activity", () => {
+    const ledger = new BudgetLedger({ phases: { planning: { totalTokens: 100 } } });
+    ledger.record(usage({
+      phase: "planning",
+      role: "judgment",
+      taskId: undefined,
+      totalTokens: 90,
+    }));
+    const request = {
+      phase: "planning" as const,
+      role: "judgment" as const,
+      estimate: { totalTokens: 20, costUsd: 0.000001 },
+    };
+
+    const judgment = ledger.forecast({ ...request, activity: "judgment" });
+    const review = ledger.forecast({ ...request, role: "reviewer", activity: "review" });
+
+    expect(judgment).toMatchObject({
+      status: "skipped_optional",
+      mandatory: false,
+      estimatedSaving: request.estimate,
+    });
+    expect(review.status).toBe("blocked_mandatory");
+    expect(isProtectedMandatoryActivity("judgment")).toBe(false);
+    expect(ledger.forecast({
+      ...request,
+      estimate: { totalTokens: 5, costUsd: 0.000001 },
+      activity: "judgment",
+    }).status).toBe("allowed");
+  });
+
   test("fails closed when a configured cost budget cannot be evaluated", () => {
     const ledger = new BudgetLedger({ run: { costUsd: 1 } });
     ledger.record(usage({ costUsd: null }));

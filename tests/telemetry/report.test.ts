@@ -139,6 +139,46 @@ describe("telemetry report", () => {
     ]);
   });
 
+  test("accepts judgment usage and reports its skipped optional activity", () => {
+    const input = baseInput();
+    input.invocations.push({
+      usage: usage({
+        invocationId: "invocation-judgment",
+        phase: "planning",
+        role: "judgment",
+        taskId: undefined,
+        model: "jev-test",
+        inputTokens: 1_000,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+        outputTokens: 0,
+        totalTokens: 1_000,
+        costUsd: 0.000042,
+      }),
+      activity: "judgment" as const,
+    });
+    input.budgetDecisions.push({
+      phase: "planning" as const,
+      activity: "judgment" as const,
+      status: "skipped_optional" as const,
+      estimatedSaving: { totalTokens: 500, costUsd: 0.00002 },
+      reason: "Judgment exceeded the optional planning budget",
+    });
+
+    const parsed = telemetryReportInputSchema.parse(input);
+    const report = buildTelemetryReport(parsed);
+
+    expect(report.phases[0]?.routing).toEqual([
+      expect.objectContaining({ role: "judgment", model: "jev-test", invocations: 1 }),
+    ]);
+    expect(report.activityUsage).toContainEqual(
+      expect.objectContaining({ activity: "judgment", mandatory: false, totalTokens: 1_000 }),
+    );
+    expect(report.skippedOptional).toContainEqual(
+      expect.objectContaining({ phase: "planning", activity: "judgment" }),
+    );
+  });
+
   test("sanitizes authentication and manual fixture details", async () => {
     const fixture = JSON.parse(await readFile(
       resolve(import.meta.dir, "../fixtures/manual/actions.json"),

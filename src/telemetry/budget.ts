@@ -21,7 +21,8 @@ export interface BudgetAmount {
 export type OptionalBudgetActivity =
   | "specialist_opinion"
   | "debate"
-  | "exploratory_model";
+  | "exploratory_model"
+  | "judgment";
 
 export type ProtectedBudgetActivity =
   | "tests"
@@ -83,6 +84,7 @@ const optionalActivities = new Set<BudgetActivity>([
   "specialist_opinion",
   "debate",
   "exploratory_model",
+  "judgment",
 ]);
 
 const protectedActivities = new Set<BudgetActivity>([

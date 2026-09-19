@@ -18,6 +18,30 @@ import {
   type PlanningPhase,
 } from "../../controller/planning.ts";
 import { classifyChange } from "../../controller/complexity-router.ts";
+import {
+  mergeRiskInputs,
+  patternRiskInputs,
+  type RiskInputs,
+} from "../../controller/complexity-inputs.ts";
+import { retrieveCandidates, type Candidate } from "../../context/candidates.ts";
+import {
+  composePreflight,
+  STANDARD_ALREADY_SATISFIED_QUESTION,
+} from "../../controller/preflight-composition.ts";
+import { createJudgmentRuntime, type JudgmentRuntime, type JudgmentVerdict } from "../../judgment/ask.ts";
+import { reconcileDecisionRecord } from "../../judgment/audit.ts";
+import {
+  COMPLEXITY_SIGNALS,
+  complexityState,
+  planningComplexityDecision,
+  planningPreflightDecision,
+  preflightCandidateAnswers,
+  preflightState,
+  PREFLIGHT_RELEVANCE_FLOOR,
+  type PreflightGateValue,
+} from "../../judgment/gates.ts";
+import { PREFLIGHT_QUESTION_IDS } from "../../judgment/questions.ts";
+import { JudgmentFixtureMissingError } from "../../judgment/replay.ts";
 import { OpenSpecAdapter } from "../../openspec/adapter.ts";
 import {
   CORE_PLANNING_ARTIFACT_IDS,
@@ -25,6 +49,7 @@ import {
   FUSION_DRIVEN_SCHEMA_NAME,
 } from "../../openspec/fusion-driven-schema.ts";
 import type { OpenSpecInstructions, OpenSpecStatus } from "../../openspec/protocol.ts";
+import type { AtomicJsonStore } from "../../persistence/atomic-json-store.ts";
 import { createChangeUsageStore, recordChangeUsage } from "../../persistence/change-usage-store.ts";
 import { parseReviewArtifact } from "../../review/review-artifact.ts";
 import { readCliFlag } from "../../shared/cli-flags.ts";
@@ -82,6 +107,12 @@ export type PlanningPreflight = z.infer<typeof planningPreflightSchema>;
 export interface PlanningPreflightRequest {
   changeName: string;
   prompt: string;
+  /**
+   * Files that code retrieved, listed in the agent's prompt. Present only when judgment
+   * answered and did not act in enforce mode; every other path leaves it unset so the
+   * prompt is exactly what it is without judgment.
+   */
+  candidates?: readonly Candidate[];
 }
 
 const UNLIMITED_BUDGET_VALUES = new Set(["unlimited", "none", "off"]);
@@ -119,8 +150,18 @@ function planningBudget(argv: readonly string[], env: NodeJS.ProcessEnv = proces
   return new BudgetLedger({ phases: Object.keys(limit).length > 0 ? { planning: limit } : {} });
 }
 
-function preflightPrompt(request: PlanningPreflightRequest): string {
+function candidatesSection(candidates: readonly Candidate[]): string {
   return [
+    "Candidate files found by a deterministic code search of the repository. They are starting points, not a complete or authoritative list; use your read/search calls to confirm or look further.",
+    ...candidates.map((candidate) => [
+      `- ${candidate.path} (matched: ${candidate.matchedTerms.join(", ")})`,
+      ...candidate.excerpt.split("\n").map((line) => `    ${line}`),
+    ].join("\n")),
+  ].join("\n");
+}
+
+export function preflightPrompt(request: PlanningPreflightRequest): string {
+  const sections = [
     "Determine whether the requested change is needed in the checked-out repository.",
     `Change: ${request.changeName}`,
     `User request: ${request.prompt}`,
@@ -129,7 +170,10 @@ function preflightPrompt(request: PlanningPreflightRequest): string {
     "If checked-out behavior already satisfies the request, do not invent adjacent improvements; return already_satisfied and ask which branch, deployment, or entry point still fails.",
     "If ambiguity prevents a bounded proposal, return needs_clarification with one specific question.",
     "Return exactly one JSON object: {\"disposition\":\"proceed|needs_clarification|already_satisfied\",\"summary\":\"...\",\"evidence\":[{\"path\":\"repo/relative/path\",\"reason\":\"...\"}],\"question\":\"...\"}. Omit the \"question\" field entirely unless disposition is \"needs_clarification\" — do not include it as an empty string.",
-  ].join("\n\n");
+  ];
+  // The output contract stays last; candidates go before it.
+  if (request.candidates?.length) sections.splice(-1, 0, candidatesSection(request.candidates));
+  return sections.join("\n\n");
 }
 
 /**
@@ -301,6 +345,138 @@ function slotForRequest(stack: ModelStack, request: PlanningAgentRequest): Model
   return stack.architect;
 }
 
+/**
+ * Determines the four risk inputs to complexity classification. The pattern values are the
+ * baseline and the answer for every case judgment does not act on: disabled, shadow mode,
+ * unavailable, or not confident. Only a confident enforce-mode answer replaces a pattern
+ * value, one input at a time. Each record is reconciled with the pattern values so the two
+ * can be compared across real changes; that bookkeeping never affects planning.
+ */
+async function resolveRiskInputs(input: {
+  runtime: JudgmentRuntime;
+  store: AtomicJsonStore;
+  changeName: string;
+  phase: PlanningPhase;
+  prompt: string;
+  evidence: PlanningPreflight["evidence"];
+  signal?: AbortSignal;
+}): Promise<RiskInputs> {
+  const pattern = patternRiskInputs(input.prompt, input.phase);
+  const state = { request: input.prompt, phase: input.phase, evidence: input.evidence };
+  const verdict = await input.runtime.judge(planningComplexityDecision, {
+    input: state,
+    changeName: input.changeName,
+    phase: "planning",
+    state: complexityState(state),
+    sourcePaths: input.evidence.map(({ path }) => path),
+    signal: input.signal,
+  });
+  const applied = verdict.kind === "enforce" && verdict.outcome.act
+    ? mergeRiskInputs(pattern, verdict.outcome.value, input.phase)
+    : pattern;
+  if (verdict.recordId) {
+    try {
+      const observed = await reconcileDecisionRecord(input.store, input.changeName, verdict.recordId, {
+        observed: { ...pattern, applied, planningPhase: input.phase },
+      });
+      const judged = observed.found && observed.record.gate?.act ? observed.record.gate.value : null;
+      if (judged && typeof judged === "object" && !Array.isArray(judged)) {
+        const agreed = COMPLEXITY_SIGNALS.every(([key]) => {
+          const value = judged[key];
+          return typeof value !== "boolean" || value === pattern[key];
+        });
+        await reconcileDecisionRecord(input.store, input.changeName, verdict.recordId, { agreed });
+      }
+    } catch {
+      // Reconciliation is measurement; a failure to write it must not fail planning.
+    }
+  }
+  return applied;
+}
+
+interface JudgedPreflight {
+  readonly verdict: JudgmentVerdict<PreflightGateValue>;
+  readonly candidates: readonly Candidate[];
+}
+
+/**
+ * Retrieves candidates and asks the preflight question. `null` means judgment played no part —
+ * it is disabled, or retrieval or the call failed — and preflight runs the agent exactly as it
+ * does without judgment. An operational failure here must never fail preflight.
+ */
+async function judgePreflight(input: {
+  runtime: JudgmentRuntime;
+  retrieve: typeof retrieveCandidates;
+  cwd: string;
+  changeName: string;
+  prompt: string;
+  avoided: BudgetAmount;
+  signal?: AbortSignal;
+}): Promise<JudgedPreflight | null> {
+  if (!input.runtime.enabled) return null;
+  try {
+    const candidates = await input.retrieve({ cwd: input.cwd, request: input.prompt, signal: input.signal });
+    const preflightInput = { request: input.prompt, candidates };
+    const verdict = await input.runtime.judge(planningPreflightDecision, {
+      input: preflightInput,
+      changeName: input.changeName,
+      phase: "planning",
+      state: preflightState(preflightInput),
+      sourcePaths: candidates.map(({ path }) => path),
+      signal: input.signal,
+      avoided: { activity: "preflight", ...input.avoided },
+    });
+    return { verdict, candidates };
+  } catch (error) {
+    // A missing recording is a test failure, not an outage; converting it would hide it.
+    if (error instanceof JudgmentFixtureMissingError) throw error;
+    return null;
+  }
+}
+
+/**
+ * Records which path produced the preflight. In shadow mode the agent ran exactly as it does
+ * without judgment, so its disposition is the counterfactual: the record also gets the agent's
+ * disposition and evidence paths, and whether the judged disposition agreed. In enforce mode
+ * the agent saw the candidates, so its answer is not independent and agreement is left unset.
+ * This is measurement; a failure to write it must not fail planning.
+ */
+async function reconcilePreflight(input: {
+  store: AtomicJsonStore;
+  changeName: string;
+  judged: JudgedPreflight;
+  producedBy: "judgment" | "agent";
+  agent?: PlanningPreflight;
+}): Promise<void> {
+  const { recordId } = input.judged.verdict;
+  if (!recordId) return;
+  try {
+    const observed: Record<string, string | string[]> = { producedBy: input.producedBy };
+    const agentPaths = input.agent?.evidence.map(({ path }) => path) ?? [];
+    if (input.agent) {
+      observed.agentDisposition = input.agent.disposition;
+      observed.agentEvidencePaths = agentPaths;
+    }
+    const result = await reconcileDecisionRecord(input.store, input.changeName, recordId, { observed });
+    if (input.judged.verdict.kind !== "shadow" || !input.agent || !result.found || !result.record.answers) return;
+    const answers = result.record.answers;
+    const judgedAnswer = answers[PREFLIGHT_QUESTION_IDS.disposition];
+    const judgedRelevantPaths = preflightCandidateAnswers(answers)
+      .filter(({ relevance }) => relevance >= PREFLIGHT_RELEVANCE_FLOOR)
+      .map(({ index }) => input.judged.candidates[index - 1]?.path)
+      .filter((path): path is string => path !== undefined);
+    await reconcileDecisionRecord(input.store, input.changeName, recordId, {
+      observed: {
+        judgedRelevantPaths,
+        evidenceOverlap: judgedRelevantPaths.filter((path) => agentPaths.includes(path)).length,
+      },
+      agreed: judgedAnswer?.type === "choice" && judgedAnswer.choice === input.agent.disposition,
+    });
+  } catch {
+    // Reconciliation is measurement; a failure to write it must not fail planning.
+  }
+}
+
 export interface ProductionPlanningOptions {
   onAgentStart?: AgentRunObserver;
   cwd: string;
@@ -313,6 +489,10 @@ export interface ProductionPlanningOptions {
   openSpec?: OpenSpecAdapter;
   modelStack?: ModelStack;
   budget?: BudgetLedger;
+  /** Replaces the runtime built from the environment; tests inject a replaying or dead client. */
+  judgment?: JudgmentRuntime;
+  /** Replaces candidate retrieval; tests inject a spy or a failure. */
+  retrieve?: typeof retrieveCandidates;
   budgetEstimates?: Partial<Record<"preflight" | PlanningAgentRequest["stage"], BudgetAmount>>;
   runPreflight?(request: PlanningPreflightRequest, slot: ModelSlot): Promise<PlanningPreflight>;
   runAgent?(request: PlanningAgentRequest, status: OpenSpecStatus, slot: ModelSlot): Promise<PlanningAgentResult>;
@@ -382,29 +562,67 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
     ? (options.prompt ? `${options.prompt}\n\n${reviewFeedback}` : reviewFeedback)
     : options.prompt;
 
-  const preflightBudget = budget.forecast({
-    phase: "planning",
-    role: "architect",
-    activity: "preflight",
-    estimate: budgetEstimates.preflight,
-  });
-  if (preflightBudget.status === "blocked_mandatory") {
-    throw new HarnessError("BUDGET_EXHAUSTED", `Planning preflight is budget-blocked: ${preflightBudget.reason}`, {
-      decision: preflightBudget,
+  const judgment = options.judgment ?? createJudgmentRuntime({ env: process.env, store: usageStore, budget });
+  // Runs the agent, after the mandatory budget forecast; skipped entirely when judgment acts.
+  const runPreflightAgent = async (request: PlanningPreflightRequest): Promise<PlanningPreflight> => {
+    const preflightBudget = budget.forecast({
+      phase: "planning",
+      role: "architect",
+      activity: "preflight",
+      estimate: budgetEstimates.preflight,
     });
+    if (preflightBudget.status === "blocked_mandatory") {
+      throw new HarnessError("BUDGET_EXHAUSTED", `Planning preflight is budget-blocked: ${preflightBudget.reason}`, {
+        decision: preflightBudget,
+      });
+    }
+    return options.runPreflight
+      ? options.runPreflight(request, stack.architect)
+      : parsePreflight(await runChild({
+        prompt: preflightPrompt(request),
+        slot: stack.architect,
+        stage: "preflight",
+        thinking: "low",
+        boundedDiscovery: true,
+      }));
+  };
+  const judged = await judgePreflight({
+    runtime: judgment,
+    retrieve: options.retrieve ?? retrieveCandidates,
+    cwd: options.cwd,
+    changeName: options.changeName,
+    prompt: effectivePrompt,
+    avoided: budgetEstimates.preflight,
+    signal: options.signal,
+  });
+  const verdict = judged?.verdict;
+  const acted = verdict?.kind === "enforce" && verdict.outcome.act ? verdict.outcome.value : null;
+  let preflight: PlanningPreflight;
+  if (judged && acted) {
+    preflight = composePreflight(acted, judged.candidates);
+    await reconcilePreflight({ store: usageStore, changeName: options.changeName, judged, producedBy: "judgment" });
+  } else {
+    // Candidates are pre-loaded only when judgment answered in enforce mode and did not act.
+    // Unavailable judgment and shadow mode run the agent with today's prompt.
+    preflight = await runPreflightAgent({
+      changeName: options.changeName,
+      prompt: effectivePrompt,
+      ...(verdict?.kind === "enforce" && judged!.candidates.length > 0
+        ? { candidates: judged!.candidates }
+        : {}),
+    });
+    if (judged) {
+      await reconcilePreflight({
+        store: usageStore,
+        changeName: options.changeName,
+        judged,
+        producedBy: "agent",
+        agent: preflight,
+      });
+    }
   }
-  const preflight = options.runPreflight
-    ? await options.runPreflight({ changeName: options.changeName, prompt: effectivePrompt }, stack.architect)
-    : parsePreflight(await runChild({
-      prompt: preflightPrompt({ changeName: options.changeName, prompt: effectivePrompt }),
-      slot: stack.architect,
-      stage: "preflight",
-      thinking: "low",
-      boundedDiscovery: true,
-    }));
   if (preflight.disposition !== "proceed") {
-    const question = preflight.question
-      ?? "Which branch, deployment, or entry point still exhibits the behavior you want changed?";
+    const question = preflight.question ?? STANDARD_ALREADY_SATISFIED_QUESTION;
     return {
       status: "blocked",
       action: options.phase,
@@ -475,13 +693,19 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
   };
 
   const affectedFiles = preflight.evidence.map(({ path }) => path);
+  const riskInputs = await resolveRiskInputs({
+    runtime: judgment,
+    store: usageStore,
+    changeName: options.changeName,
+    phase: options.phase,
+    prompt: effectivePrompt,
+    evidence: preflight.evidence,
+    signal: options.signal,
+  });
   const complexity = classifyChange({
     affectedFiles,
     affectedCapabilities: affectedFiles.map(affectedCapability).filter((value): value is string => Boolean(value)),
-    hasPublicContractChange: /\b(?:public contract|api|schema|protocol)\b/i.test(effectivePrompt),
-    hasDataMigration: /\bmigrat(?:e|ion)\b/i.test(effectivePrompt),
-    hasSecurityBoundaryChange: /\b(?:security|permission|auth)\b/i.test(effectivePrompt),
-    hasDesignAmbiguity: options.phase === "refine" && /\b(?:ambiguous|trade-?off|uncertain)\b/i.test(effectivePrompt),
+    ...riskInputs,
   });
   const input = {
     changeName: options.changeName,

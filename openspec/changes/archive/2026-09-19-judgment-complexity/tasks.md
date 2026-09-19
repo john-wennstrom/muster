@@ -1,6 +1,6 @@
 ## 1. Inputs and Decision
 
-- [ ] 1.1 Extract the four pattern rules from the planning phase into a pure function in `src/controller/complexity-inputs.ts` and add a pure merge of pattern values, confident judged values, and the phase, leaving `src/controller/complexity-router.ts` unedited; verify with tests that the extracted rules equal the original expressions over a table of prompts including both known failure prompts, and that the merge handles confident yes and no, an uncertain signal, unaffected sibling signals, and refinement-only scoping of design ambiguity.
+- [x] 1.1 Extract the four pattern rules from the planning phase into a pure function in `src/controller/complexity-inputs.ts` and add a pure merge of pattern values, confident judged values, and the phase, leaving `src/controller/complexity-router.ts` unedited; verify with tests that the extracted rules equal the original expressions over a table of prompts including both known failure prompts, and that the merge handles confident yes and no, an uncertain signal, unaffected sibling signals, and refinement-only scoping of design ambiguity.
 
   ```yaml harness-task
   id: "1.1"
@@ -14,7 +14,7 @@
   manual: null
   ```
 
-- [ ] 1.2 Register the `planning.complexity` decision in `src/judgment/questions.ts` and `src/judgment/gates.ts`: four yes/no questions carrying their scoping rules, a yes/no question on whether the change is mechanical, a four-level rubric on how far it reaches, declared effects of adding caution and reducing work, and a gate that maps each of the four answers to true above 0.7, false below 0.3, and abstains otherwise; verify with tests that the migration and public-contract wording states its scoping rules, that replayed responses for the avoid-a-migration and internal-signature prompts produce false inputs, that the recorded-only answers never enter the gate's outcome, and that the effects are declared.
+- [x] 1.2 Register the `planning.complexity` decision in `src/judgment/questions.ts` and `src/judgment/gates.ts`: four yes/no questions carrying their scoping rules, a yes/no question on whether the change is mechanical, a four-level rubric on how far it reaches, declared effects of adding caution and reducing work, and a gate that maps each of the four answers to true above 0.7, false below 0.3, and abstains otherwise; verify with tests that the migration and public-contract wording states its scoping rules, that replayed responses for the avoid-a-migration and internal-signature prompts produce false inputs, that the recorded-only answers never enter the gate's outcome, and that the effects are declared.
 
   ```yaml harness-task
   id: "1.2"
@@ -30,7 +30,7 @@
 
 ## 2. Planning Integration
 
-- [ ] 2.1 Add an optional judgment runtime to the planning options and call the decision between preflight and classification, declaring the evidence paths, merging confident answers into the four inputs only in enforce mode, keeping the pattern values in shadow mode and for every unavailable reason, reconciling each record with the pattern values, and sending nothing when judgment is disabled; verify in the planning runtime tests that enforce corrects a pattern false positive and a pattern false negative, that shadow and every unavailable reason produce a classification identical to the pattern-only one, that an override is applied unchanged, and that a disabled runtime sends no request and writes no record.
+- [x] 2.1 Add an optional judgment runtime to the planning options and call the decision between preflight and classification, declaring the evidence paths, merging confident answers into the four inputs only in enforce mode, keeping the pattern values in shadow mode and for every unavailable reason, reconciling each record with the pattern values, and sending nothing when judgment is disabled; verify in the planning runtime tests that enforce corrects a pattern false positive and a pattern false negative, that shadow and every unavailable reason produce a classification identical to the pattern-only one, that an override is applied unchanged, and that a disabled runtime sends no request and writes no record.
 
   ```yaml harness-task
   id: "2.1"
@@ -46,7 +46,7 @@
 
 ## 3. Measurement and Documentation
 
-- [ ] 3.1 Add a per-signal agreement report in `src/judgment/complexity-report.ts` that reads this decision's records and reports each signal's agreement rate, the direction of disagreement, and the number of changes measured; verify with tests over hand-built records that cover agreement, both directions of disagreement, abstentions excluded from agreement, and unreconciled records excluded.
+- [x] 3.1 Add a per-signal agreement report in `src/judgment/complexity-report.ts` that reads this decision's records and reports each signal's agreement rate, the direction of disagreement, and the number of changes measured; verify with tests over hand-built records that cover agreement, both directions of disagreement, abstentions excluded from agreement, and unreconciled records excluded.
 
   ```yaml harness-task
   id: "3.1"
@@ -60,7 +60,7 @@
   manual: null
   ```
 
-- [ ] 3.2 Add the complexity classification row to the per-call-site table in `docs/security.md`, naming the effective request text, the planning phase, and the preflight evidence paths and reasons; verify the documentation checks pass.
+- [x] 3.2 Add the complexity classification row to the per-call-site table in `docs/security.md`, naming the effective request text, the planning phase, and the preflight evidence paths and reasons; verify the documentation checks pass.
 
   ```yaml harness-task
   id: "3.2"
@@ -76,7 +76,7 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Run the full validation set and compare pass and fail counts against the recorded pre-existing platform baseline, confirming that classification is unchanged with judgment disabled and that the classifier module is unedited.
+- [x] 4.1 Run the full validation set and compare pass and fail counts against the recorded pre-existing platform baseline, confirming that classification is unchanged with judgment disabled and that the classifier module is unedited.
 
   ```yaml harness-task
   id: "4.1"

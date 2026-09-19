@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
 
 export type UsagePhase = "planning" | "implementation" | "validation";
-export type UsageRole = "architect" | "builder" | "reviewer" | "validator" | "fusion";
+export type UsageRole =
+  | "architect"
+  | "builder"
+  | "reviewer"
+  | "validator"
+  | "fusion"
+  | "judgment";
 
 export interface ProviderUsage {
   input?: number | null;

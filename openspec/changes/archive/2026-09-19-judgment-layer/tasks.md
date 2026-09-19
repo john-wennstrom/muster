@@ -1,6 +1,6 @@
 ## 1. Groundwork
 
-- [ ] 1.1 Add `judgment` to the usage roles and to the optional budget activities, and extend the telemetry report's role and activity enumerations to accept them; verify with tests that a usage record under the judgment role aggregates with the others, that a forecast for the judgment activity that exceeds a budget is skipped as optional and never blocks a mandatory activity, and that the report accepts judgment usage.
+- [x] 1.1 Add `judgment` to the usage roles and to the optional budget activities, and extend the telemetry report's role and activity enumerations to accept them; verify with tests that a usage record under the judgment role aggregates with the others, that a forecast for the judgment activity that exceeds a budget is skipped as optional and never blocks a mandatory activity, and that the report accepts judgment usage.
 
   ```yaml harness-task
   id: "1.1"
@@ -14,7 +14,7 @@
   manual: null
   ```
 
-- [ ] 1.2 Declare `JUDGMENT_QUESTION_INVALID` in the harness error codes and classify it as an internal fault with no blocker in the total classification; verify typechecking passes and the existing command and classification tests still pass.
+- [x] 1.2 Declare `JUDGMENT_QUESTION_INVALID` in the harness error codes and classify it as an internal fault with no blocker in the total classification; verify typechecking passes and the existing command and classification tests still pass.
 
   ```yaml harness-task
   id: "1.2"
@@ -30,7 +30,7 @@
 
 ## 2. Transport and Safety
 
-- [ ] 2.1 Implement the judgment client in `src/judgment/client.ts`: a client interface, a `fetch`-based implementation holding the pinned model and per-token rate as constants, an overall deadline, at most two jittered retries on rate-limit and overload responses, cancellation, and response validation pinned against the service's HTTP reference with a recorded sample response; verify with tests over an injected `fetch` covering success, a retry that recovers, exhausted retries, a server failure, a deadline, cancellation, a malformed or partial response, a value outside the supplied options, and a reported model that differs from the pinned one.
+- [x] 2.1 Implement the judgment client in `src/judgment/client.ts`: a client interface, a `fetch`-based implementation holding the pinned model and per-token rate as constants, an overall deadline, at most two jittered retries on rate-limit and overload responses, cancellation, and response validation pinned against the service's HTTP reference with a recorded sample response; verify with tests over an injected `fetch` covering success, a retry that recovers, exhausted retries, a server failure, a deadline, cancellation, a malformed or partial response, a value outside the supplied options, and a reported model that differs from the pinned one.
 
   ```yaml harness-task
   id: "2.1"
@@ -44,7 +44,7 @@
   manual: null
   ```
 
-- [ ] 2.2 Implement policy resolution in `src/judgment/policy.ts` as a pure function of an environment object: both `MUSTER_JEV=1` and `MUSTER_JEV_API_KEY` required, `MUSTER_JEV_MODE` of shadow by default or enforce, an unrecognized mode reported as invalid configuration, disabled distinguished from not configured, and support for a decision's own enabling flag; verify with table-driven tests over every combination of the variables.
+- [x] 2.2 Implement policy resolution in `src/judgment/policy.ts` as a pure function of an environment object: both `MUSTER_JEV=1` and `MUSTER_JEV_API_KEY` required, `MUSTER_JEV_MODE` of shadow by default or enforce, an unrecognized mode reported as invalid configuration, disabled distinguished from not configured, and support for a decision's own enabling flag; verify with table-driven tests over every combination of the variables.
 
   ```yaml harness-task
   id: "2.2"
@@ -58,7 +58,7 @@
   manual: null
   ```
 
-- [ ] 2.3 Implement egress controls in `src/judgment/egress.ts`: redaction of every string in a state covering bearer credentials, credential flags, `key: value` secrets, private key blocks, and secret-bearing URL query parameters; a path denylist for environment files, private key and certificate files, package-registry authentication files, and cloud and version-control credential files, applied to the paths a call site declares; and conservative token estimation with the 32,000-token and 64,000-token limits; verify with tests for each redaction pattern, each denylist family, an allowed source path, both size limits, and that a state is never truncated.
+- [x] 2.3 Implement egress controls in `src/judgment/egress.ts`: redaction of every string in a state covering bearer credentials, credential flags, `key: value` secrets, private key blocks, and secret-bearing URL query parameters; a path denylist for environment files, private key and certificate files, package-registry authentication files, and cloud and version-control credential files, applied to the paths a call site declares; and conservative token estimation with the 32,000-token and 64,000-token limits; verify with tests for each redaction pattern, each denylist family, an allowed source path, both size limits, and that a state is never truncated.
 
   ```yaml harness-task
   id: "2.3"
@@ -74,7 +74,7 @@
 
 ## 3. Catalog, Audit, and Replay
 
-- [ ] 3.1 Implement the decision registries in `src/judgment/questions.ts` and `src/judgment/gates.ts`: helpers for choice, score, and yes/no questions, the typed decision object holding identifier, version, declared effects, optional enabling flag, question builder, and a pure gate returning an act-or-abstain envelope, validation that raises `JUDGMENT_QUESTION_INVALID` for malformed definitions, and a registry test that builds and validates every registered decision from representative input using a test-only sample decision; verify the tests cover a duplicate identifier, an unsupported type, a choice without options, a rubric without criteria, an empty question, a missing effect declaration, an effect that grants, an uncertain-band abstention, and a version change.
+- [x] 3.1 Implement the decision registries in `src/judgment/questions.ts` and `src/judgment/gates.ts`: helpers for choice, score, and yes/no questions, the typed decision object holding identifier, version, declared effects, optional enabling flag, question builder, and a pure gate returning an act-or-abstain envelope, validation that raises `JUDGMENT_QUESTION_INVALID` for malformed definitions, and a registry test that builds and validates every registered decision from representative input using a test-only sample decision; verify the tests cover a duplicate identifier, an unsupported type, a choice without options, a rubric without criteria, an empty question, a missing effect declaration, an effect that grants, an uncertain-band abstention, and a version change.
 
   ```yaml harness-task
   id: "3.1"
@@ -88,7 +88,7 @@
   manual: null
   ```
 
-- [ ] 3.2 Implement decision audit records in `src/judgment/audit.ts` beside the usage records in the run store: a versioned record schema holding the fields the specification names plus a digest of the redacted state, write and list operations keyed by the change's run identifier, reconciliation that merges observations and reports a missing record without raising, and a pure per-decision summary; verify with tests for the record round trip, merged reconciliation, a missing record, and summaries that separate would-have-acted from acted and exclude unreconciled records from agreement.
+- [x] 3.2 Implement decision audit records in `src/judgment/audit.ts` beside the usage records in the run store: a versioned record schema holding the fields the specification names plus a digest of the redacted state, write and list operations keyed by the change's run identifier, reconciliation that merges observations and reports a missing record without raising, and a pure per-decision summary; verify with tests for the record round trip, merged reconciliation, a missing record, and summaries that separate would-have-acted from acted and exclude unreconciled records from agreement.
 
   ```yaml harness-task
   id: "3.2"
@@ -102,7 +102,7 @@
   manual: null
   ```
 
-- [ ] 3.3 Implement recorded-fixture support in `src/judgment/replay.ts`: canonical serialization, fixture keys from decision, version, and hashes of the state and the questions, a replaying client that throws a dedicated fixture-missing error, a recorder that wraps a live client, a dead-client double with a selectable unavailable reason, and the fixtures directory; verify with tests that a matching recording is replayed, that differing content misses, that a miss throws instead of yielding an unavailable result, and that the dead client yields each reason.
+- [x] 3.3 Implement recorded-fixture support in `src/judgment/replay.ts`: canonical serialization, fixture keys from decision, version, and hashes of the state and the questions, a replaying client that throws a dedicated fixture-missing error, a recorder that wraps a live client, a dead-client double with a selectable unavailable reason, and the fixtures directory; verify with tests that a matching recording is replayed, that differing content misses, that a miss throws instead of yielding an unavailable result, and that the dead client yields each reason.
 
   ```yaml harness-task
   id: "3.3"
@@ -118,7 +118,7 @@
 
 ## 4. Entry Points
 
-- [ ] 4.1 Implement the entry points and the runtime in `src/judgment/ask.ts` and `src/judgment/usage.ts`: the transport call that never throws for an operational failure and rethrows a fixture-missing error, the decision entry point returning the fallback, shadow, or enforce verdict, a runtime built from the environment with budget and store injection plus an inert runtime for the disabled case, the usage emission and budget forecast, and the audit write; verify with tests that every unavailable reason yields the fallback verdict without an error, that shadow returns no outcome while enforce returns the gate's outcome, that a disabled runtime performs no I/O, that usage is recorded whether or not the decision acts, that an exhausted budget skips the request, that the API key never appears in a record or fixture, and that no part of the process environment appears in a sent state.
+- [x] 4.1 Implement the entry points and the runtime in `src/judgment/ask.ts` and `src/judgment/usage.ts`: the transport call that never throws for an operational failure and rethrows a fixture-missing error, the decision entry point returning the fallback, shadow, or enforce verdict, a runtime built from the environment with budget and store injection plus an inert runtime for the disabled case, the usage emission and budget forecast, and the audit write; verify with tests that every unavailable reason yields the fallback verdict without an error, that shadow returns no outcome while enforce returns the gate's outcome, that a disabled runtime performs no I/O, that usage is recorded whether or not the decision acts, that an exhausted budget skips the request, that the API key never appears in a record or fixture, and that no part of the process environment appears in a sent state.
 
   ```yaml harness-task
   id: "4.1"
@@ -132,7 +132,7 @@
   manual: null
   ```
 
-- [ ] 4.2 Add the layering test that scans the layer's imports and fails if any names a phase, handler, controller, agent, tool, or execution module, and a fallback test that runs the entry point with the dead-client double for every unavailable reason and asserts the caller-visible result is the fallback each time; verify both pass.
+- [x] 4.2 Add the layering test that scans the layer's imports and fails if any names a phase, handler, controller, agent, tool, or execution module, and a fallback test that runs the entry point with the dead-client double for every unavailable reason and asserts the caller-visible result is the fallback each time; verify both pass.
 
   ```yaml harness-task
   id: "4.2"
@@ -148,7 +148,7 @@
 
 ## 5. Documentation and Validation
 
-- [ ] 5.1 Add a judgment-egress section to `docs/security.md` covering third-party egress, the opt-in variables, best-effort redaction, the credential denylist, size limits, the provider's stated data-handling posture with a note to confirm retention arrangements for proprietary code, and a per-call-site table that starts with no rows and that each later change extends; add a recorded-fixtures note to `docs/testing.md`; verify the documentation checks pass with the required host-execution wording intact.
+- [x] 5.1 Add a judgment-egress section to `docs/security.md` covering third-party egress, the opt-in variables, best-effort redaction, the credential denylist, size limits, the provider's stated data-handling posture with a note to confirm retention arrangements for proprietary code, and a per-call-site table that starts with no rows and that each later change extends; add a recorded-fixtures note to `docs/testing.md`; verify the documentation checks pass with the required host-execution wording intact.
 
   ```yaml harness-task
   id: "5.1"
@@ -162,7 +162,7 @@
   manual: null
   ```
 
-- [ ] 5.2 Run the full validation set and compare pass and fail counts against the recorded pre-existing platform baseline, confirming that no behavior changed with judgment disabled and that the layer has no call sites in any phase.
+- [x] 5.2 Run the full validation set and compare pass and fail counts against the recorded pre-existing platform baseline, confirming that no behavior changed with judgment disabled and that the layer has no call sites in any phase.
 
   ```yaml harness-task
   id: "5.2"

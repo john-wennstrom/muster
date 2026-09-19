@@ -91,6 +91,35 @@ describe("usage telemetry", () => {
     });
   });
 
+  test("aggregates judgment usage with the other roles", () => {
+    const judgment = createUsageRecord({
+      runId: "run-1",
+      phase: "planning",
+      role: "judgment",
+      model: { provider: "typesafe", id: "jev-test" },
+      usage: { input: 1_000, output: 0, cost: { total: 0.000042 } },
+      durationMs: 100,
+    });
+    const builder = createUsageRecord({
+      runId: "run-1",
+      phase: "implementation",
+      role: "builder",
+      model: { provider: "openai", id: "one" },
+      usage: { input: 10, output: 5, cost: { total: 0.1 } },
+      durationMs: 10,
+    });
+
+    expect(judgment).toMatchObject({ role: "judgment", outputTokens: 0, totalTokens: 1_000 });
+    expect(aggregateUsage([judgment, builder])).toMatchObject({
+      invocations: 2,
+      inputTokens: 1_010,
+      outputTokens: 5,
+      totalTokens: 1_015,
+      cost: { completeness: "complete" },
+      assignments: ["typesafe/jev-test", "openai/one"],
+    });
+  });
+
   test("adapts imported AgentRun totals without fabricating provider detail", () => {
     const record = usageFromLegacyRun("run-1", "implementation", {
       role: "BUILDER",

@@ -78,6 +78,7 @@ export const failureClassifications = {
   // Internal faults and agent failures: nothing the user can satisfy, so no blocker.
   COMMAND_HANDLER_MISSING: { blocker: null },
   EXPLORE_AGENT_FAILED: { blocker: null },
+  JUDGMENT_QUESTION_INVALID: { blocker: null },
   PLANNING_AGENT_FAILED: { blocker: null },
   REVIEW_TOOL_DENIED: { blocker: null },
   UNEXPECTED_ERROR: { blocker: null },

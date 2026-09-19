@@ -202,6 +202,19 @@ export class GitAdapter {
     ])).stdout);
   }
 
+  /** Tracked and non-ignored untracked files, repository-relative with forward slashes, sorted. */
+  async listFiles(): Promise<string[]> {
+    const output = (await this.command([
+      "--literal-pathspecs",
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "-z",
+    ])).stdout;
+    return [...new Set(output.split("\0").filter(Boolean))].sort();
+  }
+
   async refs(): Promise<GitRef[]> {
     const output = (await this.command([
       "for-each-ref",

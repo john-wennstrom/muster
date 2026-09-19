@@ -30,3 +30,11 @@ The `Cross-platform CI` workflow creates three independent jobs with `fail-fast`
 A release matrix is successful only when all three jobs pass. Local validation proves workflow syntax and the current host's behavior; confirmation on all supported operating systems requires the hosted workflow or equivalent native runners and is handled by the conditional manual acceptance task 13.4.
 
 After the workflow is triggered externally, `acceptance:ci-status` performs a read-only GitHub check for the current `HEAD`. It exits successfully only when the matching workflow and all three operating-system jobs completed successfully.
+
+## Recorded judgment fixtures
+
+Automated tests never reach the judgment service. Judgment is exercised against recorded responses stored in `tests/fixtures/judgment/`, each keyed by the decision, its version, and a hash of the canonical state and questions. Changing a question's wording, the state a test builds, or a decision's version therefore selects a different recording.
+
+A request with no matching recording throws a dedicated fixture-missing error that names the decision. It is deliberately not treated as the service being unavailable: if it were, the fallback would run and the test would pass while testing nothing. Fallback behavior is tested separately with a dead-client double, once per unavailable reason.
+
+To capture a recording, wrap a live client with the recorder in `src/judgment/replay.ts` in a local run against the real service. CI never records. A recording holds the state as it was sent, after redaction, and never the API key.

@@ -25,6 +25,7 @@ const budgetActivities = [
   "specialist_opinion",
   "debate",
   "exploratory_model",
+  "judgment",
   "tests",
   "review",
   "final_validation",
@@ -38,6 +39,7 @@ const optionalActivities = new Set<BudgetActivity>([
   "specialist_opinion",
   "debate",
   "exploratory_model",
+  "judgment",
 ]);
 
 const nonNegativeInteger = z.number().int().nonnegative();
@@ -52,7 +54,7 @@ const usageRecordSchema = z.object({
   invocationId: z.string().min(1),
   runId: z.string().min(1),
   phase: phaseSchema,
-  role: z.enum(["architect", "builder", "reviewer", "validator", "fusion"]),
+  role: z.enum(["architect", "builder", "reviewer", "validator", "fusion", "judgment"]),
   taskId: z.string().min(1).optional(),
   provider: z.string().min(1),
   model: z.string().min(1),
