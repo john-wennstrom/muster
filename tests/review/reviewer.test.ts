@@ -8,6 +8,13 @@ import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.t
 import { createReviewArtifact } from "../../src/review/review-artifact.ts";
 import { HarnessError } from "../../src/shared/errors.ts";
 
+const reviewSubmission = {
+  verdict: "APPROVE" as const,
+  criticalFindings: [] as string[],
+  requiredChanges: [] as string[],
+  recommendations: [] as string[],
+};
+
 const review = createReviewArtifact({
   schemaVersion: 1,
   round: 1,
@@ -128,13 +135,108 @@ describe("planning reviewer dispatch", () => {
       requests.push({ role: request.role, taskId: request.taskId });
       request.run.status = "done";
       request.run.exitCode = 0;
-      request.run.text = JSON.stringify(review);
+      request.run.text = JSON.stringify(reviewSubmission);
       request.run.toolNames = ["muster_read"];
       return request.run as AgentRun;
     });
 
     expect(requests).toEqual([{ role: "reviewer", taskId: "planning.review" }]);
-    expect(result.review).toEqual(review);
+    expect(result.review).toEqual(reviewSubmission);
     expect(result.toolNames).toEqual(["muster_read"]);
+  });
+
+  test("retries once with a corrective prompt when the reviewer returns no JSON", async () => {
+    const prompts: string[] = [];
+    const result = await runBrokeredPlanningReviewer({
+      runId: "run-1",
+      changeName: "add-search",
+      model: "openai/reviewer",
+      cwd: "/repo",
+      prompt: "Review planning.",
+      sessionId: "review-session",
+      sessionDir: "/tmp/review-session",
+      access: "read",
+      tools: ["read", "grep", "find", "ls"],
+    }, async (request) => {
+      prompts.push(request.prompt);
+      request.run.status = "done";
+      request.run.exitCode = 0;
+      request.run.text = prompts.length === 1 ? "Let me think about this some more..." : JSON.stringify(reviewSubmission);
+      request.run.toolNames = ["muster_read"];
+      return request.run as AgentRun;
+    });
+
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("Your previous response was rejected");
+    expect(result.review).toEqual(reviewSubmission);
+  });
+
+  test("tolerates extra fields the model has no business inventing (round, digest, its own model id)", async () => {
+    const result = await runBrokeredPlanningReviewer({
+      runId: "run-1",
+      changeName: "add-search",
+      model: "openai/reviewer",
+      cwd: "/repo",
+      prompt: "Review planning.",
+      sessionId: "review-session",
+      sessionDir: "/tmp/review-session",
+      access: "read",
+      tools: ["read", "grep", "find", "ls"],
+    }, async (request) => {
+      request.run.status = "done";
+      request.run.exitCode = 0;
+      request.run.text = JSON.stringify({ ...review, summary: "looks fine" });
+      request.run.toolNames = [];
+      return request.run as AgentRun;
+    });
+
+    expect(result.review).toEqual(reviewSubmission);
+  });
+
+  test("rejects a well-formed but wrong-shaped review (e.g. summary/findings instead of the required fields)", async () => {
+    await expect(runBrokeredPlanningReviewer({
+      runId: "run-1",
+      changeName: "add-search",
+      model: "openai/reviewer",
+      cwd: "/repo",
+      prompt: "Review planning.",
+      sessionId: "review-session",
+      sessionDir: "/tmp/review-session",
+      access: "read",
+      tools: ["read", "grep", "find", "ls"],
+    }, async (request) => {
+      request.run.status = "done";
+      request.run.exitCode = 0;
+      request.run.text = JSON.stringify({
+        verdict: "APPROVE",
+        summary: "Looks good.",
+        findings: [{ severity: "info", location: "design.md", message: "minor nit" }],
+      });
+      request.run.toolNames = [];
+      return request.run as AgentRun;
+    })).rejects.toMatchObject({ code: "REVIEW_ARTIFACT_INVALID" } as HarnessError);
+  });
+
+  test("fails closed after exhausting retries on an invalid reviewer response", async () => {
+    let calls = 0;
+    await expect(runBrokeredPlanningReviewer({
+      runId: "run-1",
+      changeName: "add-search",
+      model: "openai/reviewer",
+      cwd: "/repo",
+      prompt: "Review planning.",
+      sessionId: "review-session",
+      sessionDir: "/tmp/review-session",
+      access: "read",
+      tools: ["read", "grep", "find", "ls"],
+    }, async (request) => {
+      calls += 1;
+      request.run.status = "done";
+      request.run.exitCode = 0;
+      request.run.text = "not json";
+      request.run.toolNames = [];
+      return request.run as AgentRun;
+    })).rejects.toMatchObject({ code: "REVIEW_ARTIFACT_INVALID" } as HarnessError);
+    expect(calls).toBe(2);
   });
 });

@@ -28,7 +28,7 @@ export interface ReviewChangeResult {
   review: PlanningReviewArtifact;
   assignment: PlanningReviewAssignment;
   reviewedPaths: readonly string[];
-  nextAction: "review" | "implement";
+  nextAction: "refine" | "implement";
 }
 
 export interface ReviewControllerDependencies {
@@ -126,6 +126,11 @@ export async function reviewChange(
     review,
     assignment: dispatched.assignment,
     reviewedPaths: artifacts.map((artifact) => artifact.relativePath),
-    nextAction: review.verdict === "APPROVE" ? "implement" : "review",
+    // REVISE means the artifacts themselves need to change; re-running review
+    // against the same digest would just persist the same verdict forever.
+    // `refine` is what actually acts on `requiredChanges` — pendingReviewFeedback
+    // (change/phases/planning.ts) folds this review's requiredChanges into the
+    // next refine prompt automatically.
+    nextAction: review.verdict === "APPROVE" ? "implement" : "refine",
   };
 }

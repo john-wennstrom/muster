@@ -19,10 +19,16 @@ import {
 } from "../../controller/planning.ts";
 import { classifyChange } from "../../controller/complexity-router.ts";
 import { OpenSpecAdapter } from "../../openspec/adapter.ts";
-import { ensureFusionDrivenSchemaInstalled, FUSION_DRIVEN_SCHEMA_NAME } from "../../openspec/fusion-driven-schema.ts";
+import {
+  CORE_PLANNING_ARTIFACT_IDS,
+  ensureFusionDrivenSchemaInstalled,
+  FUSION_DRIVEN_SCHEMA_NAME,
+} from "../../openspec/fusion-driven-schema.ts";
 import type { OpenSpecInstructions, OpenSpecStatus } from "../../openspec/protocol.ts";
 import { createChangeUsageStore, recordChangeUsage } from "../../persistence/change-usage-store.ts";
+import { parseReviewArtifact } from "../../review/review-artifact.ts";
 import { readCliFlag } from "../../shared/cli-flags.ts";
+import { readFileOrNull } from "../../shared/fs.ts";
 import { isWithin } from "../../shared/paths.ts";
 import { HarnessError } from "../../shared/errors.ts";
 import { usageFromLegacyRun } from "../../telemetry/usage.ts";
@@ -30,15 +36,6 @@ import { BudgetLedger, type BudgetAmount, type BudgetLimit } from "../../telemet
 import type { CommandOutcome } from "../command.ts";
 import { resolveModelStack } from "../models.ts";
 import type { AgentRunObserver } from "../agent-progress.ts";
-
-/**
- * The artifacts `propose`/`refine` actually write (matches `allowedArtifactPath`
- * below). A schema like `fusion-driven` also tracks `review`/`verification` as
- * "planning artifacts", but those are separate phases (change/phases/review.ts,
- * verification.ts) — pulling their instructions into every specialist/debate/
- * synthesis prompt here would just be unused prompt weight.
- */
-const PLANNING_WRITABLE_ARTIFACT_IDS: ReadonlySet<string> = new Set(["proposal", "specs", "design", "tasks"]);
 
 const PLANNING_TIMEOUT_MS = 30 * 60 * 1000;
 const PREFLIGHT_MAX_TOOL_CALLS = 6;
@@ -51,19 +48,34 @@ const DEFAULT_BUDGET_ESTIMATES = {
   synthesis: { totalTokens: 50_000, costUsd: 0.3 },
 } as const satisfies Record<"preflight" | PlanningAgentRequest["stage"], BudgetAmount>;
 
-const planningPreflightSchema = z.object({
-  disposition: z.enum(["proceed", "needs_clarification", "already_satisfied"]),
-  summary: z.string().min(1),
-  evidence: z.array(z.object({
-    path: z.string().min(1),
-    reason: z.string().min(1),
-  }).strict()).max(8),
-  question: z.string().min(1).optional(),
-}).strict().superRefine((value, context) => {
-  if (value.disposition === "needs_clarification" && !value.question) {
-    context.addIssue({ code: "custom", message: "Clarification disposition requires a question" });
-  }
-});
+// Some models include "question" as "" instead of omitting it, even when
+// disposition isn't needs_clarification (a real, observed response shape).
+// Strip it before validation instead of failing the whole preflight over a
+// harmless placeholder value.
+function dropEmptyPreflightQuestion(input: unknown): unknown {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  const record = input as Record<string, unknown>;
+  if (record.question !== "") return input;
+  const { question: _question, ...rest } = record;
+  return rest;
+}
+
+const planningPreflightSchema = z.preprocess(
+  dropEmptyPreflightQuestion,
+  z.object({
+    disposition: z.enum(["proceed", "needs_clarification", "already_satisfied"]),
+    summary: z.string().min(1),
+    evidence: z.array(z.object({
+      path: z.string().min(1),
+      reason: z.string().min(1),
+    }).strict()).max(8),
+    question: z.string().min(1).optional(),
+  }).strict().superRefine((value, context) => {
+    if (value.disposition === "needs_clarification" && !value.question) {
+      context.addIssue({ code: "custom", message: "Clarification disposition requires a question" });
+    }
+  }),
+);
 
 export type PlanningPreflight = z.infer<typeof planningPreflightSchema>;
 
@@ -116,8 +128,29 @@ function preflightPrompt(request: PlanningPreflightRequest): string {
     "Stop as soon as file evidence distinguishes proceed, needs_clarification, or already_satisfied.",
     "If checked-out behavior already satisfies the request, do not invent adjacent improvements; return already_satisfied and ask which branch, deployment, or entry point still fails.",
     "If ambiguity prevents a bounded proposal, return needs_clarification with one specific question.",
-    "Return exactly one JSON object: {\"disposition\":\"proceed|needs_clarification|already_satisfied\",\"summary\":\"...\",\"evidence\":[{\"path\":\"repo/relative/path\",\"reason\":\"...\"}],\"question\":\"optional\"}.",
+    "Return exactly one JSON object: {\"disposition\":\"proceed|needs_clarification|already_satisfied\",\"summary\":\"...\",\"evidence\":[{\"path\":\"repo/relative/path\",\"reason\":\"...\"}],\"question\":\"...\"}. Omit the \"question\" field entirely unless disposition is \"needs_clarification\" — do not include it as an empty string.",
   ].join("\n\n");
+}
+
+/**
+ * A REVISE verdict's required changes are the whole reason `refine` is being
+ * run again — surface them automatically instead of relying on the caller to
+ * copy them out of review.md by hand. `undefined` when there's no review.md
+ * yet, or the last review already approved (nothing to fold in).
+ */
+async function pendingReviewFeedback(changeRoot: string): Promise<string | undefined> {
+  const reviewPath = resolve(changeRoot, "review.md");
+  const contents = await readFileOrNull(reviewPath);
+  if (!contents) return undefined;
+  const review = parseReviewArtifact(contents, reviewPath);
+  if (review.verdict !== "REVISE") return undefined;
+  return [
+    `The most recent planning review (round ${review.round}) requested REVISE. Address every required change below before returning to review:`,
+    ...review.requiredChanges.map((change) => `- ${change}`),
+    ...(review.criticalFindings.length > 0
+      ? ["", "Critical findings:", ...review.criticalFindings.map((finding) => `- ${finding}`)]
+      : []),
+  ].join("\n");
 }
 
 function embeddedJsonObjects(content: string): unknown[] {
@@ -339,6 +372,16 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
     }
     return run.text;
   };
+  // Refining against an existing change: fetch its status early so a pending
+  // REVISE's required changes can be folded into the prompt before preflight
+  // runs, not just before synthesis — otherwise a bare `/change refine` with
+  // no argument reaches preflight with nothing to go on.
+  const earlyStatus = options.phase === "refine" ? await adapter.status(options.changeName) : undefined;
+  const reviewFeedback = earlyStatus ? await pendingReviewFeedback(resolve(earlyStatus.changeRoot)) : undefined;
+  const effectivePrompt = reviewFeedback
+    ? (options.prompt ? `${options.prompt}\n\n${reviewFeedback}` : reviewFeedback)
+    : options.prompt;
+
   const preflightBudget = budget.forecast({
     phase: "planning",
     role: "architect",
@@ -351,9 +394,9 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
     });
   }
   const preflight = options.runPreflight
-    ? await options.runPreflight({ changeName: options.changeName, prompt: options.prompt }, stack.architect)
+    ? await options.runPreflight({ changeName: options.changeName, prompt: effectivePrompt }, stack.architect)
     : parsePreflight(await runChild({
-      prompt: preflightPrompt({ changeName: options.changeName, prompt: options.prompt }),
+      prompt: preflightPrompt({ changeName: options.changeName, prompt: effectivePrompt }),
       slot: stack.architect,
       stage: "preflight",
       thinking: "low",
@@ -382,12 +425,12 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
       await adapter.createChange(options.changeName, options.prompt || `Plan ${options.changeName}`, FUSION_DRIVEN_SCHEMA_NAME);
     }
   }
-  const status = await adapter.status(options.changeName);
+  const status = earlyStatus ?? await adapter.status(options.changeName);
   const changeRoot = resolve(status.changeRoot);
   const artifactIds = (status.actionContext.planningArtifacts.length
     ? status.actionContext.planningArtifacts
     : status.artifacts.map(({ id }) => id)
-  ).filter((id) => PLANNING_WRITABLE_ARTIFACT_IDS.has(id));
+  ).filter((id) => CORE_PLANNING_ARTIFACT_IDS.has(id));
   const instructions = await Promise.all(artifactIds.map((artifact) => adapter.instructions(artifact, options.changeName)));
   const runAgent = options.runAgent ?? (async (request: PlanningAgentRequest, current: OpenSpecStatus, slot: ModelSlot) => {
     const content = await runChild({
@@ -435,14 +478,14 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
   const complexity = classifyChange({
     affectedFiles,
     affectedCapabilities: affectedFiles.map(affectedCapability).filter((value): value is string => Boolean(value)),
-    hasPublicContractChange: /\b(?:public contract|api|schema|protocol)\b/i.test(options.prompt),
-    hasDataMigration: /\bmigrat(?:e|ion)\b/i.test(options.prompt),
-    hasSecurityBoundaryChange: /\b(?:security|permission|auth)\b/i.test(options.prompt),
-    hasDesignAmbiguity: options.phase === "refine" && /\b(?:ambiguous|trade-?off|uncertain)\b/i.test(options.prompt),
+    hasPublicContractChange: /\b(?:public contract|api|schema|protocol)\b/i.test(effectivePrompt),
+    hasDataMigration: /\bmigrat(?:e|ion)\b/i.test(effectivePrompt),
+    hasSecurityBoundaryChange: /\b(?:security|permission|auth)\b/i.test(effectivePrompt),
+    hasDesignAmbiguity: options.phase === "refine" && /\b(?:ambiguous|trade-?off|uncertain)\b/i.test(effectivePrompt),
   });
   const input = {
     changeName: options.changeName,
-    prompt: options.prompt || `${options.phase} ${options.changeName}`,
+    prompt: effectivePrompt || `${options.phase} ${options.changeName}`,
     complexity,
     optionalBudgetAvailable: true,
     authoritativeContext: { status, changeRoot, preflight },

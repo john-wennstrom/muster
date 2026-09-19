@@ -7,11 +7,16 @@ import {
 } from "../agents/legacy-adapter.ts";
 import { HarnessError } from "../shared/errors.ts";
 import {
-  planningReviewArtifactSchema,
-  type PlanningReviewArtifact,
+  planningReviewSubmissionSchema,
+  type PlanningReviewSubmission,
 } from "./review-artifact.ts";
 
 const REVIEW_TOOLS = READONLY_TOOLS.split(",");
+
+// A high-thinking, read-only pass over the target repo — same order of
+// magnitude as planning/exploration (30 min), not the 2 min budget this
+// previously shared with the much narrower task-step code-review call.
+const PLANNING_REVIEW_TIMEOUT_MS = 30 * 60 * 1000;
 
 export interface ReviewModelCandidate {
   model: string;
@@ -33,7 +38,7 @@ export interface PlanningReviewerRequest {
 }
 
 export interface PlanningReviewerResponse {
-  review: PlanningReviewArtifact;
+  review: PlanningReviewSubmission;
   toolNames: readonly string[];
 }
 
@@ -69,7 +74,7 @@ export interface PlanningReviewAssignment {
 }
 
 export interface PlanningReviewDispatchResult {
-  review: PlanningReviewArtifact;
+  review: PlanningReviewSubmission;
   assignment: PlanningReviewAssignment;
 }
 
@@ -77,16 +82,17 @@ export type PlanningReviewerChildRunner = (
   options: RunLegacyReadOnlyChildOptions,
 ) => Promise<AgentRun>;
 
-function parseReviewerJson(text: string): unknown {
+// Reviewers sometimes burn their whole turn on reasoning and never emit the
+// JSON object, or wrap it in a fence despite being told not to. Both are
+// recoverable by nudging the same session to stop and answer, so a bad
+// response gets one corrective retry before failing the review outright.
+const MAX_REVIEW_ATTEMPTS = 2;
+
+function tryParseReviewerJson(text: string): { success: true; value: unknown } | { success: false; error: string } {
   try {
-    return JSON.parse(text);
+    return { success: true, value: JSON.parse(text) };
   } catch (cause) {
-    throw new HarnessError(
-      "REVIEW_ARTIFACT_INVALID",
-      "Planning reviewer did not return one JSON review object",
-      {},
-      { cause },
-    );
+    return { success: false, error: cause instanceof Error ? cause.message : String(cause) };
   }
 }
 
@@ -94,40 +100,62 @@ export async function runBrokeredPlanningReviewer(
   request: PlanningReviewerRequest,
   childRunner: PlanningReviewerChildRunner = runLegacyReadOnlyChild,
 ): Promise<PlanningReviewerResponse> {
-  const run = newRun("REVIEWER", request.model);
-  await childRunner({
-    run,
-    prompt: `${request.prompt}\n\nReturn exactly one JSON object matching the planning review contract; no markdown or code fence.`,
-    role: "reviewer",
-    runId: request.runId,
-    childId: request.sessionId,
-    taskId: "planning.review",
-    description: `Review planning for ${request.changeName}`,
-    assignee: "reviewer",
-    thinking: "high",
-    sessionDir: request.sessionDir,
-    sessionId: request.sessionId,
-    continueTaskSession: true,
-    cwd: request.cwd,
-    timeoutMs: 120_000,
-    signal: request.signal,
-  });
-  if (run.status !== "done") {
-    throw new HarnessError(
-      "REVIEW_ARTIFACT_INVALID",
-      `Planning reviewer failed with status ${run.status}`,
-      { runId: request.runId, exitCode: run.exitCode, error: run.errorMessage },
-    );
+  let correction: string | undefined;
+  for (let attempt = 1; attempt <= MAX_REVIEW_ATTEMPTS; attempt += 1) {
+    const run = newRun("REVIEWER", request.model);
+    await childRunner({
+      run,
+      prompt: [
+        request.prompt,
+        [
+          "Return exactly one JSON object with only these fields — no markdown or code fence, no other fields, nothing before or after it:",
+          '{"verdict":"APPROVE"|"REVISE","criticalFindings":string[],"requiredChanges":string[],"recommendations":string[]}',
+          "criticalFindings, requiredChanges, and recommendations are arrays of single-line strings (use [] when there are none). verdict must be REVISE if either criticalFindings or requiredChanges is non-empty; otherwise APPROVE.",
+        ].join("\n"),
+        correction,
+      ].filter((line): line is string => Boolean(line)).join("\n\n"),
+      role: "reviewer",
+      runId: request.runId,
+      childId: request.sessionId,
+      taskId: "planning.review",
+      description: `Review planning for ${request.changeName}`,
+      assignee: "reviewer",
+      thinking: "high",
+      sessionDir: request.sessionDir,
+      sessionId: request.sessionId,
+      continueTaskSession: true,
+      cwd: request.cwd,
+      timeoutMs: PLANNING_REVIEW_TIMEOUT_MS,
+      signal: request.signal,
+    });
+    if (run.status !== "done") {
+      throw new HarnessError(
+        "REVIEW_ARTIFACT_INVALID",
+        `Planning reviewer failed with status ${run.status}`,
+        { runId: request.runId, exitCode: run.exitCode, error: run.errorMessage },
+      );
+    }
+    const parsedJson = tryParseReviewerJson(run.text);
+    const parsed = parsedJson.success
+      ? planningReviewSubmissionSchema.safeParse(parsedJson.value)
+      : undefined;
+    if (parsed?.success) return { review: parsed.data, toolNames: run.toolNames };
+
+    const reason = !parsedJson.success
+      ? `it was not valid JSON (${parsedJson.error})`
+      : `it did not match the required shape (${parsed!.error.issues.map((issue) => issue.message).join("; ")})`;
+    if (attempt >= MAX_REVIEW_ATTEMPTS) {
+      throw new HarnessError(
+        "REVIEW_ARTIFACT_INVALID",
+        !parsedJson.success
+          ? "Planning reviewer did not return one JSON review object"
+          : "Planning reviewer returned an incompatible review object",
+        !parsedJson.success ? {} : { issues: parsed!.error.issues },
+      );
+    }
+    correction = `Your previous response was rejected: ${reason}. Stop any further analysis and respond now with only the JSON object — no reasoning, no prose, no markdown fence, nothing before or after it.`;
   }
-  const parsed = planningReviewArtifactSchema.safeParse(parseReviewerJson(run.text));
-  if (!parsed.success) {
-    throw new HarnessError(
-      "REVIEW_ARTIFACT_INVALID",
-      "Planning reviewer returned an incompatible review object",
-      { issues: parsed.error.issues },
-    );
-  }
-  return { review: parsed.data, toolNames: run.toolNames };
+  throw new HarnessError("REVIEW_ARTIFACT_INVALID", "Planning reviewer did not return one JSON review object", {});
 }
 
 function selectReviewer(
@@ -193,17 +221,12 @@ export async function dispatchPlanningReview(
     );
   }
 
-  const parsedReview = planningReviewArtifactSchema.safeParse(response.review);
-  if (!parsedReview.success || parsedReview.data.model !== candidate.model) {
+  const parsedReview = planningReviewSubmissionSchema.safeParse(response.review);
+  if (!parsedReview.success) {
     throw new HarnessError(
       "REVIEW_ARTIFACT_INVALID",
-      "Planning reviewer returned invalid or mismatched review evidence",
-      {
-        runId: options.runId,
-        expectedModel: candidate.model,
-        reportedModel: response.review?.model,
-        issues: parsedReview.success ? [] : parsedReview.error.issues,
-      },
+      "Planning reviewer returned invalid review evidence",
+      { runId: options.runId, issues: parsedReview.error.issues },
     );
   }
 

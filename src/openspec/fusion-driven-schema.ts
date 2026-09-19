@@ -14,6 +14,25 @@ import { HarnessError } from "../shared/errors.ts";
  */
 export const FUSION_DRIVEN_SCHEMA_NAME = "fusion-driven";
 
+/**
+ * The artifacts muster's own `propose`/`refine` phase writes, and the ones
+ * that must all be `done` before muster considers planning finished and
+ * advances the change lifecycle out of PLANNING. Deliberately excludes
+ * `review`/`verification`: OpenSpec's own `isPlanningComplete`/
+ * `actionContext.planningArtifacts` count those too (they're part of this
+ * schema's dependency graph), but muster treats them as separate,
+ * lifecycle-gated phases (change/phases/review.ts, verification.ts) that
+ * only run once PLANNING has already advanced to REVIEW_REQUIRED — so
+ * gating "planning complete" on them would make that transition
+ * unreachable.
+ */
+export const CORE_PLANNING_ARTIFACT_IDS: ReadonlySet<string> = new Set([
+  "proposal",
+  "specs",
+  "design",
+  "tasks",
+]);
+
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** Muster's own canonical copy of the schema, shipped via package.json's `files`. */

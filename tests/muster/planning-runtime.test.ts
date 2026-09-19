@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { synthesizeLegacyStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
 import { parsePreflight, runProductionPlanning, thinkingForPlanning } from "../../src/change/phases/planning.ts";
 import { FUSION_DRIVEN_SCHEMA_NAME } from "../../src/openspec/fusion-driven-schema.ts";
+import { createReviewArtifact, writeReviewArtifact } from "../../src/review/review-artifact.ts";
 import { HarnessError } from "../../src/shared/errors.ts";
 import { BudgetLedger } from "../../src/telemetry/budget.ts";
 import type { OpenSpecAdapter } from "../../src/openspec/adapter.ts";
@@ -95,6 +96,37 @@ describe("production planning runtime", () => {
     expect(() => parsePreflight(`${json}\n${json}`)).toThrow("exactly one JSON object");
   });
 
+  test("tolerates an empty question string on a non-clarification disposition", () => {
+    const json = JSON.stringify({
+      disposition: "proceed",
+      summary: "The change is still needed.",
+      evidence: [{ path: "src/view.ts", reason: "Behavior differs from the request." }],
+      question: "",
+    });
+    const preflight = parsePreflight(json);
+    expect(preflight.disposition).toBe("proceed");
+    expect(preflight.question).toBeUndefined();
+  });
+
+  test("still requires a real question when disposition is needs_clarification", () => {
+    const json = JSON.stringify({
+      disposition: "needs_clarification",
+      summary: "Ambiguous target.",
+      evidence: [],
+      question: "",
+    });
+    let error: unknown;
+    try {
+      parsePreflight(json);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(HarnessError);
+    expect((error as HarnessError).details.issues).toMatchObject([
+      { message: "Clarification disposition requires a question" },
+    ]);
+  });
+
   test("uses cheaper thinking for direct and bounded planning", () => {
     expect(thinkingForPlanning("direct", "high")).toBe("low");
     expect(thinkingForPlanning("bounded", "high")).toBe("medium");
@@ -132,6 +164,49 @@ describe("production planning runtime", () => {
     expect(outcome).toMatchObject({ status: "success", action: "refine", runId: "planning-run" });
     expect(await readFile(resolve(subject.changeRoot, "proposal.md"), "utf8")).toBe("# Proposal\n");
     expect(await readFile(resolve(subject.changeRoot, "specs", "search", "spec.md"), "utf8")).toContain("Search behavior");
+  });
+
+  test("folds a pending REVISE review's required changes into refine's prompt automatically", async () => {
+    const subject = await fixture();
+    const review = createReviewArtifact({
+      schemaVersion: 1,
+      round: 1,
+      reviewedAt: "2026-09-18T12:00:00.000Z",
+      model: "openai/reviewer",
+      artifactDigest: "a".repeat(64),
+      requestedVerdict: "REVISE",
+      criticalFindings: [],
+      requiredChanges: ["Handle the empty-query case explicitly."],
+      recommendations: [],
+    });
+    await writeReviewArtifact(resolve(subject.changeRoot, "review.md"), review);
+
+    const preflightPrompts: string[] = [];
+    const outcome = await runProductionPlanning({
+      cwd: subject.root,
+      changeName: "add-search",
+      phase: "refine",
+      prompt: "",
+      openSpec: subject.adapter,
+      modelStack: subject.modelStack,
+      runPreflight: async (request) => {
+        preflightPrompts.push(request.prompt);
+        return proceed;
+      },
+      runAgent: async (_request, _status, slot) => ({
+        model: slot.model,
+        content: JSON.stringify({ artifacts: [
+          { path: "proposal.md", content: "# Proposal" },
+          { path: "design.md", content: "# Design" },
+          { path: "specs/search/spec.md", content: "## Purpose\nSearch behavior contract.\n\n## ADDED Requirements" },
+          { path: "tasks.md", content: "## 1. Search\n" },
+        ] }),
+      }),
+    });
+
+    expect(preflightPrompts).toHaveLength(1);
+    expect(preflightPrompts[0]).toContain("Handle the empty-query case explicitly.");
+    expect(outcome.status).toBe("success");
   });
 
   test("excludes review/verification instructions a fusion-driven schema also tracks as planning artifacts", async () => {

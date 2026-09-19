@@ -8,6 +8,22 @@ const singleLine = z.string().min(1).refine((value) => !/[\r\n]/.test(value), {
   message: "Expected a single line",
 });
 
+function refineVerdictConsistency<T extends { verdict: "APPROVE" | "REVISE"; criticalFindings: string[]; requiredChanges: string[] }>(
+  review: T,
+  context: z.RefinementCtx,
+): void {
+  if (
+    review.verdict === "APPROVE" &&
+    (review.criticalFindings.length > 0 || review.requiredChanges.length > 0)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["verdict"],
+      message: "APPROVE cannot include critical findings or required changes",
+    });
+  }
+}
+
 export const planningReviewArtifactSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -21,20 +37,30 @@ export const planningReviewArtifactSchema = z
     recommendations: z.array(singleLine),
   })
   .strict()
-  .superRefine((review, context) => {
-    if (
-      review.verdict === "APPROVE" &&
-      (review.criticalFindings.length > 0 || review.requiredChanges.length > 0)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["verdict"],
-        message: "APPROVE cannot include critical findings or required changes",
-      });
-    }
-  });
+  .superRefine(refineVerdictConsistency);
 
 export type PlanningReviewArtifact = z.infer<typeof planningReviewArtifactSchema>;
+
+/**
+ * What a reviewer model can actually be expected to produce: a verdict and
+ * findings. `schemaVersion`/`round`/`reviewedAt`/`model`/`artifactDigest` on
+ * `planningReviewArtifactSchema` are controller-owned bookkeeping — reviewChange
+ * (controller/review.ts) fills them in itself and never reads them back from
+ * the model's response, so requiring the model to fabricate them (a digest
+ * hash, an exact-format timestamp, its own model id) only produces avoidable
+ * validation failures. Unknown fields are stripped, not rejected: a model
+ * that adds extra commentary shouldn't fail the review over it.
+ */
+export const planningReviewSubmissionSchema = z
+  .object({
+    verdict: z.enum(["APPROVE", "REVISE"]),
+    criticalFindings: z.array(singleLine),
+    requiredChanges: z.array(singleLine),
+    recommendations: z.array(singleLine),
+  })
+  .superRefine(refineVerdictConsistency);
+
+export type PlanningReviewSubmission = z.infer<typeof planningReviewSubmissionSchema>;
 
 export interface CreateReviewArtifactInput extends Omit<PlanningReviewArtifact, "verdict"> {
   requestedVerdict: PlanningReviewArtifact["verdict"];

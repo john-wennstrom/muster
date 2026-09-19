@@ -182,7 +182,7 @@ describe("change review command", () => {
 
     const revised = await reviewChange(input, { now: () => new Date(observedAt) });
     expect(revised.review).toMatchObject({ round: 1, verdict: "REVISE" });
-    expect(revised.nextAction).toBe("review");
+    expect(revised.nextAction).toBe("refine");
     let digest = await hashReviewedArtifacts(await discoverReviewedArtifacts(repositoryRoot, changeRoot));
     let snapshot = createChangeSnapshot(snapshotInput(digest, revised.review));
     expect(snapshot.lifecycle).toBe("REVIEW_REQUIRED");

@@ -10,6 +10,7 @@ import {
 import { GitAdapter } from "../execution/git.ts";
 import { parseTaskDocument } from "../execution/task-parser.ts";
 import { OpenSpecAdapter } from "../openspec/adapter.ts";
+import { CORE_PLANNING_ARTIFACT_IDS } from "../openspec/fusion-driven-schema.ts";
 import {
   changeRunId,
   createChangeUsageStore,
@@ -63,7 +64,15 @@ export async function loadProductionChangeSnapshot(
   let planningComplete = false;
   try {
     const status = await new OpenSpecAdapter({ cwd, signal: options.signal }).status(options.changeName);
-    planningComplete = status.isPlanningComplete;
+    // Not `status.isPlanningComplete`: OpenSpec counts `review`/`verification`
+    // as part of this schema's planning graph, but muster gates those as
+    // separate, later lifecycle phases — see CORE_PLANNING_ARTIFACT_IDS.
+    const corePlanningArtifacts = status.artifacts.filter((artifact) =>
+      CORE_PLANNING_ARTIFACT_IDS.has(artifact.id),
+    );
+    planningComplete =
+      corePlanningArtifacts.length > 0 &&
+      corePlanningArtifacts.every((artifact) => artifact.status === "done");
   } catch {
     planningComplete = false;
   }
