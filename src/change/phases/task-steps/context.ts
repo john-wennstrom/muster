@@ -1,4 +1,4 @@
-import type { ModelStack } from "../../../../extensions/fusion-harness/modules/model-stack.ts";
+import type { ModelSlot, ModelStack } from "../../../../extensions/fusion-harness/modules/model-stack.ts";
 import type { AtomicJsonStore } from "../../../persistence/atomic-json-store.ts";
 import type { JudgmentRuntime } from "../../../judgment/ask.ts";
 import { HarnessError } from "../../../shared/errors.ts";
@@ -18,6 +18,11 @@ export interface TaskStepContext {
   onAgentStart?: AgentRunObserver;
   /** Absent means judgment plays no part: no request, no record, no change to any prompt. */
   judgment?: JudgmentRuntime;
+  /**
+   * The optional economy builder lane, present only when the user configured a model for it.
+   * Absent means every builder task runs on the primary builder and routing sends nothing.
+   */
+  economyBuilder?: ModelSlot | null;
 }
 
 export function parseAgentJson(text: string, label: string): unknown {

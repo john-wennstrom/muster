@@ -1,6 +1,6 @@
 ## 1. Retention and Diff
 
-- [ ] 1.1 Implement snapshot retention in `src/review/review-snapshot.ts` over the atomic store under the change's run identifier: save the artifact digest, a digest for every reviewed file, and the text of only the proposal and the design, load a snapshot by digest, and prune to the three most recent on save; verify with tests that a round trip preserves digests and the two texts, that no other file's text is stored, that pruning keeps the three most recent, and that a missing snapshot loads as absent without raising.
+- [x] 1.1 Implement snapshot retention in `src/review/review-snapshot.ts` over the atomic store under the change's run identifier: save the artifact digest, a digest for every reviewed file, and the text of only the proposal and the design, load a snapshot by digest, and prune to the three most recent on save; verify with tests that a round trip preserves digests and the two texts, that no other file's text is stored, that pruning keeps the three most recent, and that a missing snapshot loads as absent without raising.
 
   ```yaml harness-task
   id: "1.1"
@@ -14,7 +14,7 @@
   manual: null
   ```
 
-- [ ] 1.2 Implement the pure line-based unified diff in `src/review/text-diff.ts` with five lines of context, deterministic output, and an empty result for identical texts; verify with tests over additions, removals, replacements, identical inputs, and a large input, and that a diff of two prose files, concatenated with a total cap of 16,000 bytes, reports that the cap was exceeded instead of truncating.
+- [x] 1.2 Implement the pure line-based unified diff in `src/review/text-diff.ts` with five lines of context, deterministic output, and an empty result for identical texts; verify with tests over additions, removals, replacements, identical inputs, and a large input, and that a diff of two prose files, concatenated with a total cap of 16,000 bytes, reports that the cap was exceeded instead of truncating.
 
   ```yaml harness-task
   id: "1.2"
@@ -30,7 +30,7 @@
 
 ## 2. Review Artifact
 
-- [ ] 2.1 Add optional carry-forward marks to the review artifact in `src/review/review-artifact.ts`: the basis digest, the running count, the decision record, and an evidence section listing the judged answers, rendered as optional metadata lines and an optional section, read through optional readers, with verdict, digest, and list handling unchanged; verify with tests that a carried-forward artifact round-trips, that an artifact written before this change parses as a full review, and that every existing artifact test passes unchanged.
+- [x] 2.1 Add optional carry-forward marks to the review artifact in `src/review/review-artifact.ts`: the basis digest, the running count, the decision record, and an evidence section listing the judged answers, rendered as optional metadata lines and an optional section, read through optional readers, with verdict, digest, and list handling unchanged; verify with tests that a carried-forward artifact round-trips, that an artifact written before this change parses as a full review, and that every existing artifact test passes unchanged.
 
   ```yaml harness-task
   id: "2.1"
@@ -46,7 +46,7 @@
 
 ## 3. Decision and Controller
 
-- [ ] 3.1 Implement the pure eligibility function in `src/review/review-triage.ts` that compares the current artifacts with the retained copy and the existing review and returns either the reason for ineligibility or the changed prose files: the previous review must approve, a retained copy must exist, only the proposal and design may differ with no specification or task-list file changed, added, or removed, fewer than three consecutive carry-forwards may have been made, and no additional instructions may have been given; verify with a table of cases covering each condition failing alone and the eligible case.
+- [x] 3.1 Implement the pure eligibility function in `src/review/review-triage.ts` that compares the current artifacts with the retained copy and the existing review and returns either the reason for ineligibility or the changed prose files: the previous review must approve, a retained copy must exist, only the proposal and design may differ with no specification or task-list file changed, added, or removed, fewer than three consecutive carry-forwards may have been made, and no additional instructions may have been given; verify with a table of cases covering each condition failing alone and the eligible case.
 
   ```yaml harness-task
   id: "3.1"
@@ -60,7 +60,7 @@
   manual: null
   ```
 
-- [ ] 3.2 Register the `review.triage` decision in `src/judgment/questions.ts` and `src/judgment/gates.ts` with its own enabling flag `MUSTER_JEV_REVIEW_TRIAGE`, a four-level materiality rubric, yes/no questions on requirement, scenario, task, and scope changes and on contradicting the approval, a declared effect of reducing work, and a gate that carries forward only when materiality is below 1.5 at confidence 0.85 and every yes/no probability is below 0.25, and add the state builder in `src/review/review-triage.ts` from the prose diffs and the previous recommendations; verify with tests that each threshold behaves as specified, that the enabling flag is required, and that the state holds only the two diffs and the recommendations.
+- [x] 3.2 Register the `review.triage` decision in `src/judgment/questions.ts` and `src/judgment/gates.ts` with its own enabling flag `MUSTER_JEV_REVIEW_TRIAGE`, a four-level materiality rubric, yes/no questions on requirement, scenario, task, and scope changes and on contradicting the approval, a declared effect of reducing work, and a gate that carries forward only when materiality is below 1.5 at confidence 0.85 and every yes/no probability is below 0.25, and add the state builder in `src/review/review-triage.ts` from the prose diffs and the previous recommendations; verify with tests that each threshold behaves as specified, that the enabling flag is required, and that the state holds only the two diffs and the recommendations.
 
   ```yaml harness-task
   id: "3.2"
@@ -74,7 +74,7 @@
   manual: null
   ```
 
-- [ ] 3.3 Integrate triage into `reviewChange` in `src/controller/review.ts` through optional dependencies: when enabled and eligible, judge the edit and in enforce mode persist a carried-forward artifact for the current digest with the round incremented, the basis reviewer's model, the preserved recommendations, and the marks, recheck the digest after judgment and fall back to a full review on any change, doubt, unavailable reason, or error, retain a snapshot after an approving full review only when triage is enabled, reset the count on every full review, and in shadow mode always dispatch the reviewer and reconcile the record with its verdict and required changes; verify in the controller tests each of those paths, that no reviewer is dispatched for a carry-forward, that no request is sent for an ineligible edit, that nothing is retained when triage is off, and that every existing review controller test passes unchanged.
+- [x] 3.3 Integrate triage into `reviewChange` in `src/controller/review.ts` through optional dependencies: when enabled and eligible, judge the edit and in enforce mode persist a carried-forward artifact for the current digest with the round incremented, the basis reviewer's model, the preserved recommendations, and the marks, recheck the digest after judgment and fall back to a full review on any change, doubt, unavailable reason, or error, retain a snapshot after an approving full review only when triage is enabled, reset the count on every full review, and in shadow mode always dispatch the reviewer and reconcile the record with its verdict and required changes; verify in the controller tests each of those paths, that no reviewer is dispatched for a carry-forward, that no request is sent for an ineligible edit, that nothing is retained when triage is off, and that every existing review controller test passes unchanged.
 
   ```yaml harness-task
   id: "3.3"
@@ -88,7 +88,7 @@
   manual: null
   ```
 
-- [ ] 3.4 Wire the review phase in `src/change/phases/review.ts`: build the judgment runtime and the triage dependencies only when the flag is set, and state in the outcome when a review was carried forward, from which basis, how many times, and how to obtain a full review; verify with a lifecycle test that deriving the change state after a carry-forward treats the review as an approval of the current artifact digest exactly as an ordinary approval, and that the outcome names the basis and count.
+- [x] 3.4 Wire the review phase in `src/change/phases/review.ts`: build the judgment runtime and the triage dependencies only when the flag is set, and state in the outcome when a review was carried forward, from which basis, how many times, and how to obtain a full review; verify with a lifecycle test that deriving the change state after a carry-forward treats the review as an approval of the current artifact digest exactly as an ordinary approval, and that the outcome names the basis and count.
 
   ```yaml harness-task
   id: "3.4"
@@ -102,7 +102,7 @@
   manual: null
   ```
 
-- [ ] 3.5 Add the false-skip report in `src/judgment/review-triage-report.ts` that reads this decision's records and gives the number of eligible edits, how many would have been carried forward, and how many of those were followed by a review that did not approve; verify with tests over hand-built records covering a false skip, an agreeing skip, an abstention, and unreconciled records excluded.
+- [x] 3.5 Add the false-skip report in `src/judgment/review-triage-report.ts` that reads this decision's records and gives the number of eligible edits, how many would have been carried forward, and how many of those were followed by a review that did not approve; verify with tests over hand-built records covering a false skip, an agreeing skip, an abstention, and unreconciled records excluded.
 
   ```yaml harness-task
   id: "3.5"
@@ -118,7 +118,7 @@
 
 ## 4. Documentation and Verification
 
-- [ ] 4.1 Add the review triage row to the per-call-site table in `docs/security.md`, naming the proposal and design diffs and the previous review's recommendations and the `MUSTER_JEV_REVIEW_TRIAGE` flag; verify the documentation checks pass.
+- [x] 4.1 Add the review triage row to the per-call-site table in `docs/security.md`, naming the proposal and design diffs and the previous review's recommendations and the `MUSTER_JEV_REVIEW_TRIAGE` flag; verify the documentation checks pass.
 
   ```yaml harness-task
   id: "4.1"
@@ -132,7 +132,7 @@
   manual: null
   ```
 
-- [ ] 4.2 Run the full validation set and compare pass and fail counts against the recorded pre-existing platform baseline, confirming that every changed artifact set gets a full review exactly as today when the flag is unset and that a specification edit is never carried forward.
+- [x] 4.2 Run the full validation set and compare pass and fail counts against the recorded pre-existing platform baseline, confirming that every changed artifact set gets a full review exactly as today when the flag is unset and that a specification edit is never carried forward.
 
   ```yaml harness-task
   id: "4.2"

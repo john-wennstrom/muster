@@ -11,18 +11,31 @@ import {
   REVIEW_EXTRACTION_LINE_KINDS,
   REVIEW_EXTRACTION_QUESTION_IDS,
   REVIEW_EXTRACTION_VERDICTS,
+  REVIEW_TRIAGE_CHANGE_QUESTION_IDS,
+  REVIEW_TRIAGE_QUESTION_IDS,
   TASK_FOCUS_QUESTION_IDS,
+  TASK_ROUTING_QUESTION_IDS,
+  TASK_ROUTING_RISK_QUESTION_IDS,
+  THRASH_QUESTION_IDS,
+  TASK_QUALITY_COVERAGE_QUESTION_ID,
+  TASK_QUALITY_KINDS,
   complexityQuestions,
   parsePreflightCandidateQuestionId,
   parseReviewExtractionLineQuestionId,
+  parseTaskQualityQuestionId,
   preflightQuestions,
   reviewExtractionQuestions,
+  reviewTriageQuestions,
   questionsFingerprint,
   taskFocusQuestions,
+  taskRoutingQuestions,
+  taskQualityQuestions,
+  thrashQuestions,
   validateQuestions,
   type PreflightDisposition,
   type QuestionEntry,
   type ReviewExtractionLineKind,
+  type TaskQualityKind,
 } from "./questions.ts";
 
 /**
@@ -773,6 +786,479 @@ export const reviewExtractionDecision = defineDecision<ReviewExtractionInput, Re
 });
 
 /**
+ * planning.task_quality: advisory findings about a synthesized task list, from one call over
+ * every task. A question whose good answer is yes speaks below `TASK_QUALITY_BANDS.no`, and one
+ * whose good answer is no speaks above `TASK_QUALITY_BANDS.yes`; the size rubric speaks at
+ * `TASK_QUALITY_SIZE_AT` with at least `TASK_QUALITY_SIZE_CONFIDENCE`; coverage speaks like a
+ * good-yes question. Anything between the bands is uncertain and produces nothing, so
+ * uncertainty costs nobody attention. A finding is a kind, a task, and a probability; its text
+ * is a fixed template filled in by code, so nothing a model wrote reaches a person or a
+ * reviewer. The thresholds are starting points for calibration.
+ */
+export const TASK_QUALITY_BANDS = { yes: 0.7, no: 0.3 } as const;
+export const TASK_QUALITY_SIZE_AT = 2.5;
+export const TASK_QUALITY_SIZE_CONFIDENCE = 0.7;
+/** Findings the planning outcome lists, highest probability first; the total is always stated. */
+export const TASK_QUALITY_MAX_DISPLAYED = 8;
+
+/** Keys a record's observations use for the plan-time digest, the task order, and each task's outcome. */
+export const TASK_QUALITY_DIGEST_KEY = "definitionDigest";
+export const TASK_QUALITY_TASK_IDS_KEY = "taskIds";
+export const TASK_QUALITY_OUTCOME_PREFIX = "outcome:";
+export const taskQualityOutcomeKey = (taskId: string): string => `${TASK_QUALITY_OUTCOME_PREFIX}${taskId}`;
+
+export interface TaskQualityTaskInput {
+  readonly id: string;
+  readonly description: string;
+  readonly dependsOn: readonly string[];
+  readonly reads: readonly string[];
+  readonly writes: readonly string[];
+  readonly verify: readonly string[];
+}
+
+export interface TaskQualityScenarioInput {
+  readonly name: string;
+  readonly text: string;
+}
+
+export interface TaskQualityRequirementInput {
+  readonly name: string;
+  readonly text: string;
+  readonly scenarios: readonly TaskQualityScenarioInput[];
+}
+
+export interface TaskQualityInput {
+  /** At most 2,000 bytes from the start of the proposal. */
+  readonly summary: string;
+  /** Every requirement and scenario name, with excerpted text. */
+  readonly requirements: readonly TaskQualityRequirementInput[];
+  /** In document order; at most 40. */
+  readonly tasks: readonly TaskQualityTaskInput[];
+}
+
+/** The state sent for the call: exactly the summary excerpt, the requirements, and the tasks. */
+export function taskQualityState(input: TaskQualityInput): JsonValue {
+  return {
+    summary: input.summary,
+    requirements: input.requirements.map((requirement) => ({
+      name: requirement.name,
+      text: requirement.text,
+      scenarios: requirement.scenarios.map(({ name, text }) => ({ name, text })),
+    })),
+    tasks: input.tasks.map((task, position) => ({
+      index: position + 1,
+      id: task.id,
+      description: task.description,
+      dependsOn: [...task.dependsOn],
+      scopes: { reads: [...task.reads], writes: [...task.writes] },
+      verify: [...task.verify],
+    })),
+  };
+}
+
+export interface TaskQualityFinding {
+  readonly kind: TaskQualityKind;
+  /** One-based, matching the task's index in the state; null for the whole-list coverage finding. */
+  readonly index: number | null;
+  /** The probability that the defect is present; for size, the confidence of the rubric answer. */
+  readonly probability: number;
+  /** The rubric score, for a size finding only. */
+  readonly score?: number;
+}
+
+export interface TaskQualityGateValue {
+  readonly findings: readonly TaskQualityFinding[];
+}
+
+/** Rounded so a threshold comparison and a rendered probability never show float noise. */
+const complement = (value: number): number => Math.round((1 - value) * 1e6) / 1e6;
+
+const GOOD_ANSWER_YES: ReadonlySet<TaskQualityKind> = new Set(["verification", "scope", "atomicity", "coverage"]);
+
+function taskQualityConcern(kind: TaskQualityKind, value: number | null): number | null {
+  if (value === null || !Number.isFinite(value)) return null;
+  if (GOOD_ANSWER_YES.has(kind)) return value < TASK_QUALITY_BANDS.no ? complement(value) : null;
+  return value > TASK_QUALITY_BANDS.yes ? value : null;
+}
+
+/** Every finding the answers support: per task in task order, then coverage. */
+export function taskQualityFindings(answers: JudgmentAnswers): TaskQualityFinding[] {
+  const found: TaskQualityFinding[] = [];
+  for (const id of Object.keys(answers)) {
+    const parsed = parseTaskQualityQuestionId(id);
+    if (!parsed) continue;
+    if (parsed.kind === "size") {
+      const size = scoreOf(answers, id);
+      if (
+        size && Number.isFinite(size.score) && Number.isFinite(size.confidence)
+        && size.score >= TASK_QUALITY_SIZE_AT && size.confidence >= TASK_QUALITY_SIZE_CONFIDENCE
+      ) {
+        found.push({ kind: "size", index: parsed.index, probability: size.confidence, score: size.score });
+      }
+      continue;
+    }
+    const concern = taskQualityConcern(parsed.kind, noulOf(answers, id));
+    if (concern !== null) found.push({ kind: parsed.kind, index: parsed.index, probability: concern });
+  }
+  found.sort((left, right) =>
+    left.index! - right.index! || TASK_QUALITY_KINDS.indexOf(left.kind) - TASK_QUALITY_KINDS.indexOf(right.kind));
+  const coverage = taskQualityConcern("coverage", noulOf(answers, TASK_QUALITY_COVERAGE_QUESTION_ID));
+  if (coverage !== null) found.push({ kind: "coverage", index: null, probability: coverage });
+  return found;
+}
+
+/** The only text a finding ever has: one fixed sentence per kind, filled with identifiers and numbers. */
+const TASK_QUALITY_TEMPLATES: Record<
+  TaskQualityKind,
+  (fill: { readonly task: string; readonly probability: string; readonly score: string }) => string
+> = {
+  verification: ({ task, probability }) =>
+    `Task ${task}: its verification commands may pass even if the task were implemented incorrectly (probability ${probability}).`,
+  scope: ({ task, probability }) =>
+    `Task ${task}: its write scopes may not cover every file its description requires changing (probability ${probability}).`,
+  atomicity: ({ task, probability }) =>
+    `Task ${task}: it may bundle more than one coherent unit of work (probability ${probability}).`,
+  dependencies: ({ task, probability }) =>
+    `Task ${task}: it may depend on work that is not among its listed dependencies (probability ${probability}).`,
+  size: ({ task, probability, score }) =>
+    `Task ${task}: it may be too large to verify as one unit (size ${score} of 3, probability ${probability}).`,
+  coverage: ({ probability }) =>
+    `The tasks together may not cover every requirement (probability ${probability}).`,
+};
+
+/** Renders one finding, or null when its task index names no task in `taskIds`. */
+export function renderTaskQualityFinding(finding: TaskQualityFinding, taskIds: readonly string[]): string | null {
+  const task = finding.index === null ? "" : taskIds[finding.index - 1];
+  if (task === undefined) return null;
+  return TASK_QUALITY_TEMPLATES[finding.kind]({
+    task,
+    probability: finding.probability.toFixed(2),
+    score: (finding.score ?? 0).toFixed(1),
+  });
+}
+
+/** Rendered findings, highest probability first and capped, with the total that were produced. */
+export function presentTaskQualityFindings(
+  findings: readonly TaskQualityFinding[],
+  taskIds: readonly string[],
+  limit: number = TASK_QUALITY_MAX_DISPLAYED,
+): { readonly total: number; readonly lines: readonly string[] } {
+  const rendered = findings
+    .map((finding) => ({ finding, text: renderTaskQualityFinding(finding, taskIds) }))
+    .filter((entry): entry is { finding: TaskQualityFinding; text: string } => entry.text !== null)
+    .sort((left, right) => right.finding.probability - left.finding.probability);
+  return { total: rendered.length, lines: rendered.slice(0, limit).map((entry) => entry.text) };
+}
+
+export const planningTaskQualityDecision = defineDecision<TaskQualityInput, TaskQualityGateValue>({
+  id: "planning.task_quality",
+  version: 1,
+  // Findings are advice; they grant nothing and skip nothing.
+  effects: ["adds_advice"],
+  representativeInput: {
+    summary: "Retry invoice parsing when the total is missing.",
+    requirements: [{
+      name: "A missing invoice total is retried once",
+      text: "The parser SHALL retry once when invoice_total is missing.",
+      scenarios: [{ name: "Missing total is retried", text: "WHEN the total is missing THEN one retry is made" }],
+    }],
+    tasks: [
+      {
+        id: "1.1",
+        description: "Retry `parseInvoice` once when invoice_total is missing",
+        dependsOn: [],
+        reads: ["src/billing/**"],
+        writes: ["src/billing/invoice.ts", "tests/billing/invoice.test.ts"],
+        verify: ["bun test tests/billing/invoice.test.ts"],
+      },
+      {
+        id: "1.2",
+        description: "Document the retry in the billing guide",
+        dependsOn: ["1.1"],
+        reads: [],
+        writes: ["docs/billing.md"],
+        verify: ["bun run docs:check"],
+      },
+    ],
+  },
+  questions: (input) => taskQualityQuestions(input.tasks.length),
+  gate: (answers) => {
+    const findings = taskQualityFindings(answers);
+    return findings.length > 0 ? act({ findings }) : abstain("no check crossed its threshold");
+  },
+});
+
+/**
+ * debugging.thrash: whether a repair loop's latest two failures are getting anywhere. A round
+ * is stalled when the failures share a root cause and the attempted fix made no progress; two
+ * consecutive stalled rounds cut the loop short, and a failure that needs a human stops it.
+ * These bands only ever shorten a loop; they are starting points, and the calibration data the
+ * ungated answers build will show whether they should move.
+ */
+export const THRASH_SAME_CAUSE_ABOVE = 0.8;
+export const THRASH_NO_PROGRESS_BELOW = 0.3;
+export const THRASH_HUMAN_NEEDED_ABOVE = 0.8;
+/** Consecutive stalled rounds, each at its own attempt, that move a task to systematic debugging. */
+export const THRASH_STALLED_ROUNDS = 2;
+
+export interface ThrashFailureInput {
+  readonly attempt: number;
+  readonly reproduction: string;
+  readonly evidence: readonly string[];
+}
+
+export interface ThrashInput {
+  /** The task's definition: what it was asked to do. */
+  readonly taskDefinition: string;
+  readonly previous: ThrashFailureInput;
+  readonly latest: ThrashFailureInput & {
+    /** What the builder changed in the attempt that produced the latest failure. */
+    readonly attemptedFix: string;
+  };
+}
+
+export function thrashState(input: ThrashInput): JsonValue {
+  return {
+    task: input.taskDefinition,
+    previousFailure: {
+      attempt: input.previous.attempt,
+      reproduction: input.previous.reproduction,
+      evidence: [...input.previous.evidence],
+    },
+    latestFailure: {
+      attempt: input.latest.attempt,
+      reproduction: input.latest.reproduction,
+      evidence: [...input.latest.evidence],
+      attemptedFix: input.latest.attemptedFix,
+    },
+  };
+}
+
+/**
+ * The gated readings. The gate reports what the answers say and nothing more: whether two
+ * rounds in a row stalled is a fact about history, which a gate cannot see, so the path is
+ * decided by the caller from the state. It abstains only when a gated answer is missing.
+ */
+export interface ThrashGateValue {
+  readonly sameRootCause: number;
+  readonly progress: number;
+  readonly humanNeeded: number;
+}
+
+export const debuggingThrashDecision = defineDecision<ThrashInput, ThrashGateValue>({
+  id: "debugging.thrash",
+  version: 1,
+  // Escalating early cuts attempts; stopping for a human is caution. Neither grants anything,
+  // and both only ever shorten a loop.
+  effects: ["reduces_work", "adds_caution"],
+  representativeInput: {
+    taskDefinition: "Retry `parseInvoice` once when invoice_total is missing",
+    previous: { attempt: 1, reproduction: "bun test tests/billing/invoice.test.ts", evidence: ["Expected 1 retry, received 0"] },
+    latest: {
+      attempt: 2,
+      reproduction: "bun test tests/billing/invoice.test.ts",
+      evidence: ["Expected 1 retry, received 0"],
+      attemptedFix: "Moved the retry above the total check",
+    },
+  },
+  questions: () => thrashQuestions,
+  gate: (answers) => {
+    const sameRootCause = noulOf(answers, THRASH_QUESTION_IDS.sameRootCause);
+    const progress = noulOf(answers, THRASH_QUESTION_IDS.progress);
+    const humanNeeded = noulOf(answers, THRASH_QUESTION_IDS.humanNeeded);
+    if (sameRootCause === null || progress === null || humanNeeded === null) {
+      return abstain("a gated answer is missing");
+    }
+    return act({ sameRootCause, progress, humanNeeded });
+  },
+});
+
+/**
+ * review.triage: whether an approved planning review may be carried across an edit that only
+ * touched the proposal or the design. This is the one decision in which a model's answer can
+ * decide whether a correctness gate runs, so it acts only on a conjunction: the edit is judged
+ * immaterial with high confidence, and every question about what it changed is confidently no.
+ * Anything else, including a missing or malformed answer, abstains into a full review. These
+ * bounds are starting points; the shadow-mode false-skip report is what tunes them.
+ */
+export const REVIEW_TRIAGE_ENABLE_VARIABLE = "MUSTER_JEV_REVIEW_TRIAGE";
+/** The materiality score must be strictly below this: wording only, or a clarification. */
+export const REVIEW_TRIAGE_MATERIALITY_BELOW = 1.5;
+/** The materiality answer must be at least this confident. */
+export const REVIEW_TRIAGE_CONFIDENCE_AT_LEAST = 0.85;
+/** Every yes/no probability must be strictly below this. */
+export const REVIEW_TRIAGE_CHANGE_BELOW = 0.25;
+
+/** A file's diff, as sent; empty when the file did not change. */
+export interface ReviewTriageInput {
+  readonly proposalDiff: string;
+  readonly designDiff: string;
+  /** The recommendations of the review that approved. */
+  readonly recommendations: readonly string[];
+}
+
+/** The state sent for the call: exactly the two diffs and the approving review's recommendations. */
+export function reviewTriageState(input: ReviewTriageInput): JsonValue {
+  return {
+    proposalDiff: input.proposalDiff,
+    designDiff: input.designDiff,
+    previousRecommendations: [...input.recommendations],
+  };
+}
+
+export interface ReviewTriageGateValue {
+  readonly materiality: number;
+  readonly materialityConfidence: number;
+  /** Each yes/no question's probability, in question order. */
+  readonly changes: Readonly<Record<string, number>>;
+}
+
+export const reviewTriageDecision = defineDecision<ReviewTriageInput, ReviewTriageGateValue>({
+  id: "review.triage",
+  version: 1,
+  // Acting skips a full planning review, so every abstention falls through to that review.
+  effects: ["reduces_work"],
+  enabledBy: REVIEW_TRIAGE_ENABLE_VARIABLE,
+  representativeInput: {
+    proposalDiff: "@@ -3 +3 @@\n-Add serch to the command palette.\n+Add search to the command palette.\n",
+    designDiff: "",
+    recommendations: ["Keep the palette entry point in one module."],
+  },
+  questions: () => reviewTriageQuestions,
+  gate: (answers) => {
+    const materiality = scoreOf(answers, REVIEW_TRIAGE_QUESTION_IDS.materiality);
+    if (!materiality || !Number.isFinite(materiality.score) || !Number.isFinite(materiality.confidence)) {
+      return abstain("no materiality was judged");
+    }
+    if (materiality.confidence < REVIEW_TRIAGE_CONFIDENCE_AT_LEAST) {
+      return abstain(`materiality confidence ${materiality.confidence} is below ${REVIEW_TRIAGE_CONFIDENCE_AT_LEAST}`);
+    }
+    if (!(materiality.score < REVIEW_TRIAGE_MATERIALITY_BELOW)) {
+      return abstain(`materiality ${materiality.score} is not below ${REVIEW_TRIAGE_MATERIALITY_BELOW}`);
+    }
+    const changes: Record<string, number> = {};
+    for (const id of REVIEW_TRIAGE_CHANGE_QUESTION_IDS) {
+      const probability = noulOf(answers, id);
+      if (probability === null || !Number.isFinite(probability)) return abstain(`${id} was not answered`);
+      if (!(probability < REVIEW_TRIAGE_CHANGE_BELOW)) {
+        return abstain(`${id} probability ${probability} is not below ${REVIEW_TRIAGE_CHANGE_BELOW}`);
+      }
+      changes[id] = probability;
+    }
+    return act({
+      materiality: materiality.score,
+      materialityConfidence: materiality.confidence,
+      changes,
+    });
+  },
+});
+
+/**
+ * routing.task_model: whether a builder task may run on the economy lane instead of the primary
+ * builder. Acting downgrades the model, the one change in the rollout that can lower output
+ * quality, so it acts only on a conjunction of guards: the task is confidently mechanical, each
+ * of five risks is confidently absent, and its reach is confidently narrow. Every guard needs a
+ * confident answer, so a missing, malformed, or uncertain one abstains into the primary builder.
+ * These bounds are starting points; the per-lane first-attempt success report is what tunes them.
+ */
+export const TASK_ROUTING_ENABLE_VARIABLE = "MUSTER_JEV_MODEL_ROUTING";
+/** The mechanical probability must be strictly above this. */
+export const TASK_ROUTING_MECHANICAL_ABOVE = 0.8;
+/** Every risk probability must be strictly below this. */
+export const TASK_ROUTING_RISK_BELOW = 0.3;
+/** The reach score must be strictly below this: contained or neighbouring. */
+export const TASK_ROUTING_REACH_BELOW = 1.5;
+/** The reach answer must be at least this confident. */
+export const TASK_ROUTING_REACH_CONFIDENCE = 0.8;
+
+export type TaskRoutingLane = "primary" | "economy";
+
+/** A task's contract, as sent: no source and no file content. */
+export interface TaskRoutingInput {
+  readonly description: string;
+  readonly requirements: readonly string[];
+  readonly scenarios: readonly string[];
+  readonly reads: readonly string[];
+  readonly writes: readonly string[];
+  readonly verify: readonly string[];
+}
+
+/** The state sent for the call: exactly the task's description, requirements, scenarios, scopes, and verification. */
+export function taskRoutingState(input: TaskRoutingInput): JsonValue {
+  return {
+    description: input.description,
+    requirements: [...input.requirements],
+    scenarios: [...input.scenarios],
+    reads: [...input.reads],
+    writes: [...input.writes],
+    verify: [...input.verify],
+  };
+}
+
+export interface TaskRoutingGateValue {
+  /** The lane the gate chose; the gate acts only to choose the economy lane. */
+  readonly lane: "economy";
+  readonly mechanical: number;
+  /** Each risk question's probability, in question order. */
+  readonly risks: Readonly<Record<string, number>>;
+  readonly reach: number;
+  readonly reachConfidence: number;
+}
+
+export const modelRoutingDecision = defineDecision<TaskRoutingInput, TaskRoutingGateValue>({
+  id: "routing.task_model",
+  version: 1,
+  // Acting spends less on the same work; every abstention falls through to the primary builder.
+  effects: ["reduces_work"],
+  enabledBy: TASK_ROUTING_ENABLE_VARIABLE,
+  representativeInput: {
+    description: "Rename the `--verbose` flag to `--debug` in the command parser and its help text",
+    requirements: ["cli: The debug flag is accepted"],
+    scenarios: ["Debug flag enables debug output"],
+    reads: ["src/cli/**"],
+    writes: ["src/cli/parser.ts", "tests/cli/parser.test.ts"],
+    verify: ["bun test tests/cli/parser.test.ts"],
+  },
+  questions: () => taskRoutingQuestions,
+  gate: (answers) => {
+    const failed: string[] = [];
+    const mechanical = noulOf(answers, TASK_ROUTING_QUESTION_IDS.mechanical);
+    if (mechanical === null || !Number.isFinite(mechanical)) {
+      failed.push(`${TASK_ROUTING_QUESTION_IDS.mechanical} was not answered`);
+    } else if (!(mechanical > TASK_ROUTING_MECHANICAL_ABOVE)) {
+      failed.push(`${TASK_ROUTING_QUESTION_IDS.mechanical} probability ${mechanical} is not above ${TASK_ROUTING_MECHANICAL_ABOVE}`);
+    }
+    const risks: Record<string, number> = {};
+    for (const id of TASK_ROUTING_RISK_QUESTION_IDS) {
+      const probability = noulOf(answers, id);
+      if (probability === null || !Number.isFinite(probability)) {
+        failed.push(`${id} was not answered`);
+      } else if (!(probability < TASK_ROUTING_RISK_BELOW)) {
+        failed.push(`${id} probability ${probability} is not below ${TASK_ROUTING_RISK_BELOW}`);
+      } else {
+        risks[id] = probability;
+      }
+    }
+    const reach = scoreOf(answers, TASK_ROUTING_QUESTION_IDS.reach);
+    if (!reach || !Number.isFinite(reach.score) || !Number.isFinite(reach.confidence)) {
+      failed.push(`${TASK_ROUTING_QUESTION_IDS.reach} was not answered`);
+    } else if (reach.confidence < TASK_ROUTING_REACH_CONFIDENCE) {
+      failed.push(`${TASK_ROUTING_QUESTION_IDS.reach} confidence ${reach.confidence} is below ${TASK_ROUTING_REACH_CONFIDENCE}`);
+    } else if (!(reach.score < TASK_ROUTING_REACH_BELOW)) {
+      failed.push(`${TASK_ROUTING_QUESTION_IDS.reach} ${reach.score} is not below ${TASK_ROUTING_REACH_BELOW}`);
+    }
+    if (failed.length > 0 || mechanical === null || !reach) return abstain(failed.join("; "));
+    return act({
+      lane: "economy" as const,
+      mechanical,
+      risks,
+      reach: reach.score,
+      reachConfidence: reach.confidence,
+    });
+  },
+});
+
+/**
  * Every decision the harness can ask. Later changes append here; none modifies another's.
  */
 export const judgmentCatalog: readonly AnyDecision[] = [
@@ -782,4 +1268,8 @@ export const judgmentCatalog: readonly AnyDecision[] = [
   reviewTaskFocusDecision,
   commandClassificationDecision,
   reviewExtractionDecision,
+  planningTaskQualityDecision,
+  debuggingThrashDecision,
+  reviewTriageDecision,
+  modelRoutingDecision,
 ];

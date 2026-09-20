@@ -40,6 +40,30 @@ export const reviewExtractionMarkSchema = z
 
 export type ReviewExtractionMark = z.infer<typeof reviewExtractionMarkSchema>;
 
+/**
+ * Provenance of an approval that was carried forward across an edit instead of being reviewed
+ * again. The verdict, the recommendations, and the reviewing model stay those of the real review
+ * that approved; these marks say how that approval reached the current digest: which review it
+ * came from, how many carry-forwards in a row this is, the judgment decision record that allowed
+ * it, and the judged answers as evidence. Absent on every full review, including every artifact
+ * written before triage existed.
+ */
+export const reviewCarryForwardMarkSchema = z
+  .object({
+    /** The artifact digest of the full review whose approval this carries. */
+    basisDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    /** Consecutive carry-forwards since that full review, this one included. */
+    count: z.number().int().positive(),
+    recordId: singleLine.refine((value) => !value.includes("`"), {
+      message: "Expected a value without backticks",
+    }),
+    /** What the judgment answered, one line per answer. */
+    evidence: z.array(singleLine),
+  })
+  .strict();
+
+export type ReviewCarryForwardMark = z.infer<typeof reviewCarryForwardMarkSchema>;
+
 export const planningReviewArtifactSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -52,9 +76,19 @@ export const planningReviewArtifactSchema = z
     requiredChanges: z.array(singleLine),
     recommendations: z.array(singleLine),
     extraction: reviewExtractionMarkSchema.optional(),
+    carriedForward: reviewCarryForwardMarkSchema.optional(),
   })
   .strict()
-  .superRefine(refineVerdictConsistency);
+  .superRefine(refineVerdictConsistency)
+  .superRefine((review, context) => {
+    if (review.carriedForward && review.extraction) {
+      context.addIssue({
+        code: "custom",
+        path: ["carriedForward"],
+        message: "A carried-forward review cannot also be an extracted review",
+      });
+    }
+  });
 
 export type PlanningReviewArtifact = z.infer<typeof planningReviewArtifactSchema>;
 
@@ -131,6 +165,7 @@ export function createReviewArtifact(
     requiredChanges: input.requiredChanges,
     recommendations: input.recommendations,
     ...(input.extraction ? { extraction: input.extraction } : {}),
+    ...(input.carriedForward ? { carriedForward: input.carriedForward } : {}),
   }, "review.md");
 }
 
@@ -150,6 +185,13 @@ export function renderReviewArtifact(review: PlanningReviewArtifact): string {
     `- Artifact digest: \`${valid.artifactDigest}\``,
     `- Verdict: \`${valid.verdict}\``,
     ...(valid.extraction ? [`- Extraction record: \`${valid.extraction.recordId}\``] : []),
+    ...(valid.carriedForward
+      ? [
+        `- Carried forward from: \`${valid.carriedForward.basisDigest}\``,
+        `- Carry-forward count: \`${valid.carriedForward.count}\``,
+        `- Carry-forward record: \`${valid.carriedForward.recordId}\``,
+      ]
+      : []),
     "",
     "## Critical Findings",
     "",
@@ -163,6 +205,9 @@ export function renderReviewArtifact(review: PlanningReviewArtifact): string {
     "",
     renderList(valid.recommendations),
     "",
+    ...(valid.carriedForward
+      ? ["## Carry-Forward Evidence", "", renderList(valid.carriedForward.evidence), ""]
+      : []),
   ].join("\n");
 }
 
@@ -190,6 +235,28 @@ function optionalMetadataValue(
 ): string | undefined {
   const present = lines.some((line) => line.startsWith(`- ${label}: `));
   return present ? metadataValue(lines, label, path) : undefined;
+}
+
+const CARRY_FORWARD_LABELS = ["Carried forward from", "Carry-forward count", "Carry-forward record"] as const;
+const CARRY_FORWARD_HEADING = "## Carry-Forward Evidence";
+
+/**
+ * The carry-forward marks, or undefined for a full review. The marks come together or not at
+ * all: a partial set is a corrupt artifact, not a full review.
+ */
+function carryForwardMark(lines: readonly string[], path: string): ReviewCarryForwardMark | undefined {
+  const present = CARRY_FORWARD_LABELS.filter((label) => lines.some((line) => line.startsWith(`- ${label}: `)));
+  const hasSection = lines.includes(CARRY_FORWARD_HEADING);
+  if (present.length === 0) {
+    if (hasSection) return invalidReview("Carry-forward evidence has no carry-forward marks", path);
+    return undefined;
+  }
+  return {
+    basisDigest: metadataValue(lines, "Carried forward from", path),
+    count: Number(metadataValue(lines, "Carry-forward count", path)),
+    recordId: metadataValue(lines, "Carry-forward record", path),
+    evidence: sectionValues(lines, CARRY_FORWARD_HEADING, path),
+  };
 }
 
 function sectionValues(lines: readonly string[], heading: string, path: string): string[] {
@@ -221,6 +288,7 @@ export function parseReviewArtifact(contents: string, path: string): PlanningRev
   }
 
   const extractionRecord = optionalMetadataValue(lines, "Extraction record", path);
+  const carriedForward = carryForwardMark(lines, path);
   return validateReview({
     schemaVersion: Number(metadataValue(lines, "Schema version", path)),
     round: Number(metadataValue(lines, "Round", path)),
@@ -232,6 +300,7 @@ export function parseReviewArtifact(contents: string, path: string): PlanningRev
     requiredChanges: sectionValues(lines, "## Required Changes", path),
     recommendations: sectionValues(lines, "## Recommendations", path),
     ...(extractionRecord === undefined ? {} : { extraction: { recordId: extractionRecord } }),
+    ...(carriedForward === undefined ? {} : { carriedForward }),
   }, path);
 }
 

@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterEach } from "bun:test";
-import { resolveModelStack, roleModel, roleEnvOverride } from "../../src/change/models.ts";
+import { economyBuilderSlot, resolveModelStack, roleModel, roleEnvOverride } from "../../src/change/models.ts";
 import { resolveExploreModel } from "../../src/change/phases/exploration.ts";
 
 const directories: string[] = [];
@@ -70,5 +70,37 @@ describe("resolveModelStack", () => {
     const argv = ["--fh-config", await stackConfig()];
     expect(resolveExploreModel({}, argv)).toBe("github-copilot/configured-architect");
     expect(resolveExploreModel({ MUSTER_ARCHITECT_MODEL: "env/architect" }, argv)).toBe("env/architect");
+  });
+});
+
+describe("economy builder lane", () => {
+  test("resolves from its override", () => {
+    const stack = resolveModelStack([], {});
+    expect(economyBuilderSlot(stack, { MUSTER_BUILDER_ECONOMY_MODEL: " env/economy " })?.model).toBe("env/economy");
+  });
+
+  test("inherits the primary builder's thinking level, prompts, and tool configuration", async () => {
+    const stack = resolveModelStack(["--fh-config", await stackConfig()], { MUSTER_BUILDER_MODEL: "env/builder" });
+    const lane = economyBuilderSlot(stack, { MUSTER_BUILDER_ECONOMY_MODEL: "env/economy" })!;
+    const { model: laneModel, ...laneRest } = lane;
+    const { model: primaryModel, ...primaryRest } = stack.primaryBuilder;
+    expect(laneModel).toBe("env/economy");
+    expect(primaryModel).toBe("env/builder");
+    expect(laneRest).toEqual(primaryRest);
+    expect(lane.thinking).toBe(stack.primaryBuilder.thinking);
+    expect(lane.appendSystemPrompts).toEqual(stack.primaryBuilder.appendSystemPrompts);
+    expect(lane.child).toEqual(stack.primaryBuilder.child);
+  });
+
+  test("an absent or blank override yields no lane and leaves the primary builder alone", () => {
+    const stack = resolveModelStack([], {});
+    expect(economyBuilderSlot(stack, {})).toBeNull();
+    expect(economyBuilderSlot(stack, { MUSTER_BUILDER_ECONOMY_MODEL: "   " })).toBeNull();
+    expect(roleModel(stack, "builder")).toBe("openai/gpt-5.6-sol");
+  });
+
+  test("no other override or flag names the lane", () => {
+    const stack = resolveModelStack(["--builder", "flag/builder"], { MUSTER_BUILDER_MODEL: "env/builder" });
+    expect(economyBuilderSlot(stack, { MUSTER_BUILDER_MODEL: "env/builder" })).toBeNull();
   });
 });

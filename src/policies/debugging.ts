@@ -9,6 +9,29 @@ const failureSchema = z.object({
   attempt: z.number().int().positive(),
   reproduction: nonEmptyString,
   evidence: z.array(nonEmptyString).min(1),
+  /** What the builder changed in the attempt that produced this failure. */
+  attemptedFix: nonEmptyString.optional(),
+  recordedAt: timestamp,
+}).strict();
+
+const probability = z.number().min(0).max(1);
+
+/** One judged reading of the latest two failures, kept so consecutive rounds are computable from state. */
+const assessmentSchema = z.object({
+  /** The failure this assessment followed. */
+  attempt: z.number().int().min(2),
+  sameRootCause: probability,
+  progress: probability,
+  humanNeeded: probability,
+  recordId: nonEmptyString.nullable(),
+  recordedAt: timestamp,
+}).strict();
+
+/** A move to systematic debugging before the threshold, recorded explicitly so the threshold stays as configured. */
+const escalationSchema = z.object({
+  reason: nonEmptyString,
+  attempt: z.number().int().positive(),
+  recordId: nonEmptyString.nullable(),
   recordedAt: timestamp,
 }).strict();
 
@@ -28,11 +51,13 @@ export const debuggingStateSchema = z.object({
   threshold: z.number().int().positive(),
   mode: z.enum(["ordinary_repair", "systematic_debugging"]),
   failures: z.array(failureSchema),
+  assessments: z.array(assessmentSchema).optional(),
+  escalation: escalationSchema.optional(),
   investigation: investigationSchema.optional(),
   createdAt: timestamp,
   updatedAt: timestamp,
 }).strict().superRefine((state, context) => {
-  const expectedMode = state.failures.length >= state.threshold
+  const expectedMode = state.escalation || state.failures.length >= state.threshold
     ? "systematic_debugging"
     : "ordinary_repair";
   if (state.mode !== expectedMode) {
@@ -42,6 +67,32 @@ export const debuggingStateSchema = z.object({
       message: `Expected ${expectedMode} for ${state.failures.length} failure(s)`,
     });
   }
+  if (state.escalation) {
+    if (state.escalation.attempt >= state.threshold) {
+      context.addIssue({
+        code: "custom",
+        path: ["escalation", "attempt"],
+        message: "An early escalation must occur before the configured threshold",
+      });
+    }
+    if (state.escalation.attempt !== state.failures.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["escalation", "attempt"],
+        message: "An early escalation must occur at the latest recorded failure",
+      });
+    }
+  }
+  state.assessments?.forEach((assessment, index) => {
+    const previous = state.assessments![index - 1];
+    if (assessment.attempt > state.failures.length || (previous && assessment.attempt <= previous.attempt)) {
+      context.addIssue({
+        code: "custom",
+        path: ["assessments", index, "attempt"],
+        message: "Assessments must follow recorded failures in increasing order",
+      });
+    }
+  });
   if (state.mode === "ordinary_repair" && state.investigation) {
     context.addIssue({
       code: "custom",
@@ -62,6 +113,8 @@ export const debuggingStateSchema = z.object({
 
 export type DebuggingState = z.infer<typeof debuggingStateSchema>;
 export type UnexpectedFailure = Omit<DebuggingState["failures"][number], "attempt">;
+export type FailureAssessment = z.infer<typeof assessmentSchema>;
+export type DebuggingEscalation = z.infer<typeof escalationSchema>;
 export type DebuggingInvestigation = NonNullable<DebuggingState["investigation"]>;
 
 function invalid(message: string, details: Readonly<Record<string, unknown>>): never {

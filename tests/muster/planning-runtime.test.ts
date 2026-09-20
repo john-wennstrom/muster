@@ -21,7 +21,7 @@ import { createReviewArtifact, writeReviewArtifact } from "../../src/review/revi
 import { HarnessError } from "../../src/shared/errors.ts";
 import { classifyChange, type ComplexityDecision } from "../../src/controller/complexity-router.ts";
 import { patternRiskInputs } from "../../src/controller/complexity-inputs.ts";
-import { createJudgmentRuntime, type JudgmentRuntime } from "../../src/judgment/ask.ts";
+import { createInertJudgmentRuntime, createJudgmentRuntime, type JudgmentRuntime } from "../../src/judgment/ask.ts";
 import { listDecisionRecords } from "../../src/judgment/audit.ts";
 import type { JudgmentClient, JudgmentUnavailableReason } from "../../src/judgment/client.ts";
 import { createDeadClient, createReplayClient } from "../../src/judgment/replay.ts";
@@ -1060,5 +1060,228 @@ describe("preflight agent prompt", () => {
     expect(prompt.endsWith(`\n\n${last}`)).toBe(true);
     expect(prompt).toContain("- src/search/view.ts (matched: openSearchPage)\n    1: export function openSearchPage() {\n    2: return 1;");
     expect(prompt.indexOf("Candidate files")).toBeLessThan(prompt.indexOf("Return exactly one JSON object"));
+  });
+});
+
+describe("planning task quality judgment", () => {
+  const env = (mode: "shadow" | "enforce") => ({ MUSTER_JEV: "1", MUSTER_JEV_API_KEY: "sk-test", MUSTER_JEV_MODE: mode });
+  const noul = (value: number) => ({ type: "noul" as const, noul: value });
+
+  function taskBlock(id: string, description: string, dependsOn: string[] = []): string {
+    const yaml = [
+      `id: "${id}"`,
+      `dependsOn: ${JSON.stringify(dependsOn)}`,
+      "role: builder",
+      "reads: []",
+      'writes: ["src/search/**"]',
+      'requirements: ["Search is bounded"]',
+      'scenarios: ["Results are capped"]',
+      'verify: ["bun test"]',
+      "manual: null",
+    ].map((line) => `  ${line}`).join("\n");
+    return `- [ ] ${id} ${description}\n\n  \`\`\`yaml harness-task\n${yaml}\n  \`\`\`\n`;
+  }
+
+  function bundleFor(count: number, description = "Cap the results"): string {
+    const tasks = Array.from({ length: count }, (_, index) =>
+      taskBlock(`1.${index + 1}`, `${description} ${index + 1}`, index === 0 ? [] : [`1.${index}`])).join("\n");
+    return JSON.stringify({ artifacts: [
+      { path: "proposal.md", content: "## Why\n\nSearch is unbounded." },
+      { path: "design.md", content: "# Design" },
+      { path: "specs/search/spec.md", content: "### Requirement: Search is bounded\nResults SHALL be capped.\n\n#### Scenario: Results are capped\n- **THEN** at most 20 results" },
+      { path: "tasks.md", content: `## 1. Work\n\n${tasks}` },
+    ] });
+  }
+
+  /** Answers every task quality question clean, except the ones overridden. */
+  function taskQualityClient(overrides: (index: number) => object = () => ({})): {
+    client: JudgmentClient;
+    requests: JudgmentClientRequest[];
+  } {
+    const requests: JudgmentClientRequest[] = [];
+    const client: JudgmentClient = {
+      async request(request) {
+        requests.push(request);
+        const answers: Record<string, JudgmentAnswers[string]> = {};
+        for (const [name, question] of Object.entries(request.questions)) {
+          const match = /^task_(\d+)_/.exec(name);
+          const good = name.endsWith("_dependencies") ? 0.05 : 0.95;
+          answers[name] = question.type === "score"
+            ? { type: "score", score: 1, probabilities: { "1": 0.9 }, confidence: 0.9 }
+            : noul(good);
+          Object.assign(answers, match ? overrides(Number(match[1])) : {});
+        }
+        return { available: true, answers, model: "jev-1.13.0", inputTokens: 500, outputTokens: 0, durationMs: 0 };
+      },
+    };
+    return { client, requests };
+  }
+
+  /** Only task quality is judged, so complexity and preflight add no calls or records. */
+  function runtimeFor(root: string, mode: "shadow" | "enforce", client: JudgmentClient, budget?: BudgetLedger): JudgmentRuntime {
+    const runtime = createJudgmentRuntime({ env: env(mode), store: createChangeUsageStore(root), client, budget });
+    return {
+      ...runtime,
+      judge: ((decision, request) => decision.id === "planning.task_quality"
+        ? runtime.judge(decision, request)
+        : Promise.resolve({ kind: "fallback", reason: "disabled", recordId: null })) as JudgmentRuntime["judge"],
+    };
+  }
+
+  const ARTIFACTS = ["proposal.md", "design.md", "specs/search/spec.md", "tasks.md"];
+
+  async function plan(subject: Awaited<ReturnType<typeof fixture>>, judgment: JudgmentRuntime, bundle = bundleFor(3)) {
+    const outcome = await runProductionPlanning({
+      cwd: subject.root,
+      changeName: "add-search",
+      phase: "propose",
+      prompt: "Add bounded search",
+      openSpec: subject.adapter,
+      modelStack: subject.modelStack,
+      judgment,
+      runPreflight: async () => proceed,
+      runAgent: async () => ({ model: "openai/architect", content: bundle }),
+    });
+    const files = Object.fromEntries(await Promise.all(ARTIFACTS.map(async (path) =>
+      [path, await readFile(resolve(subject.changeRoot, path), "utf8")] as const)));
+    return { outcome, files };
+  }
+
+  const baseline = async (bundle = bundleFor(3)) => {
+    const subject = await fixture();
+    return plan(subject, createInertJudgmentRuntime(), bundle);
+  };
+
+  const records = (subject: Awaited<ReturnType<typeof fixture>>) =>
+    listDecisionRecords(createChangeUsageStore(subject.root), "add-search");
+
+  test("one call covers every task, the requirements, and the scenarios", async () => {
+    const subject = await fixture();
+    const { client, requests } = taskQualityClient();
+    await plan(subject, runtimeFor(subject.root, "enforce", client), bundleFor(12));
+    expect(requests).toHaveLength(1);
+    const state = requests[0]!.state as { tasks: unknown[]; requirements: { name: string; scenarios: { name: string }[] }[] };
+    expect(state.tasks).toHaveLength(12);
+    expect(state.requirements[0]).toMatchObject({ name: "Search is bounded", scenarios: [{ name: "Results are capped" }] });
+    expect(Object.keys(requests[0]!.questions)).toHaveLength(12 * 5 + 1);
+  });
+
+  test("findings are listed in the outcome in enforce mode and written artifacts are unchanged", async () => {
+    const without = await baseline();
+    const subject = await fixture();
+    const { client } = taskQualityClient((index) => index === 2 ? { task_2_verification: noul(0.05) } : {});
+    const withFindings = await plan(subject, runtimeFor(subject.root, "enforce", client));
+    expect(withFindings.files).toEqual(without.files);
+    expect(withFindings.outcome.summary.startsWith(without.outcome.summary)).toBe(true);
+    expect(withFindings.outcome.summary).toContain("Task quality: 1 advisory finding");
+    expect(withFindings.outcome.summary).toContain(
+      "- Task 1.2: its verification commands may pass even if the task were implemented incorrectly (probability 0.95).",
+    );
+    expect({ ...withFindings.outcome, summary: without.outcome.summary }).toEqual(without.outcome);
+    await expect(readFile(resolve(subject.changeRoot, "review.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("lists at most eight findings, highest probability first, and states the total", async () => {
+    const subject = await fixture();
+    const { client } = taskQualityClient((index) => ({ [`task_${index}_scope`]: noul(0.28 - index * 0.02) }));
+    const { outcome } = await plan(subject, runtimeFor(subject.root, "enforce", client), bundleFor(11));
+    expect(outcome.summary).toContain("Task quality: 11 advisory findings");
+    expect(outcome.summary.match(/^- Task /gm)).toHaveLength(8);
+    expect(outcome.summary).toContain("- 3 more not listed");
+    expect(outcome.summary.indexOf("Task 1.11")).toBeLessThan(outcome.summary.indexOf("Task 1.4"));
+  });
+
+  test("a clean assessment leaves the outcome exactly as it is without judgment", async () => {
+    const without = await baseline();
+    const subject = await fixture();
+    const clean = await plan(subject, runtimeFor(subject.root, "enforce", taskQualityClient().client));
+    expect(clean).toEqual(without);
+  });
+
+  test("shadow findings appear nowhere but the record", async () => {
+    const without = await baseline();
+    const subject = await fixture();
+    const { client } = taskQualityClient((index) => index === 1 ? { task_1_scope: noul(0.05) } : {});
+    const shadow = await plan(subject, runtimeFor(subject.root, "shadow", client));
+    expect(shadow).toEqual(without);
+    const [record] = await records(subject);
+    expect(record).toMatchObject({
+      decision: "planning.task_quality",
+      mode: "shadow",
+      acted: false,
+      wouldHaveActed: true,
+      gate: { act: true, value: { findings: [{ kind: "scope", index: 1, probability: 0.95 }] } },
+      observed: { taskIds: ["1.1", "1.2", "1.3"] },
+    });
+    expect(String(record!.observed.definitionDigest)).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  const reasons: JudgmentUnavailableReason[] = [
+    "timeout", "rate_limit", "network", "server", "invalid_response", "model_mismatch", "aborted",
+  ];
+  for (const reason of reasons) {
+    test(`unavailable judgment (${reason}) leaves artifacts and outcome unchanged`, async () => {
+      const without = await baseline();
+      const subject = await fixture();
+      const result = await plan(subject, runtimeFor(subject.root, "enforce", createDeadClient(reason)));
+      expect(result).toEqual(without);
+      expect((await records(subject)).map((record) => record.unavailableReason)).toEqual([reason]);
+    });
+  }
+
+  test("an exhausted budget leaves artifacts and outcome unchanged", async () => {
+    const without = await baseline();
+    const subject = await fixture();
+    const { client, requests } = taskQualityClient();
+    const budget = new BudgetLedger({ phases: { planning: { totalTokens: 1 } } });
+    expect(await plan(subject, runtimeFor(subject.root, "enforce", client, budget))).toEqual(without);
+    expect(requests).toHaveLength(0);
+    expect((await records(subject)).map((record) => record.unavailableReason)).toEqual(["budget"]);
+  });
+
+  test("a state too large to send leaves artifacts and outcome unchanged", async () => {
+    const heavy = bundleFor(40, "x".repeat(3_000));
+    const without = await baseline(heavy);
+    const subject = await fixture();
+    const { client, requests } = taskQualityClient();
+    expect(await plan(subject, runtimeFor(subject.root, "enforce", client), heavy)).toEqual(without);
+    expect(requests).toHaveLength(0);
+    expect((await records(subject)).map((record) => record.unavailableReason)).toEqual(["state_too_large"]);
+  });
+
+  test("disabled judgment sends nothing, writes no record, and leaves planning as it is", async () => {
+    const without = await baseline();
+    const subject = await fixture();
+    const { client, requests } = taskQualityClient();
+    const disabled = createJudgmentRuntime({ env: {}, store: createChangeUsageStore(subject.root), client });
+    expect(await plan(subject, disabled)).toEqual(without);
+    expect(requests).toHaveLength(0);
+    expect(await records(subject)).toEqual([]);
+  });
+
+  test("a task list that does not validate, or is empty, is not assessed", async () => {
+    const invalid = JSON.parse(bundleFor(2)) as { artifacts: { path: string; content: string }[] };
+    invalid.artifacts.find(({ path }) => path === "tasks.md")!.content = "## 1. Work\n\n- [ ] 1.1 No metadata\n";
+    for (const bundle of [JSON.stringify(invalid), bundleFor(0), bundleFor(41)]) {
+      const without = await baseline(bundle);
+      const subject = await fixture();
+      const { client, requests } = taskQualityClient();
+      expect(await plan(subject, runtimeFor(subject.root, "enforce", client), bundle)).toEqual(without);
+      expect(requests).toHaveLength(0);
+      expect(await records(subject)).toEqual([]);
+    }
+  });
+
+  test("a failure inside the assessment never fails planning", async () => {
+    const without = await baseline();
+    const subject = await fixture();
+    const runtime = runtimeFor(subject.root, "enforce", taskQualityClient().client);
+    const failing: JudgmentRuntime = {
+      ...runtime,
+      judge: ((decision, request) => decision.id === "planning.task_quality"
+        ? Promise.reject(new Error("boom"))
+        : runtime.judge(decision, request)) as JudgmentRuntime["judge"],
+    };
+    expect(await plan(subject, failing)).toEqual(without);
   });
 });

@@ -73,6 +73,22 @@ export function resolveModelStack(
   return applyOverrides(base, env);
 }
 
+/** The optional economy builder lane's model. It has no alias, no fallback, and no other source. */
+export const ECONOMY_BUILDER_ENV = "MUSTER_BUILDER_ECONOMY_MODEL";
+
+/**
+ * The economy builder lane: the primary builder's slot with only the model replaced, so its
+ * thinking level, prompts, and tools are the primary's. It exists only when the user names a
+ * model; the harness never infers or defaults one, so an unset or blank override means no lane.
+ */
+export function economyBuilderSlot(
+  stack: ModelStack,
+  env: NodeJS.ProcessEnv = process.env,
+): ModelSlot | null {
+  const model = env[ECONOMY_BUILDER_ENV]?.trim();
+  return model ? withModel(stack.primaryBuilder, model) : null;
+}
+
 export function roleModel(stack: ModelStack, role: ModelRole): string {
   switch (role) {
     case "architect":

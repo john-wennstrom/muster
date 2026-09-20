@@ -19,6 +19,11 @@ import {
 } from "../../controller/planning.ts";
 import { classifyChange } from "../../controller/complexity-router.ts";
 import {
+  bindTaskQualityRecord,
+  buildTaskQualityInput,
+  type TaskQualityBundleArtifact,
+} from "../../controller/task-quality.ts";
+import {
   mergeRiskInputs,
   patternRiskInputs,
   type RiskInputs,
@@ -35,9 +40,12 @@ import {
   complexityState,
   planningComplexityDecision,
   planningPreflightDecision,
+  planningTaskQualityDecision,
   preflightCandidateAnswers,
   preflightState,
+  presentTaskQualityFindings,
   PREFLIGHT_RELEVANCE_FLOOR,
+  taskQualityState,
   type PreflightGateValue,
 } from "../../judgment/gates.ts";
 import { PREFLIGHT_QUESTION_IDS } from "../../judgment/questions.ts";
@@ -477,6 +485,58 @@ async function reconcilePreflight(input: {
   }
 }
 
+interface TaskQualityFindings {
+  readonly total: number;
+  readonly lines: readonly string[];
+}
+
+/** One question per property per task is a long request; planning runs for minutes, so this waits longer than a hot path. */
+const TASK_QUALITY_DEADLINE_MS = 30_000;
+
+/**
+ * Assesses a synthesized task list once, over the artifacts about to be written. The findings
+ * are advice: the caller writes exactly what it would write without them, and only an
+ * enforce-mode assessment returns findings for the outcome. Shadow mode records and returns
+ * nothing. `null` means judgment played no part: it is disabled, the task list does not parse
+ * or validate, the list is over the cap, the call was unavailable, or anything failed here.
+ */
+async function assessTaskQuality(input: {
+  runtime: JudgmentRuntime;
+  store: AtomicJsonStore;
+  changeName: string;
+  artifacts: readonly TaskQualityBundleArtifact[];
+  signal?: AbortSignal;
+}): Promise<TaskQualityFindings | null> {
+  if (!input.runtime.enabled) return null;
+  try {
+    const built = buildTaskQualityInput(input.artifacts);
+    if (!built.ok) return null;
+    const verdict = await input.runtime.judge(planningTaskQualityDecision, {
+      input: built.input,
+      changeName: input.changeName,
+      phase: "planning",
+      state: taskQualityState(built.input),
+      signal: input.signal,
+      deadlineMs: TASK_QUALITY_DEADLINE_MS,
+    });
+    if (verdict.kind === "fallback") return null;
+    if (verdict.recordId) {
+      try {
+        await bindTaskQualityRecord(input.store, input.changeName, verdict.recordId, built);
+      } catch {
+        // Binding is what lets a finding be shown later; without it nothing is shown or reconciled.
+      }
+    }
+    if (verdict.kind !== "enforce" || !verdict.outcome.act) return null;
+    const presented = presentTaskQualityFindings(verdict.outcome.value.findings, built.taskIds);
+    return presented.total > 0 ? presented : null;
+  } catch (error) {
+    // A missing recording is a test failure, not an outage; converting it would hide it.
+    if (error instanceof JudgmentFixtureMissingError) throw error;
+    return null;
+  }
+}
+
 export interface ProductionPlanningOptions {
   onAgentStart?: AgentRunObserver;
   cwd: string;
@@ -497,6 +557,18 @@ export interface ProductionPlanningOptions {
   runPreflight?(request: PlanningPreflightRequest, slot: ModelSlot): Promise<PlanningPreflight>;
   runAgent?(request: PlanningAgentRequest, status: OpenSpecStatus, slot: ModelSlot): Promise<PlanningAgentResult>;
   ensureSchema?(): Promise<void>;
+}
+
+/** Lists the findings, or nothing: the outcome without findings reads exactly as it does without judgment. */
+function taskQualitySummary(findings: TaskQualityFindings | null): string {
+  if (!findings) return "";
+  const noun = findings.total === 1 ? "finding" : "findings";
+  const more = findings.total > findings.lines.length ? [`- ${findings.total - findings.lines.length} more not listed`] : [];
+  return [
+    `\n\nTask quality: ${findings.total} advisory ${noun} from an automated check of the task list; the plan review confirms or dismisses them.`,
+    ...findings.lines.map((line) => `- ${line}`),
+    ...more,
+  ].join("\n");
 }
 
 export async function runProductionPlanning(options: ProductionPlanningOptions): Promise<CommandOutcome> {
@@ -660,9 +732,11 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
     return { model: slot.model, content };
   });
 
+  const taskQuality: { current: TaskQualityFindings | null } = { current: null };
   const dependencies = {
     runAgent: (request: PlanningAgentRequest) => runAgent(request, status, slotForRequest(stack, request)),
     async writeArtifacts(request: PlanningArtifactWriteRequest) {
+      taskQuality.current = null;
       const bundle = parseArtifactBundle(request.synthesis.content);
       const seen = new Set<string>();
       const prepared = bundle.artifacts.map((artifact) => {
@@ -681,6 +755,13 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
       if (![...seen].some((path) => path.startsWith("specs/") && path.endsWith("/spec.md"))) {
         throw new HarnessError("PLANNING_ARTIFACT_INVALID", "Planning synthesis omitted capability specifications");
       }
+      taskQuality.current = await assessTaskQuality({
+        runtime: judgment,
+        store: usageStore,
+        changeName: options.changeName,
+        artifacts: bundle.artifacts,
+        signal: options.signal,
+      });
       for (const artifact of prepared) {
         await mkdir(resolve(artifact.destination, ".."), { recursive: true });
         await writeFile(
@@ -723,7 +804,7 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
     action: options.phase,
     changeName: options.changeName,
     runId: planningRunId,
-    summary: `${options.phase} completed with ${result.policy.classification} orchestration; OpenSpec artifacts were written.`,
+    summary: `${options.phase} completed with ${result.policy.classification} orchestration; OpenSpec artifacts were written.${taskQualitySummary(taskQuality.current)}`,
     next: `/change review ${options.changeName}`,
   };
 }

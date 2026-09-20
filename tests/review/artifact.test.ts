@@ -115,6 +115,75 @@ describe("planning review artifact", () => {
     }
   });
 
+  const carried = () => createReviewArtifact({
+    ...approved(),
+    round: 2,
+    requestedVerdict: "APPROVE",
+    carriedForward: {
+      basisDigest: "c".repeat(64),
+      count: 2,
+      recordId: "decision-9999",
+      evidence: ["materiality: 0.4 (confidence 0.95)", "requirement_change: 0.05"],
+    },
+  });
+
+  test("round trips carry-forward marks and the judged evidence", () => {
+    const artifact = carried();
+    const markdown = renderReviewArtifact(artifact);
+
+    expect(markdown).toContain(`- Carried forward from: \`${"c".repeat(64)}\``);
+    expect(markdown).toContain("- Carry-forward count: `2`");
+    expect(markdown).toContain("- Carry-forward record: `decision-9999`");
+    expect(markdown).toContain("## Carry-Forward Evidence");
+    const parsed = parseReviewArtifact(markdown, "review.md");
+    expect(parsed).toEqual(artifact);
+    expect(parsed.verdict).toBe("APPROVE");
+    expect(parsed.artifactDigest).toBe("a".repeat(64));
+    expect(parsed.model).toBe("openai/reviewer");
+    expect(parsed.recommendations).toEqual(["Keep the focused recovery test."]);
+  });
+
+  test("a carried-forward artifact with no evidence lines round trips", () => {
+    const artifact = createReviewArtifact({
+      ...approved(),
+      requestedVerdict: "APPROVE",
+      carriedForward: { basisDigest: "c".repeat(64), count: 1, recordId: "decision-1", evidence: [] },
+    });
+    expect(parseReviewArtifact(renderReviewArtifact(artifact), "review.md")).toEqual(artifact);
+  });
+
+  test("an artifact written before triage existed parses as a full review", () => {
+    const legacy = renderReviewArtifact(approved());
+    expect(legacy).not.toContain("Carr");
+    expect(parseReviewArtifact(legacy, "review.md").carriedForward).toBeUndefined();
+    expect("carriedForward" in approved()).toBe(false);
+  });
+
+  test("rejects a partial or orphaned set of carry-forward marks", () => {
+    const marked = renderReviewArtifact(carried());
+    const withoutCount = marked.replace("- Carry-forward count: `2`\n", "");
+    const withoutSection = marked.replace(/## Carry-Forward Evidence[\s\S]*$/, "");
+    const orphanedSection = renderReviewArtifact(approved()) + "\n## Carry-Forward Evidence\n\n_None._\n";
+    const repeated = marked.replace(
+      "- Carry-forward count: `2`",
+      "- Carry-forward count: `2`\n- Carry-forward count: `3`",
+    );
+
+    for (const markdown of [withoutCount, withoutSection, orphanedSection, repeated]) {
+      expect(() => parseReviewArtifact(markdown, "review.md")).toThrow(
+        expect.objectContaining({ code: "REVIEW_ARTIFACT_INVALID" }) as HarnessError,
+      );
+    }
+  });
+
+  test("a review cannot be both extracted and carried forward", () => {
+    expect(() => createReviewArtifact({
+      ...carried(),
+      requestedVerdict: "APPROVE",
+      extraction: { recordId: "decision-1" },
+    })).toThrow(expect.objectContaining({ code: "REVIEW_ARTIFACT_INVALID" }) as HarnessError);
+  });
+
   test("forces REVISE when the reviewer reports a required correction", () => {
     const artifact = createReviewArtifact({
       ...approved(),

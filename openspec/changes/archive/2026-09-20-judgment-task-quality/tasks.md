@@ -1,6 +1,6 @@
 ## 1. Assessment Input and Decision
 
-- [ ] 1.1 Implement the pure assessment input builder in `src/controller/task-quality.ts`: parse the bundle's task list with the existing task parser and validator and skip on any rejection, extract requirement and scenario names and excerpted text from the delta specifications, take a change summary excerpt of at most 2,000 bytes from the proposal, cap the list at 40 tasks, and compute a digest of the task definitions that excludes completion state; verify with tests that an invalid task list is skipped, that a list over 40 tasks is not assessed, that long requirement text is excerpted while every name is kept, and that the digest is unchanged by ticking a checkbox and changed by editing a scope or a verification command.
+- [x] 1.1 Implement the pure assessment input builder in `src/controller/task-quality.ts`: parse the bundle's task list with the existing task parser and validator and skip on any rejection, extract requirement and scenario names and excerpted text from the delta specifications, take a change summary excerpt of at most 2,000 bytes from the proposal, cap the list at 40 tasks, and compute a digest of the task definitions that excludes completion state; verify with tests that an invalid task list is skipped, that a list over 40 tasks is not assessed, that long requirement text is excerpted while every name is kept, and that the digest is unchanged by ticking a checkbox and changed by editing a scope or a verification command.
 
   ```yaml harness-task
   id: "1.1"
@@ -14,7 +14,7 @@
   manual: null
   ```
 
-- [ ] 1.2 Register the `planning.task_quality` decision in `src/judgment/questions.ts` and `src/judgment/gates.ts` and add the finding templates: five questions per task on verification strength, scope coverage, atomicity, dependency completeness, and a four-level size rubric, one global coverage question, a declared effect of adding advice, thresholds of 0.3 and 0.7 with size at 2.5 and confidence 0.7, and a pure renderer that turns each finding into a fixed sentence naming the task and probability; verify with tests that each threshold behaves as specified, that an in-between answer yields no finding, that the question count scales with the task count, and that every rendered finding is a filled template with no other text.
+- [x] 1.2 Register the `planning.task_quality` decision in `src/judgment/questions.ts` and `src/judgment/gates.ts` and add the finding templates: five questions per task on verification strength, scope coverage, atomicity, dependency completeness, and a four-level size rubric, one global coverage question, a declared effect of adding advice, thresholds of 0.3 and 0.7 with size at 2.5 and confidence 0.7, and a pure renderer that turns each finding into a fixed sentence naming the task and probability; verify with tests that each threshold behaves as specified, that an in-between answer yields no finding, that the question count scales with the task count, and that every rendered finding is a filled template with no other text.
 
   ```yaml harness-task
   id: "1.2"
@@ -30,7 +30,7 @@
 
 ## 2. Surfacing
 
-- [ ] 2.1 Wire the assessment into the artifact-writing step of `src/change/phases/planning.ts`: build the input from the bundle before files are written, judge with an optional runtime, record the findings bound to the definition digest, swallow any assessment error into a skip, write the artifacts exactly as before, and in enforce mode add the finding count and a list capped at eight to the planning outcome, while shadow mode records only; verify in the planning runtime tests that one call covers all tasks, that the written artifacts are byte-identical with and without judgment, that no review artifact is created, that every unavailable reason and disabled judgment leave artifacts and outcome unchanged, and that shadow findings appear nowhere but the record.
+- [x] 2.1 Wire the assessment into the artifact-writing step of `src/change/phases/planning.ts`: build the input from the bundle before files are written, judge with an optional runtime, record the findings bound to the definition digest, swallow any assessment error into a skip, write the artifacts exactly as before, and in enforce mode add the finding count and a list capped at eight to the planning outcome, while shadow mode records only; verify in the planning runtime tests that one call covers all tasks, that the written artifacts are byte-identical with and without judgment, that no review artifact is created, that every unavailable reason and disabled judgment leave artifacts and outcome unchanged, and that shadow findings appear nowhere but the record.
 
   ```yaml harness-task
   id: "2.1"
@@ -44,7 +44,7 @@
   manual: null
   ```
 
-- [ ] 2.2 Pass current findings to the reviewer: in `src/change/phases/review.ts` load the assessment record whose digest matches the current task definitions and hand its findings to `reviewChange` as an optional input, and in `src/controller/review.ts` render them in the review prompt as a short section of unverified automated notes, never touching the review artifact's fields; verify in the review command tests that current findings appear in the prompt marked as unverified, that findings for changed task definitions do not, that the verdict and review artifact come only from the reviewer's output, and that the existing review tests pass unchanged.
+- [x] 2.2 Pass current findings to the reviewer: in `src/change/phases/review.ts` load the assessment record whose digest matches the current task definitions and hand its findings to `reviewChange` as an optional input, and in `src/controller/review.ts` render them in the review prompt as a short section of unverified automated notes, never touching the review artifact's fields; verify in the review command tests that current findings appear in the prompt marked as unverified, that findings for changed task definitions do not, that the verdict and review artifact come only from the reviewer's output, and that the existing review tests pass unchanged.
 
   ```yaml harness-task
   id: "2.2"
@@ -60,7 +60,7 @@
 
 ## 3. Outcomes
 
-- [ ] 3.1 Reconcile task outcomes in `src/change/phases/implementation.ts`: when a task's pipeline finishes, find the assessment record whose digest matches the current task definitions and merge the task's first-attempt outcome and whether it was flagged into its observations, tolerating a missing record; verify with tests that an outcome is recorded against the flag, that ticking checkboxes does not detach the record, that a later attempt does not overwrite the first attempt's outcome, and that a missing record is harmless.
+- [x] 3.1 Reconcile task outcomes in `src/change/phases/implementation.ts`: when a task's pipeline finishes, find the assessment record whose digest matches the current task definitions and merge the task's first-attempt outcome and whether it was flagged into its observations, tolerating a missing record; verify with tests that an outcome is recorded against the flag, that ticking checkboxes does not detach the record, that a later attempt does not overwrite the first attempt's outcome, and that a missing record is harmless.
 
   ```yaml harness-task
   id: "3.1"
@@ -74,7 +74,7 @@
   manual: null
   ```
 
-- [ ] 3.2 Add the correlation report in `src/judgment/task-quality-report.ts` that reads this decision's records and gives, for each finding kind, the non-completion rate for flagged and unflagged tasks with their counts; verify with tests over hand-built records covering a kind with a strong correlation, a kind with none, an empty group, and unreconciled tasks excluded.
+- [x] 3.2 Add the correlation report in `src/judgment/task-quality-report.ts` that reads this decision's records and gives, for each finding kind, the non-completion rate for flagged and unflagged tasks with their counts; verify with tests over hand-built records covering a kind with a strong correlation, a kind with none, an empty group, and unreconciled tasks excluded.
 
   ```yaml harness-task
   id: "3.2"
@@ -90,7 +90,7 @@
 
 ## 4. Documentation and Verification
 
-- [ ] 4.1 Add the task quality row to the per-call-site table in `docs/security.md`, naming the change summary excerpt, the requirement and scenario text, and each task's description, dependencies, scopes, and verification commands; verify the documentation checks pass.
+- [x] 4.1 Add the task quality row to the per-call-site table in `docs/security.md`, naming the change summary excerpt, the requirement and scenario text, and each task's description, dependencies, scopes, and verification commands; verify the documentation checks pass.
 
   ```yaml harness-task
   id: "4.1"
@@ -104,7 +104,7 @@
   manual: null
   ```
 
-- [ ] 4.2 Run the full validation set and compare pass and fail counts against the recorded pre-existing platform baseline, confirming that written planning artifacts are identical with judgment disabled and that no review artifact is ever authored from findings.
+- [x] 4.2 Run the full validation set and compare pass and fail counts against the recorded pre-existing platform baseline, confirming that written planning artifacts are identical with judgment disabled and that no review artifact is ever authored from findings.
 
   ```yaml harness-task
   id: "4.2"

@@ -365,3 +365,57 @@ describe("change review with extraction", () => {
     expect(run.childCalls()).toBe(2);
   });
 });
+
+describe("change review with task quality notes", () => {
+  const promptFor = async (taskQualityNotes?: readonly string[]) => {
+    const { repositoryRoot, changeRoot } = await createChange();
+    const prompts: string[] = [];
+    const runner: PlanningReviewerRunner = async (request) => {
+      prompts.push(request.prompt);
+      return {
+        review: { verdict: "APPROVE", criticalFindings: [], requiredChanges: [], recommendations: [] },
+        toolNames: ["muster_read"],
+      };
+    };
+    const result = await reviewChange({
+      repositoryRoot,
+      changeRoot,
+      changeName: "add-search",
+      runId: "run-1",
+      sessionsRoot: resolve(repositoryRoot, ".fusion", "sessions"),
+      author: { model: "openai/author", sessionId: "author-session" },
+      candidates: [{ model: "openai/reviewer", available: true }],
+      runner,
+      ...(taskQualityNotes ? { taskQualityNotes } : {}),
+    }, { now: () => new Date(observedAt) });
+    return { prompt: prompts[0]!, result, changeRoot };
+  };
+
+  test("current findings appear in the prompt marked as unverified", async () => {
+    const note = "Task 1.1: its write scopes may not cover every file its description requires changing (probability 0.90).";
+    const { prompt } = await promptFor([note]);
+    expect(prompt).toContain("Unverified automated notes about the task list");
+    expect(prompt).toContain("Confirm or dismiss each");
+    expect(prompt).toContain(`- ${note}`);
+    expect(prompt.indexOf("Unverified")).toBeGreaterThan(prompt.indexOf("Return APPROVE only when"));
+  });
+
+  test("without findings the prompt is exactly what it is without the input", async () => {
+    const plain = await promptFor();
+    expect((await promptFor([])).prompt).toBe(plain.prompt);
+    expect(plain.prompt).not.toContain("Unverified");
+  });
+
+  test("the verdict and the review artifact come only from the reviewer's output", async () => {
+    const { result, changeRoot } = await promptFor(["Task 1.1: it may bundle more than one coherent unit of work (probability 0.95)."]);
+    expect(result.review).toMatchObject({
+      verdict: "APPROVE",
+      criticalFindings: [],
+      requiredChanges: [],
+      recommendations: [],
+    });
+    const persisted = await readFile(resolve(changeRoot, "review.md"), "utf8");
+    expect(persisted).not.toContain("bundle more than one");
+    expect(persisted).not.toContain("Unverified");
+  });
+});

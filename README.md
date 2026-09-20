@@ -33,6 +33,14 @@ EXPLORE
 
 Planning defaults to a 100,000-token / $0.50 phase forecast limit. Override these with `MUSTER_PLANNING_MAX_TOKENS` and `MUSTER_PLANNING_MAX_COST_USD`, or with `--planning-max-tokens` and `--planning-max-cost`. Direct and bounded planning use lower thinking levels; configured architect thinking remains in effect for architectural work.
 
+## Model configuration
+
+Each role's model is resolved in one order: an environment override (`MUSTER_ARCHITECT_MODEL`, `MUSTER_BUILDER_MODEL`, `MUSTER_REVIEWER_MODEL`, `MUSTER_VALIDATOR_MODEL`), then a configured model stack (`--fh-config`), then the `--architect` and `--builder` flags, then one declared fallback per role.
+
+An optional **economy builder lane** can run the most mechanical tasks on a cheaper model. It exists only when you name a model with `MUSTER_BUILDER_ECONOMY_MODEL`; Muster never infers, defaults, or chooses one. The lane is the primary builder with only the model replaced, so its thinking level, prompts, and tools are the primary builder's. Choosing a model that supports the builder's tools is your responsibility.
+
+Tasks are routed to the lane only when `MUSTER_JEV_MODEL_ROUTING=1` is set alongside `MUSTER_JEV` and `MUSTER_JEV_API_KEY`, the lane is configured, and a typed judgment confidently finds the task mechanical, low-risk, and narrow in reach. Only a task's first attempt is eligible, a retry always uses the primary builder, and `MUSTER_JEV_MODE=shadow` (the default) routes nothing and only records the lane that would have been chosen. With any of these unset, every task uses the primary builder exactly as before. What is sent for a routing judgment is listed in the [security model](docs/security.md).
+
 ## Security boundary
 
 Agents use the standard Pi tools by default: `read`, `grep`, `find`, and `ls` for read-only work; writers also receive `bash`, `edit`, and `write`. Validators additionally receive `write`, as in fusion-harness. Global and per-slot `child.extensions` and `child.tools` settings apply. Scope and gate submission remain harness tools.
