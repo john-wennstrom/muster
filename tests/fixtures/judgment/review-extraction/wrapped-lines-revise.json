@@ -1,0 +1,53 @@
+{
+  "name": "wrapped-lines-revise",
+  "description": "Items wrapped across indented continuation lines, one with a tab.",
+  "response": "## Required changes\n- The rollback step is missing and the design does\n  not say what happens to rows written before the\n\tfailure.\n- Task 4 reads from a table that no earlier task\n  creates.\n\n## Recommendations\n- Name the retry limit in the design.\n",
+  "candidates": [
+    {
+      "text": "The rollback step is missing and the design does not say what happens to rows written before the failure.",
+      "heading": "Required changes"
+    },
+    {
+      "text": "Task 4 reads from a table that no earlier task creates.",
+      "heading": "Required changes"
+    },
+    {
+      "text": "Name the retry limit in the design.",
+      "heading": "Recommendations"
+    }
+  ],
+  "answers": {
+    "verdict": {
+      "choice": "revise",
+      "confidence": 0.94
+    },
+    "lines": [
+      {
+        "choice": "required",
+        "confidence": 0.93
+      },
+      {
+        "choice": "required",
+        "confidence": 0.9
+      },
+      {
+        "choice": "recommendation",
+        "confidence": 0.92
+      }
+    ]
+  },
+  "expected": {
+    "accepted": true,
+    "review": {
+      "verdict": "REVISE",
+      "criticalFindings": [],
+      "requiredChanges": [
+        "The rollback step is missing and the design does not say what happens to rows written before the failure.",
+        "Task 4 reads from a table that no earlier task creates."
+      ],
+      "recommendations": [
+        "Name the retry limit in the design."
+      ]
+    }
+  }
+}

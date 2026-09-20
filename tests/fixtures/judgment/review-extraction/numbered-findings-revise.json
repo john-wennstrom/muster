@@ -1,0 +1,59 @@
+{
+  "name": "numbered-findings-revise",
+  "description": "Numbered list mixing findings with praise, in both marker styles.",
+  "response": "Review of add-search.\n\n1. The design says results are cached, but no task implements the cache.\n2. Task 1.2 lists the wrong test file.\n3) Nice touch: the failure scenarios are thorough.\n",
+  "candidates": [
+    {
+      "text": "Review of add-search.",
+      "heading": null
+    },
+    {
+      "text": "The design says results are cached, but no task implements the cache.",
+      "heading": null
+    },
+    {
+      "text": "Task 1.2 lists the wrong test file.",
+      "heading": null
+    },
+    {
+      "text": "Nice touch: the failure scenarios are thorough.",
+      "heading": null
+    }
+  ],
+  "answers": {
+    "verdict": {
+      "choice": "revise",
+      "confidence": 0.92
+    },
+    "lines": [
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.98
+      },
+      {
+        "choice": "required",
+        "confidence": 0.91
+      },
+      {
+        "choice": "required",
+        "confidence": 0.88
+      },
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.9
+      }
+    ]
+  },
+  "expected": {
+    "accepted": true,
+    "review": {
+      "verdict": "REVISE",
+      "criticalFindings": [],
+      "requiredChanges": [
+        "The design says results are cached, but no task implements the cache.",
+        "Task 1.2 lists the wrong test file."
+      ],
+      "recommendations": []
+    }
+  }
+}

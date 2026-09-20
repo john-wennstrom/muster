@@ -6,6 +6,8 @@ import {
   type CheckpointRecord,
   type ManualActionCategory,
 } from "../persistence/records.ts";
+import type { JudgmentRuntime } from "../judgment/ask.ts";
+import { classifyCommand } from "../tools/command-approval.ts";
 import {
   classifyProhibitedCommand,
   type StructuredCommandRequest,
@@ -38,6 +40,16 @@ export interface PlannedManualCheckpointInput extends ManualCheckpointContext {
 export interface RuntimeManualActionInput extends ManualCheckpointContext {
   request: StructuredCommandRequest;
   secretValues?: readonly string[];
+  /**
+   * Adds the categories judgment finds to those the rules find. Absent or disabled, the guard
+   * is the rules alone. The change and task are the ones this input already names.
+   */
+  judgment?: {
+    runtime: JudgmentRuntime;
+    /** The worktree the request's working directory is made relative to before it is sent. */
+    worktreePath: string;
+    deadlineMs?: number;
+  };
 }
 
 export interface ConfirmManualCheckpointInput {
@@ -252,7 +264,17 @@ export async function guardRuntimeManualAction<T>(
   input: RuntimeManualActionInput,
   execute: () => Promise<T>,
 ): Promise<RuntimeManualActionResult<T>> {
-  const category = classifyRuntimeManualAction(input.request);
+  const category = input.judgment
+    ? (await classifyCommand(input.request, {
+      worktreePath: input.judgment.worktreePath,
+      judgment: {
+        runtime: input.judgment.runtime,
+        changeName: input.changeName,
+        taskId: input.taskId,
+        deadlineMs: input.judgment.deadlineMs,
+      },
+    })).category
+    : classifyRuntimeManualAction(input.request);
   if (!category) return { status: "executed", value: await execute() };
 
   const guidance = runtimeGuidance[category];

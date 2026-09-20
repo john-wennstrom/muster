@@ -24,6 +24,22 @@ function refineVerdictConsistency<T extends { verdict: "APPROVE" | "REVISE"; cri
   }
 }
 
+/**
+ * Provenance of a review recovered from the reviewer's own prose rather than parsed from its
+ * structured response. It names the judgment decision record that classified the reviewer's
+ * lines. Absent on every review the reviewer returned in the required shape, including every
+ * artifact written before extraction existed.
+ */
+export const reviewExtractionMarkSchema = z
+  .object({
+    recordId: singleLine.refine((value) => !value.includes("`"), {
+      message: "Expected a value without backticks",
+    }),
+  })
+  .strict();
+
+export type ReviewExtractionMark = z.infer<typeof reviewExtractionMarkSchema>;
+
 export const planningReviewArtifactSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -35,6 +51,7 @@ export const planningReviewArtifactSchema = z
     criticalFindings: z.array(singleLine),
     requiredChanges: z.array(singleLine),
     recommendations: z.array(singleLine),
+    extraction: reviewExtractionMarkSchema.optional(),
   })
   .strict()
   .superRefine(refineVerdictConsistency);
@@ -113,6 +130,7 @@ export function createReviewArtifact(
     criticalFindings: input.criticalFindings,
     requiredChanges: input.requiredChanges,
     recommendations: input.recommendations,
+    ...(input.extraction ? { extraction: input.extraction } : {}),
   }, "review.md");
 }
 
@@ -131,6 +149,7 @@ export function renderReviewArtifact(review: PlanningReviewArtifact): string {
     `- Model: \`${valid.model}\``,
     `- Artifact digest: \`${valid.artifactDigest}\``,
     `- Verdict: \`${valid.verdict}\``,
+    ...(valid.extraction ? [`- Extraction record: \`${valid.extraction.recordId}\``] : []),
     "",
     "## Critical Findings",
     "",
@@ -163,6 +182,16 @@ function metadataValue(lines: readonly string[], label: string, path: string): s
   return value.slice(1, -1);
 }
 
+/** Like `metadataValue`, but a missing field is `undefined` rather than an error. */
+function optionalMetadataValue(
+  lines: readonly string[],
+  label: string,
+  path: string,
+): string | undefined {
+  const present = lines.some((line) => line.startsWith(`- ${label}: `));
+  return present ? metadataValue(lines, label, path) : undefined;
+}
+
 function sectionValues(lines: readonly string[], heading: string, path: string): string[] {
   const indexes = lines.flatMap((line, index) => line === heading ? [index] : []);
   if (indexes.length !== 1) {
@@ -191,6 +220,7 @@ export function parseReviewArtifact(contents: string, path: string): PlanningRev
     return invalidReview("Expected Planning Review title", path);
   }
 
+  const extractionRecord = optionalMetadataValue(lines, "Extraction record", path);
   return validateReview({
     schemaVersion: Number(metadataValue(lines, "Schema version", path)),
     round: Number(metadataValue(lines, "Round", path)),
@@ -201,6 +231,7 @@ export function parseReviewArtifact(contents: string, path: string): PlanningRev
     criticalFindings: sectionValues(lines, "## Critical Findings", path),
     requiredChanges: sectionValues(lines, "## Required Changes", path),
     recommendations: sectionValues(lines, "## Recommendations", path),
+    ...(extractionRecord === undefined ? {} : { extraction: { recordId: extractionRecord } }),
   }, path);
 }
 

@@ -1,6 +1,6 @@
 ## 1. Classification
 
-- [ ] 1.1 Register the `command.classification` decision in `src/judgment/questions.ts` and `src/judgment/gates.ts`: a category choice among none, authentication, elevated permission, destructive, and external side effect with each defined by reversibility and reach, yes/no questions on irreversibility, remote mutation, and credential use that are recorded but not gated, a declared effect of adding caution, and a gate that acts for any category other than none at any confidence; verify with tests that a low-confidence category still acts, that none abstains, that the yes/no answers never enter the outcome, and that the effect is declared.
+- [x] 1.1 Register the `command.classification` decision in `src/judgment/questions.ts` and `src/judgment/gates.ts`: a category choice among none, authentication, elevated permission, destructive, and external side effect with each defined by reversibility and reach, yes/no questions on irreversibility, remote mutation, and credential use that are recorded but not gated, a declared effect of adding caution, and a gate that acts for any category other than none at any confidence; verify with tests that a low-confidence category still acts, that none abstains, that the yes/no answers never enter the outcome, and that the effect is declared.
 
   ```yaml harness-task
   id: "1.1"
@@ -14,7 +14,7 @@
   manual: null
   ```
 
-- [ ] 1.2 Add the asynchronous classifier in `src/tools/command-approval.ts` that runs the unchanged rule classifier first and consults judgment only when the rules return nothing, skips the read-only profile and read-only version-control subcommands, builds the state from the executable, redacted arguments, working directory relative to the worktree, and profile, applies a deadline of at most 1.5 seconds, reuses successful classifications for identical commands through a bounded cache, and returns the category with its source and confidence; verify with tests, including a property test over every judgment answer, that a rule-denied command is never sent and never allowed, that none and unavailable results proceed, that an uncertain none is marked for calibration, that read-only commands are not sent, that a slow judgment yields to the deadline, that an identical command sends one request, that the state holds only the command shape with a credential flag redacted, and that disabled judgment does nothing.
+- [x] 1.2 Add the asynchronous classifier in `src/tools/command-approval.ts` that runs the unchanged rule classifier first and consults judgment only when the rules return nothing, skips the read-only profile and read-only version-control subcommands, builds the state from the executable, redacted arguments, working directory relative to the worktree, and profile, applies a deadline of at most 1.5 seconds, reuses successful classifications for identical commands through a bounded cache, and returns the category with its source and confidence; verify with tests, including a property test over every judgment answer, that a rule-denied command is never sent and never allowed, that none and unavailable results proceed, that an uncertain none is marked for calibration, that read-only commands are not sent, that a slow judgment yields to the deadline, that an identical command sends one request, that the state holds only the command shape with a credential flag redacted, and that disabled judgment does nothing.
 
   ```yaml harness-task
   id: "1.2"
@@ -30,7 +30,7 @@
 
 ## 2. Enforcement Points
 
-- [ ] 2.1 Use the classifier in `runAuditedHostCommand` in `src/tools/host-runner.ts` through an optional judgment option, after profile validation and before the repository snapshot: in enforce mode deny a judged category with the prohibited-command error carrying the category, source, and confidence and emit the audit event identifying it as judged, and in shadow mode let the command proceed and record what would have been stopped; verify in the host-runner tests that a judged category denies a command the rules allow, that the denial and audit event name judgment, that shadow never blocks, and that every existing host-runner test passes unchanged.
+- [x] 2.1 Use the classifier in `runAuditedHostCommand` in `src/tools/host-runner.ts` through an optional judgment option, after profile validation and before the repository snapshot: in enforce mode deny a judged category with the prohibited-command error carrying the category, source, and confidence and emit the audit event identifying it as judged, and in shadow mode let the command proceed and record what would have been stopped; verify in the host-runner tests that a judged category denies a command the rules allow, that the denial and audit event name judgment, that shadow never blocks, and that every existing host-runner test passes unchanged.
 
   ```yaml harness-task
   id: "2.1"
@@ -44,7 +44,7 @@
   manual: null
   ```
 
-- [ ] 2.2 Make the controller's runtime manual-action guard in `src/controller/manual-checkpoint.ts` accept the same classification through an optional judgment option, raising the same persisted checkpoint for a judged category as for a rule category; verify with tests that a judged authentication category persists a pending checkpoint of that category without executing the command, and that absent judgment the guard behaves as before.
+- [x] 2.2 Make the controller's runtime manual-action guard in `src/controller/manual-checkpoint.ts` accept the same classification through an optional judgment option, raising the same persisted checkpoint for a judged category as for a rule category; verify with tests that a judged authentication category persists a pending checkpoint of that category without executing the command, and that absent judgment the guard behaves as before.
 
   ```yaml harness-task
   id: "2.2"
@@ -58,7 +58,7 @@
   manual: null
   ```
 
-- [ ] 2.3 Thread the optional judgment runtime from the implementation phase through the task step context, the builder step, and the legacy child adapter's broker options to the audited host command, adding the runtime to the task step context if it is absent; verify with adapter tests that a brokered child command judged as a manual category is denied end to end, that an adapter without a runtime behaves as before, and that disabled judgment sends nothing.
+- [x] 2.3 Thread the optional judgment runtime from the implementation phase through the task step context, the builder step, and the legacy child adapter's broker options to the audited host command, adding the runtime to the task step context if it is absent; verify with adapter tests that a brokered child command judged as a manual category is denied end to end, that an adapter without a runtime behaves as before, and that disabled judgment sends nothing.
 
   ```yaml harness-task
   id: "2.3"
@@ -74,7 +74,7 @@
 
 ## 3. Security Verification
 
-- [ ] 3.1 Add `tests/security/broker-host-judgment.test.ts` that re-runs the traversal, symlink escape, out-of-scope mutation, prohibited-command, and version-control denial scenarios of the existing adversarial suite under a judgment double that answers none for every command and another that answers a manual category for every command, plus a case whose arguments are written to steer the judgment toward none, leaving the existing adversarial test file unmodified; verify that the new file and the existing host-runner job pass and that no case is more permitted than without judgment.
+- [x] 3.1 Add `tests/security/broker-host-judgment.test.ts` that re-runs the traversal, symlink escape, out-of-scope mutation, prohibited-command, and version-control denial scenarios of the existing adversarial suite under a judgment double that answers none for every command and another that answers a manual category for every command, plus a case whose arguments are written to steer the judgment toward none, leaving the existing adversarial test file unmodified; verify that the new file and the existing host-runner job pass and that no case is more permitted than without judgment.
 
   ```yaml harness-task
   id: "3.1"
@@ -90,7 +90,7 @@
 
 ## 4. Documentation and Verification
 
-- [ ] 4.1 Add the command classification row to the per-call-site table in `docs/security.md`, naming the executable, the redacted arguments, the relative working directory, and the profile, and update the description of the preflight checks to say that judged categories are added to the rule-produced ones and never replace them; verify the documentation checks pass with the required host-execution wording intact.
+- [x] 4.1 Add the command classification row to the per-call-site table in `docs/security.md`, naming the executable, the redacted arguments, the relative working directory, and the profile, and update the description of the preflight checks to say that judged categories are added to the rule-produced ones and never replace them; verify the documentation checks pass with the required host-execution wording intact.
 
   ```yaml harness-task
   id: "4.1"
@@ -104,7 +104,7 @@
   manual: null
   ```
 
-- [ ] 4.2 Run the full validation set, including the host-runner job, and compare pass and fail counts against the recorded pre-existing platform baseline, confirming that rule-denied commands are unchanged and that no adversarial case became more permitted.
+- [x] 4.2 Run the full validation set, including the host-runner job, and compare pass and fail counts against the recorded pre-existing platform baseline, confirming that rule-denied commands are unchanged and that no adversarial case became more permitted.
 
   ```yaml harness-task
   id: "4.2"

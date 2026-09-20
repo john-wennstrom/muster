@@ -1,0 +1,35 @@
+{
+  "name": "narration-only-not-accepted",
+  "description": "A reviewer that spent its turn narrating and reached no conclusion.",
+  "response": "Let me look at the design first.\n\nI'll check the tasks next, then the specs.\n",
+  "candidates": [
+    {
+      "text": "Let me look at the design first.",
+      "heading": null
+    },
+    {
+      "text": "I'll check the tasks next, then the specs.",
+      "heading": null
+    }
+  ],
+  "answers": {
+    "verdict": {
+      "choice": "unclear",
+      "confidence": 0.97
+    },
+    "lines": [
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.99
+      },
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.99
+      }
+    ]
+  },
+  "expected": {
+    "accepted": false,
+    "abstainReason": "the verdict is unclear"
+  }
+}

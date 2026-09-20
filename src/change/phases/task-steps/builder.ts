@@ -62,6 +62,9 @@ export async function runBuilderStep(
       childId,
       task: collaborationTask(task),
       existingWriterLease: execution.writerLease?.record,
+      judgment: step.judgment
+        ? { runtime: step.judgment, changeName: step.changeName, taskId: task.id }
+        : undefined,
       thinking: slot.thinking,
       sessionDir: resolve(step.planningCwd, ".fusion", "runs", step.runId, "sessions", childId),
       cwd: execution.worktree.path,

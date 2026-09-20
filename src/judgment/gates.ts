@@ -1,17 +1,28 @@
 import { HarnessError } from "../shared/errors.ts";
 import type { JsonValue, JudgmentAnswer, JudgmentAnswers, JudgmentQuestions } from "./client.ts";
 import {
+  COMMAND_CATEGORIES,
+  COMMAND_QUESTION_IDS,
   COMPLEXITY_QUESTION_IDS,
   capsuleRankingQuestions,
+  commandQuestions,
   parseCapsuleRankingQuestionId,
   PREFLIGHT_QUESTION_IDS,
+  REVIEW_EXTRACTION_LINE_KINDS,
+  REVIEW_EXTRACTION_QUESTION_IDS,
+  REVIEW_EXTRACTION_VERDICTS,
+  TASK_FOCUS_QUESTION_IDS,
   complexityQuestions,
   parsePreflightCandidateQuestionId,
+  parseReviewExtractionLineQuestionId,
   preflightQuestions,
+  reviewExtractionQuestions,
   questionsFingerprint,
+  taskFocusQuestions,
   validateQuestions,
   type PreflightDisposition,
   type QuestionEntry,
+  type ReviewExtractionLineKind,
 } from "./questions.ts";
 
 /**
@@ -423,10 +434,352 @@ export const contextCapsuleRankingDecision = defineDecision<CapsuleRankingInput,
 });
 
 /**
+ * review.task_focus: which areas of a task's diff deserve the reviewer's attention first. Each
+ * answer past its threshold selects one fixed catalogue phrase; nothing a model wrote reaches
+ * the reviewer. A question that a good change answers yes to speaks when its answer falls
+ * below `TASK_FOCUS_BANDS.no`; one that a good change answers no to speaks above
+ * `TASK_FOCUS_BANDS.yes`; the reach rubric speaks at `TASK_FOCUS_REACH_AT` with at least
+ * `TASK_FOCUS_REACH_CONFIDENCE`. Anything between the bands is uncertain and adds nothing, so
+ * uncertainty costs the reviewer no attention. At most `TASK_FOCUS_MAX_ITEMS` items are kept,
+ * in the order of `TASK_FOCUS_CATALOGUE`, which runs from most to least consequential. The
+ * thresholds are starting points for calibration.
+ */
+export const TASK_FOCUS_BANDS = { yes: 0.7, no: 0.3 } as const;
+export const TASK_FOCUS_REACH_AT = 2.0;
+export const TASK_FOCUS_REACH_CONFIDENCE = 0.7;
+export const TASK_FOCUS_MAX_ITEMS = 4;
+
+/** The review areas a finding can be raised in, as the reviewer's schema names them. */
+export type TaskFocusArea = "contract" | "diff" | "tests" | "scopes" | "tdd";
+
+interface TaskFocusEntry {
+  readonly id: string;
+  readonly phrase: string;
+  /** The reviewer's finding area this phrase points at, used to reconcile after the review. */
+  readonly area: TaskFocusArea;
+  readonly speaks: (answers: JudgmentAnswers) => boolean;
+}
+
+const speaksWhenFalse = (id: string) => (answers: JudgmentAnswers): boolean => {
+  const value = noulOf(answers, id);
+  return value !== null && value < TASK_FOCUS_BANDS.no;
+};
+
+const speaksWhenTrue = (id: string) => (answers: JudgmentAnswers): boolean => {
+  const value = noulOf(answers, id);
+  return value !== null && value > TASK_FOCUS_BANDS.yes;
+};
+
+/** In priority order: most consequential first. */
+export const TASK_FOCUS_CATALOGUE: readonly TaskFocusEntry[] = [
+  {
+    id: TASK_FOCUS_QUESTION_IDS.securityBoundary,
+    phrase: "Whether the diff changes what is allowed or trusted: permissions, credentials, or validation of untrusted input",
+    area: "diff",
+    speaks: speaksWhenTrue(TASK_FOCUS_QUESTION_IDS.securityBoundary),
+  },
+  {
+    id: TASK_FOCUS_QUESTION_IDS.scopeContainment,
+    phrase: "Whether every changed file is inside the authorized write scopes",
+    area: "scopes",
+    speaks: speaksWhenFalse(TASK_FOCUS_QUESTION_IDS.scopeContainment),
+  },
+  {
+    id: TASK_FOCUS_QUESTION_IDS.contractMatch,
+    phrase: "Whether the diff implements what the task contract's requirements describe",
+    area: "contract",
+    speaks: speaksWhenFalse(TASK_FOCUS_QUESTION_IDS.contractMatch),
+  },
+  {
+    id: TASK_FOCUS_QUESTION_IDS.scenarioCoverage,
+    phrase: "Whether the tests exercise each of the task's scenarios",
+    area: "tests",
+    speaks: speaksWhenFalse(TASK_FOCUS_QUESTION_IDS.scenarioCoverage),
+  },
+  {
+    id: TASK_FOCUS_QUESTION_IDS.testFirstConsistency,
+    phrase: "Whether the test-first evidence is consistent with the diff",
+    area: "tdd",
+    speaks: speaksWhenFalse(TASK_FOCUS_QUESTION_IDS.testFirstConsistency),
+  },
+  {
+    id: TASK_FOCUS_QUESTION_IDS.stubOrHardcoded,
+    phrase: "Whether the diff adds a stub, placeholder, or hard-coded value in place of real behavior",
+    area: "diff",
+    speaks: speaksWhenTrue(TASK_FOCUS_QUESTION_IDS.stubOrHardcoded),
+  },
+  {
+    id: TASK_FOCUS_QUESTION_IDS.reach,
+    phrase: "Whether code outside the diff depends on behavior the diff changes",
+    area: "diff",
+    speaks: (answers) => {
+      const value = scoreOf(answers, TASK_FOCUS_QUESTION_IDS.reach);
+      return value !== null
+        && Number.isFinite(value.score)
+        && value.score >= TASK_FOCUS_REACH_AT
+        && value.confidence >= TASK_FOCUS_REACH_CONFIDENCE;
+    },
+  },
+];
+
+export interface TaskFocusInput {
+  /** The task contract as the reviewer receives it. */
+  readonly contract: {
+    readonly definition: string;
+    readonly requirements: readonly string[];
+    readonly scenarios: readonly string[];
+  };
+  /** The leading part of the diff, at most 24,000 bytes, cut at a file boundary. */
+  readonly diffExcerpt: string;
+  /** Every path the diff changes, whether or not the excerpt reaches it. */
+  readonly changedPaths: readonly string[];
+  readonly tests: readonly string[];
+  readonly scopes: { readonly reads: readonly string[]; readonly writes: readonly string[] };
+  readonly tddEvidence: unknown;
+}
+
+/** The state sent for the call: exactly the review inputs, with the diff excerpted. */
+export function taskFocusState(input: TaskFocusInput): JsonValue {
+  return {
+    contract: {
+      definition: input.contract.definition,
+      requirements: [...input.contract.requirements],
+      scenarios: [...input.contract.scenarios],
+    },
+    diffExcerpt: input.diffExcerpt,
+    changedPaths: [...input.changedPaths],
+    tests: [...input.tests],
+    scopes: { reads: [...input.scopes.reads], writes: [...input.scopes.writes] },
+    tddEvidence: (input.tddEvidence ?? null) as JsonValue,
+  };
+}
+
+export interface TaskFocusItem {
+  readonly id: string;
+  /** Always one of the catalogue's phrases. */
+  readonly phrase: string;
+  readonly area: TaskFocusArea;
+}
+
+export interface TaskFocusGateValue {
+  readonly items: readonly TaskFocusItem[];
+}
+
+export const reviewTaskFocusDecision = defineDecision<TaskFocusInput, TaskFocusGateValue>({
+  id: "review.task_focus",
+  version: 1,
+  // The focus list is advice to a reviewer that still runs and still decides.
+  effects: ["adds_advice"],
+  representativeInput: {
+    contract: {
+      definition: "Retry `parseInvoice` when the invoice_total is missing",
+      requirements: ["A missing invoice_total is retried once"],
+      scenarios: ["Missing total is retried"],
+    },
+    diffExcerpt: "diff --git a/src/billing/invoice.ts b/src/billing/invoice.ts\n+  return withRetry(parse);",
+    changedPaths: ["src/billing/invoice.ts", "tests/billing/invoice.test.ts"],
+    tests: ["bun test tests/billing/invoice.test.ts: pass"],
+    scopes: { reads: ["src/billing/**"], writes: ["src/billing/**", "tests/billing/**"] },
+    tddEvidence: { disposition: "required", stages: ["red", "green", "refactor"] },
+  },
+  questions: () => taskFocusQuestions,
+  gate: (answers) => {
+    const items = TASK_FOCUS_CATALOGUE
+      .filter((entry) => entry.speaks(answers))
+      .slice(0, TASK_FOCUS_MAX_ITEMS)
+      .map(({ id, phrase, area }): TaskFocusItem => ({ id, phrase, area }));
+    return items.length > 0 ? act({ items }) : abstain("no check crossed its threshold");
+  },
+});
+
+/**
+ * command.classification: which manual-approval category, if any, a host command belongs to.
+ * The category choice alone drives the gate: any category other than none acts, at any
+ * confidence, because an uncertain classifier on a question about destructive or external
+ * effects is itself a reason to involve a human. None abstains, and the caller then does what
+ * it does without judgment. The three yes/no answers are recorded and never enter the
+ * outcome; using them to add categories would raise sensitivity before any data exists. The
+ * value's category vocabulary is defined here, not imported from the tools layer, and matches
+ * the manual-action categories it is later handed to.
+ */
+export const COMMAND_UNCERTAIN_NONE_BELOW = 0.7;
+export const COMMAND_UNCERTAIN_NONE_REASON = "none judged with low confidence";
+
+export type JudgedCommandCategory = Exclude<(typeof COMMAND_CATEGORIES)[number], "none">;
+
+export interface CommandClassificationInput {
+  readonly executable: string;
+  readonly args: readonly string[];
+  /** The working directory relative to the worktree, "." at its root. */
+  readonly cwd: string;
+  readonly profile: string;
+}
+
+/** The state sent for the call: exactly the command's shape, and never the environment or a file. */
+export function commandState(input: CommandClassificationInput): JsonValue {
+  return {
+    executable: input.executable,
+    args: [...input.args],
+    cwd: input.cwd,
+    profile: input.profile,
+  };
+}
+
+export interface CommandGateValue {
+  readonly category: JudgedCommandCategory;
+  readonly confidence: number;
+}
+
+export const commandClassificationDecision = defineDecision<CommandClassificationInput, CommandGateValue>({
+  id: "command.classification",
+  version: 1,
+  // A judged category only adds a manual-approval requirement; none abstains into today's path.
+  effects: ["adds_caution"],
+  representativeInput: {
+    executable: "npm",
+    args: ["run", "deploy", "--", "--env", "production"],
+    cwd: ".",
+    profile: "verification",
+  },
+  questions: () => commandQuestions,
+  gate: (answers) => {
+    const category = choiceOf(answers, COMMAND_QUESTION_IDS.category);
+    if (!category) return abstain("no category was judged");
+    if (category.choice === "none") {
+      return abstain(
+        category.confidence < COMMAND_UNCERTAIN_NONE_BELOW
+          ? `${COMMAND_UNCERTAIN_NONE_REASON} (${category.confidence})`
+          : "none",
+      );
+    }
+    if (!isJudgedCommandCategory(category.choice)) {
+      return abstain(`unrecognized category ${category.choice}`);
+    }
+    return act({ category: category.choice, confidence: category.confidence });
+  },
+});
+
+function isJudgedCommandCategory(choice: string): choice is JudgedCommandCategory {
+  return choice !== "none" && (COMMAND_CATEGORIES as readonly string[]).includes(choice);
+}
+
+/** Whether a gate's abstention was a none the service was unsure of, for calibration. */
+export function isUncertainNone(reason: string): boolean {
+  return reason.startsWith(COMMAND_UNCERTAIN_NONE_REASON);
+}
+
+/**
+ * review.extraction: whether a reviewer's prose response can stand in for the structured
+ * review it failed to return, by classifying its own lines. The gate acts only when the whole
+ * extraction is confident and internally consistent: the verdict is confident and not unclear,
+ * every line is confidently classified, an approval has no critical or required line, and a
+ * revise has at least one. The consistency check runs in both directions because a false
+ * approval lets a flawed plan proceed, whereas a false revise costs one refine cycle. Requiring
+ * every line to be confident, for both verdicts, errs toward the corrective retry, which is
+ * what abstaining means here. The floor is a starting point for calibration.
+ */
+export const REVIEW_EXTRACTION_CONFIDENCE_FLOOR = 0.8;
+
+export interface ReviewExtractionCandidateInput {
+  /** One-based, matching the line's index in the state. */
+  readonly index: number;
+  /** The nearest heading above the line, or null when there is none. */
+  readonly heading: string | null;
+  readonly text: string;
+}
+
+export interface ReviewExtractionInput {
+  /** The reviewer's response text, at most 24,000 bytes. */
+  readonly response: string;
+  readonly candidates: readonly ReviewExtractionCandidateInput[];
+}
+
+/** The state sent for the call: exactly the response and its candidate lines. */
+export function reviewExtractionState(input: ReviewExtractionInput): JsonValue {
+  return {
+    response: input.response,
+    candidates: input.candidates.map(({ index, heading, text }) => ({ index, heading, text })),
+  };
+}
+
+export interface ReviewExtractionLineAnswer {
+  /** One-based, matching the line's index in the state. */
+  readonly index: number;
+  readonly kind: ReviewExtractionLineKind;
+  readonly confidence: number;
+}
+
+export interface ReviewExtractionGateValue {
+  readonly verdict: "approve" | "revise";
+  readonly verdictConfidence: number;
+  /** Every classified line, in line order. */
+  readonly lines: readonly ReviewExtractionLineAnswer[];
+}
+
+const isLineKind = (choice: string): choice is ReviewExtractionLineKind =>
+  (REVIEW_EXTRACTION_LINE_KINDS as readonly string[]).includes(choice);
+
+const isBlocking = (kind: ReviewExtractionLineKind): boolean => kind === "critical" || kind === "required";
+
+export const reviewExtractionDecision = defineDecision<ReviewExtractionInput, ReviewExtractionGateValue>({
+  id: "review.extraction",
+  version: 1,
+  // Acting skips a corrective retry, so every abstention falls through to that retry.
+  effects: ["reduces_work"],
+  representativeInput: {
+    response: "The plan is sound.\n\n- The migration step has no rollback.\n- Consider a shorter task list.",
+    candidates: [
+      { index: 1, heading: null, text: "The plan is sound." },
+      { index: 2, heading: null, text: "The migration step has no rollback." },
+      { index: 3, heading: null, text: "Consider a shorter task list." },
+    ],
+  },
+  questions: (input) => reviewExtractionQuestions(input.candidates.length),
+  gate: (answers) => {
+    const verdict = choiceOf(answers, REVIEW_EXTRACTION_QUESTION_IDS.verdict);
+    if (!verdict) return abstain("no verdict was judged");
+    if (verdict.choice === "unclear") return abstain("the verdict is unclear");
+    if (!(REVIEW_EXTRACTION_VERDICTS as readonly string[]).includes(verdict.choice)) {
+      return abstain(`unrecognized verdict ${verdict.choice}`);
+    }
+    if (verdict.confidence < REVIEW_EXTRACTION_CONFIDENCE_FLOOR) {
+      return abstain(`${verdict.choice} confidence ${verdict.confidence} is below ${REVIEW_EXTRACTION_CONFIDENCE_FLOOR}`);
+    }
+
+    const lines: ReviewExtractionLineAnswer[] = [];
+    for (const id of Object.keys(answers)) {
+      const index = parseReviewExtractionLineQuestionId(id);
+      if (index === null) continue;
+      const line = choiceOf(answers, id);
+      if (!line) return abstain(`line ${index} was not classified`);
+      if (!isLineKind(line.choice)) return abstain(`line ${index} has unrecognized kind ${line.choice}`);
+      if (line.confidence < REVIEW_EXTRACTION_CONFIDENCE_FLOOR) {
+        return abstain(`line ${index} confidence ${line.confidence} is below ${REVIEW_EXTRACTION_CONFIDENCE_FLOOR}`);
+      }
+      lines.push({ index, kind: line.choice, confidence: line.confidence });
+    }
+    if (lines.length === 0) return abstain("no line was classified");
+    lines.sort((left, right) => left.index - right.index);
+
+    const blocking = lines.some((line) => isBlocking(line.kind));
+    if (verdict.choice === "approve" && blocking) return abstain("approve with a critical or required line");
+    if (verdict.choice === "revise" && !blocking) return abstain("revise with no critical or required line");
+    return act({
+      verdict: verdict.choice as "approve" | "revise",
+      verdictConfidence: verdict.confidence,
+      lines,
+    });
+  },
+});
+
+/**
  * Every decision the harness can ask. Later changes append here; none modifies another's.
  */
 export const judgmentCatalog: readonly AnyDecision[] = [
   planningComplexityDecision,
   planningPreflightDecision,
   contextCapsuleRankingDecision,
+  reviewTaskFocusDecision,
+  commandClassificationDecision,
+  reviewExtractionDecision,
 ];

@@ -80,6 +80,8 @@ export interface TaskCodeReviewDispatchOptions {
     violations: readonly string[];
   };
   tddEvidence: unknown;
+  /** Advisory areas of attention; an empty or absent list leaves the prompt unchanged. */
+  focus?: readonly string[];
   runner: TaskCodeReviewerRunner;
 }
 
@@ -113,6 +115,15 @@ function section(heading: string, value: unknown): string {
   return `${heading}\n${JSON.stringify(value, null, 2)}`;
 }
 
+function focusBlock(focus: readonly string[] | undefined): string[] {
+  if (!focus || focus.length === 0) return [];
+  return [[
+    "REVIEW FOCUS (advisory)",
+    "These areas may deserve extra attention. Disregard any item the diff does not support.",
+    ...focus.map((item) => `- ${item}`),
+  ].join("\n")];
+}
+
 export function renderTaskCodeReviewPrompt(
   options: TaskCodeReviewDispatchOptions,
 ): string {
@@ -123,6 +134,7 @@ export function renderTaskCodeReviewPrompt(
     section("TEST EVIDENCE", options.tests),
     section("AUTHORIZED SCOPES", options.scopes),
     section("TDD EVIDENCE", options.tddEvidence),
+    ...focusBlock(options.focus),
     "Return exactly one task code review object. Do not modify the repository.",
   ].join("\n\n");
 }

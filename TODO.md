@@ -2,13 +2,10 @@
 
 
 
-4	judgment-capsule-ranking	6
 
-5	judgment-task-review-focus	6
 
-6	judgment-command-classification	8
 
-7	judgment-review-extraction	8
+
 
 8	judgment-task-quality	8
 

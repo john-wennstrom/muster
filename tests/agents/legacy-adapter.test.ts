@@ -9,6 +9,8 @@ import {
   validateLegacyScopePlan,
 } from "../../src/agents/legacy-adapter.ts";
 import { runProcess } from "../../src/shared/process.ts";
+import { createInertJudgmentRuntime, type JudgmentRuntime, type JudgmentVerdict } from "../../src/judgment/ask.ts";
+import { abstain, act, type CommandGateValue } from "../../src/judgment/gates.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -194,5 +196,107 @@ describe("legacy task broker adapter", () => {
     expect(submitted).toEqual({ format: "python", content: "print('ok')\n" });
     expect(broker.writerLease).toBeNull();
     await broker.close();
+  });
+});
+
+describe("legacy broker command judgment", () => {
+  function judged(verdict: JudgmentVerdict<CommandGateValue>) {
+    const calls: unknown[] = [];
+    const runtime = {
+      enabled: true,
+      async askJev() { throw new Error("unused"); },
+      async judge(_decision: unknown, call: unknown) {
+        calls.push(call);
+        return verdict;
+      },
+    } as unknown as JudgmentRuntime;
+    return { runtime, calls };
+  }
+
+  const touch = { profile: "verification", executable: "node", args: ["-e", "require('fs').writeFileSync('src/file.ts', 'ran\\n')"] };
+
+  test("a brokered command judged as a manual category is denied end to end", async () => {
+    const { root, task } = await fixture();
+    const { runtime, calls } = judged({
+      kind: "enforce",
+      outcome: act({ category: "external_side_effect", confidence: 0.5 }),
+      recordId: "record-1",
+    });
+    const broker = await createLegacyTaskBroker({
+      cwd: root, runId: "judged", childId: "builder", role: "builder", task,
+      judgment: { runtime, changeName: "add-search", taskId: task.id },
+    });
+    try {
+      await expect(broker.handleRequest(request("command", { ...touch, cwd: root })))
+        .rejects.toMatchObject({ code: "HOST_COMMAND_PROHIBITED", details: { category: "external_side_effect", source: "judgment" } });
+      expect(calls).toHaveLength(1);
+      expect(await readFile(resolve(root, "src", "file.ts"), "utf8")).toBe("before\n");
+    } finally {
+      await broker.close();
+    }
+  });
+
+  test("a command judged none runs as it does without judgment", async () => {
+    const { root, task } = await fixture();
+    const { runtime, calls } = judged({ kind: "enforce", outcome: abstain("none"), recordId: null });
+    const broker = await createLegacyTaskBroker({
+      cwd: root, runId: "none", childId: "builder", role: "builder", task,
+      judgment: { runtime, changeName: "add-search", taskId: task.id },
+    });
+    try {
+      await broker.handleRequest(request("command", { ...touch, cwd: root }));
+      expect(calls).toHaveLength(1);
+      expect(await readFile(resolve(root, "src", "file.ts"), "utf8")).toBe("ran\n");
+    } finally {
+      await broker.close();
+    }
+  });
+
+  test("an adapter without a runtime behaves as before", async () => {
+    const { root, task } = await fixture();
+    const broker = await createLegacyTaskBroker({
+      cwd: root, runId: "plain", childId: "builder", role: "builder", task,
+    });
+    try {
+      await broker.handleRequest(request("command", { ...touch, cwd: root }));
+      expect(await readFile(resolve(root, "src", "file.ts"), "utf8")).toBe("ran\n");
+    } finally {
+      await broker.close();
+    }
+  });
+
+  test("disabled judgment sends nothing and the command runs", async () => {
+    const { root, task } = await fixture();
+    const inert = createInertJudgmentRuntime();
+    let asked = 0;
+    const spied = { ...inert, async judge(...args: Parameters<JudgmentRuntime["judge"]>) { asked += 1; return inert.judge(...args); } } as JudgmentRuntime;
+    const broker = await createLegacyTaskBroker({
+      cwd: root, runId: "disabled", childId: "builder", role: "builder", task,
+      judgment: { runtime: spied, changeName: "add-search", taskId: task.id },
+    });
+    try {
+      await broker.handleRequest(request("command", { ...touch, cwd: root }));
+      expect(asked).toBe(0);
+      expect(await readFile(resolve(root, "src", "file.ts"), "utf8")).toBe("ran\n");
+    } finally {
+      await broker.close();
+    }
+  });
+
+  test("a rule-denied brokered command is never judged", async () => {
+    const { root, task } = await fixture();
+    const { runtime, calls } = judged({ kind: "enforce", outcome: abstain("none"), recordId: null });
+    const broker = await createLegacyTaskBroker({
+      cwd: root, runId: "rules", childId: "builder", role: "builder", task,
+      judgment: { runtime, changeName: "add-search", taskId: task.id },
+    });
+    try {
+      await expect(broker.handleRequest(request("command", {
+        profile: "verification", executable: "npm", args: ["publish"], cwd: root,
+      }))).rejects.toMatchObject({ code: "HOST_COMMAND_PROHIBITED", details: { category: "external_side_effect" } });
+      expect(calls).toHaveLength(0);
+    } finally {
+      await broker.close();
+    }
   });
 });

@@ -19,6 +19,7 @@ import {
 } from "../../execution/task-runner.ts";
 import { ensureChangeWorktree, type ChangeWorktree } from "../../execution/worktree.ts";
 import { OpenSpecAdapter } from "../../openspec/adapter.ts";
+import { createJudgmentRuntime, type JudgmentRuntime } from "../../judgment/ask.ts";
 import { openChangeRun } from "../../persistence/run-store.ts";
 import {
   checkpointRecordSchema,
@@ -62,6 +63,8 @@ export interface ProductionImplementationOptions {
   openSpec?: OpenSpecAdapter;
   ports?: ProductionTaskExecutionPorts;
   now?: () => Date;
+  /** Replaces the runtime built from the environment, as tests do. */
+  judgment?: JudgmentRuntime;
 }
 
 export async function runProductionImplementation(
@@ -111,6 +114,7 @@ export async function runProductionImplementation(
     store,
     stack,
     onAgentStart: options.onAgentStart,
+    judgment: options.judgment ?? createJudgmentRuntime({ env: process.env, store }),
   };
   let manifest: RunManifest;
   let artifactChanged = false;

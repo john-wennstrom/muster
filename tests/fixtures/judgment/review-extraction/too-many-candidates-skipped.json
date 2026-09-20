@@ -1,0 +1,11 @@
+{
+  "name": "too-many-candidates-skipped",
+  "description": "More candidate lines than the limit, so extraction is skipped.",
+  "response": "- Point 1.\n- Point 2.\n- Point 3.\n- Point 4.\n- Point 5.\n- Point 6.\n- Point 7.\n- Point 8.\n- Point 9.\n- Point 10.\n- Point 11.\n- Point 12.\n- Point 13.\n- Point 14.\n- Point 15.\n- Point 16.\n- Point 17.\n- Point 18.\n- Point 19.\n- Point 20.\n- Point 21.\n- Point 22.\n- Point 23.\n- Point 24.\n- Point 25.\n- Point 26.\n- Point 27.\n- Point 28.\n- Point 29.\n- Point 30.\n- Point 31.\n- Point 32.\n- Point 33.\n- Point 34.\n- Point 35.\n- Point 36.\n- Point 37.\n- Point 38.\n- Point 39.\n- Point 40.\n- Point 41.\n- Point 42.\n- Point 43.\n- Point 44.\n- Point 45.\n- Point 46.\n- Point 47.\n- Point 48.\n- Point 49.\n- Point 50.\n- Point 51.\n- Point 52.\n- Point 53.\n- Point 54.\n- Point 55.\n- Point 56.\n- Point 57.\n- Point 58.\n- Point 59.\n- Point 60.\n- Point 61.\n",
+  "candidates": {
+    "skipped": "too_many_candidates"
+  },
+  "expected": {
+    "accepted": false
+  }
+}

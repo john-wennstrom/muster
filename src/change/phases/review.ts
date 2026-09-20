@@ -3,6 +3,7 @@ import type { ModelStack } from "../../../extensions/fusion-harness/modules/mode
 import { resolveChildRuntime } from "../../../extensions/fusion-harness/modules/runtime.ts";
 import { runLegacyReadOnlyChild } from "../../agents/legacy-adapter.ts";
 import { reviewChange } from "../../controller/review.ts";
+import { createJudgmentRuntime, type JudgmentRuntime } from "../../judgment/ask.ts";
 import { OpenSpecAdapter } from "../../openspec/adapter.ts";
 import { createChangeUsageStore, recordChangeUsage } from "../../persistence/change-usage-store.ts";
 import { runBrokeredPlanningReviewer } from "../../review/planning-reviewer.ts";
@@ -24,6 +25,8 @@ export interface ProductionReviewOptions {
   runId?: string;
   runner?: typeof runBrokeredPlanningReviewer;
   now?: () => Date;
+  /** Replaces the runtime built from the environment, as tests do. */
+  judgment?: JudgmentRuntime;
 }
 
 export async function runProductionReview(options: ProductionReviewOptions): Promise<CommandOutcome> {
@@ -53,6 +56,7 @@ export async function runProductionReview(options: ProductionReviewOptions): Pro
     prompt: options.prompt,
     signal: options.signal,
     runner,
+    judgment: { runtime: options.judgment ?? createJudgmentRuntime({ env: process.env, store }), store },
   }, options.now ? { now: options.now } : {});
 
   const approved = result.review.verdict === "APPROVE";

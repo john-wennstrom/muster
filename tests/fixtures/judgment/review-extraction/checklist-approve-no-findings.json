@@ -1,0 +1,40 @@
+{
+  "name": "checklist-approve-no-findings",
+  "description": "An approval whose bullets are all praise.",
+  "response": "## Verdict: approve\n\n- The proposal matches the specs.\n- Tasks are ordered by dependency.\n",
+  "candidates": [
+    {
+      "text": "The proposal matches the specs.",
+      "heading": "Verdict: approve"
+    },
+    {
+      "text": "Tasks are ordered by dependency.",
+      "heading": "Verdict: approve"
+    }
+  ],
+  "answers": {
+    "verdict": {
+      "choice": "approve",
+      "confidence": 0.98
+    },
+    "lines": [
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.96
+      },
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.97
+      }
+    ]
+  },
+  "expected": {
+    "accepted": true,
+    "review": {
+      "verdict": "APPROVE",
+      "criticalFindings": [],
+      "requiredChanges": [],
+      "recommendations": []
+    }
+  }
+}

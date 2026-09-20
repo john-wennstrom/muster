@@ -22,6 +22,7 @@ import {
   type CommandScopeAudit,
   type RepositoryCommandSnapshot,
 } from "./command-audit.ts";
+import { classifyCommand, type CommandJudgmentOptions } from "./command-approval.ts";
 
 export interface StructuredCommandRequest {
   profile: string;
@@ -60,6 +61,11 @@ export interface AuditedHostCommandOptions extends HostCommandOptions {
   maxOutputBytes?: number;
   captureSnapshot?: (worktreePath: string) => Promise<RepositoryCommandSnapshot>;
   onAudit?: (event: HostCommandAuditEvent) => Promise<void> | void;
+  /**
+   * Adds manual-approval categories the rules cannot see. Absent, or disabled, the runner does
+   * exactly what it does without it; the rules, the allowlist, and the profile run first.
+   */
+  judgment?: CommandJudgmentOptions;
 }
 
 export interface HostCommandAuditEvent {
@@ -68,6 +74,8 @@ export interface HostCommandAuditEvent {
   code: string;
   request: StructuredCommandRequest;
   violations?: readonly string[];
+  /** Present when a judged category, not a rule, stopped the command. */
+  judged?: { category: ManualCommandCategory; confidence: number };
 }
 
 export interface AuditedHostCommandResult {
@@ -94,7 +102,7 @@ export class HostCommandError extends Error {
   }
 }
 
-const READ_ONLY_GIT_COMMANDS = new Set([
+export const READ_ONLY_GIT_COMMANDS: ReadonlySet<string> = new Set([
   "cat-file",
   "diff",
   "for-each-ref",
@@ -127,6 +135,7 @@ async function emitAudit(
   decision: HostCommandAuditEvent["decision"],
   code: string,
   violations?: readonly string[],
+  judged?: HostCommandAuditEvent["judged"],
 ): Promise<void> {
   await options.onAudit?.({
     timestamp: new Date().toISOString(),
@@ -134,6 +143,7 @@ async function emitAudit(
     code,
     request: options.request,
     violations,
+    ...(judged ? { judged } : {}),
   });
 }
 
@@ -341,6 +351,30 @@ export async function runAuditedHostCommand(
   } catch (error) {
     await emitAudit(options, "deny", error instanceof CommandProfileError ? error.code : "HOST_COMMAND_PREPARE_FAILED", [error instanceof Error ? error.message : String(error)]);
     throw error;
+  }
+  if (options.judgment) {
+    const classified = await classifyCommand(
+      { ...options.request, cwd: prepared.cwd },
+      { worktreePath: await realpath(options.worktreePath), judgment: options.judgment },
+    );
+    if (classified.source === "judgment") {
+      const reason = `Host command requires a ${classified.category} manual checkpoint`;
+      await emitAudit(options, "deny", "HOST_COMMAND_PROHIBITED", [reason], {
+        category: classified.category,
+        confidence: classified.confidence,
+      });
+      throw new HostCommandError(
+        "HOST_COMMAND_PROHIBITED",
+        reason,
+        {
+          category: classified.category,
+          source: "judgment",
+          confidence: classified.confidence,
+          request: options.request,
+          audit: rejectionAudit(options.request, reason),
+        },
+      );
+    }
   }
   const capture = options.captureSnapshot ?? captureRepositoryCommandSnapshot;
   const before = await capture(options.worktreePath);

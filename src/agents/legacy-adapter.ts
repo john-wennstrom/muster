@@ -16,6 +16,7 @@ import {
   type AgentRole,
   type AuthorizationContext,
 } from "../tools/authorization.ts";
+import type { CommandJudgmentOptions } from "../tools/command-approval.ts";
 import {
   runAuditedHostCommand,
   type StructuredCommandRequest,
@@ -44,6 +45,8 @@ export interface LegacyTaskBrokerOptions {
     tool: "submit_gate" | "submit_scope",
     input: Readonly<Record<string, unknown>>,
   ) => Promise<unknown>;
+  /** Adds judged manual-approval categories to the brokered commands' rule checks. */
+  judgment?: CommandJudgmentOptions;
 }
 
 export interface LegacyTaskBroker {
@@ -63,6 +66,7 @@ export interface RunLegacyBrokeredChildOptions extends Omit<
   lease?: LegacyTaskBrokerOptions["lease"];
   existingWriterLease?: WriterLeaseRecord;
   persistEvidence?: LegacyTaskBrokerOptions["persistEvidence"];
+  judgment?: LegacyTaskBrokerOptions["judgment"];
   continueTaskSession?: boolean;
 }
 
@@ -277,6 +281,7 @@ export async function createLegacyTaskBroker(
           request: command,
           allowedWriteScopes: options.task.writes,
           signal: request.signal,
+          judgment: options.judgment ? { signal: request.signal, ...options.judgment } : undefined,
         });
         if (!result.acceptedAsEvidence) {
           throw new Error(result.audit.violations.join("; ") || `Command exited with ${result.process.exitCode}`);
@@ -307,6 +312,7 @@ export async function runLegacyBrokeredChild(
       lease: options.lease,
       existingWriterLease: options.existingWriterLease,
       persistEvidence: options.persistEvidence,
+      judgment: options.judgment,
     });
     const freshSession = createFreshRoleSession(
       options.sessionDir,

@@ -11,6 +11,7 @@ import { runBuilderStep, builderPrompt } from "../../src/change/phases/task-step
 import { runVerificationStep } from "../../src/change/phases/task-steps/verification.ts";
 import type { TaskStepContext } from "../../src/change/phases/task-steps/context.ts";
 import { HarnessError } from "../../src/shared/errors.ts";
+import { createInertJudgmentRuntime } from "../../src/judgment/ask.ts";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -95,6 +96,22 @@ describe("runBuilderStep", () => {
       options.run.text = "here you go: {";
       return undefined as never;
     })).rejects.toThrow(HarnessError);
+  });
+
+  test("hands the judgment runtime to the child, and nothing when the step has none", async () => {
+    const runtime = createInertJudgmentRuntime();
+    const withRuntime = { ...(await stepContext()), judgment: runtime };
+    let seen: unknown = "unset";
+    const run = async (step: TaskStepContext) => runBuilderStep(step, task(), execution, undefined, async (options) => {
+      seen = options.judgment;
+      options.run.status = "done";
+      options.run.text = JSON.stringify({ claim: "completed", implementationPersisted: true });
+      return undefined as never;
+    });
+    await run(withRuntime);
+    expect(seen).toEqual({ runtime, changeName: "add-search", taskId: "1.1" });
+    await run(await stepContext());
+    expect(seen).toBeUndefined();
   });
 
   test("passes cancellation through to the child", async () => {

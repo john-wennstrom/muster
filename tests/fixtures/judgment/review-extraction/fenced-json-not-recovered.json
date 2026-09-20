@@ -1,0 +1,27 @@
+{
+  "name": "fenced-json-not-recovered",
+  "description": "Truncated JSON inside a fence. Fence contents are not candidates, so nothing is recovered; deterministic fence recovery is a separate follow-up.",
+  "response": "Here is my review:\n\n```json\n{\"verdict\": \"REVISE\",\n \"requiredChanges\": [\"Add a rollback\"\n```\n",
+  "candidates": [
+    {
+      "text": "Here is my review:",
+      "heading": null
+    }
+  ],
+  "answers": {
+    "verdict": {
+      "choice": "unclear",
+      "confidence": 0.9
+    },
+    "lines": [
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.95
+      }
+    ]
+  },
+  "expected": {
+    "accepted": false,
+    "abstainReason": "the verdict is unclear"
+  }
+}

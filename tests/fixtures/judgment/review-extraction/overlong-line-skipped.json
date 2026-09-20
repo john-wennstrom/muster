@@ -1,0 +1,11 @@
+{
+  "name": "overlong-line-skipped",
+  "description": "One line over the character limit, so extraction is skipped.",
+  "response": "- The design keeps restating the same caveat about partial writes. The design keeps restating the same caveat about partial writes. The design keeps restating the same caveat about partial writes. The design keeps restating the same caveat about partial writes. The design keeps restating the same caveat about partial writes. The design keeps restating the same caveat about partial writes. The design keeps restating the same caveat about partial writes. The design keeps restating the same caveat about partial writes. \n",
+  "candidates": {
+    "skipped": "candidate_too_long"
+  },
+  "expected": {
+    "accepted": false
+  }
+}

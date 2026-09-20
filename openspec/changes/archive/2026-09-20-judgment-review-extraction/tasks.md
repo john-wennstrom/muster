@@ -1,6 +1,6 @@
 ## 1. Candidates and Decision
 
-- [ ] 1.1 Implement the candidate parser in `src/review/review-extraction.ts`: list items with joined continuation lines and standalone paragraphs, each carrying its nearest heading, with list markers removed, whitespace normalized to a single line, at most 60 candidates of at most 400 characters, and a result that marks extraction as skipped when a limit is exceeded; verify with tests over bulleted, numbered, wrapped, headed, and paragraph-form responses, an empty response, and both limits, and that every candidate equals a line of the input after marker removal and normalization.
+- [x] 1.1 Implement the candidate parser in `src/review/review-extraction.ts`: list items with joined continuation lines and standalone paragraphs, each carrying its nearest heading, with list markers removed, whitespace normalized to a single line, at most 60 candidates of at most 400 characters, and a result that marks extraction as skipped when a limit is exceeded; verify with tests over bulleted, numbered, wrapped, headed, and paragraph-form responses, an empty response, and both limits, and that every candidate equals a line of the input after marker removal and normalization.
 
   ```yaml harness-task
   id: "1.1"
@@ -14,7 +14,7 @@
   manual: null
   ```
 
-- [ ] 1.2 Register the `review.extraction` decision in `src/judgment/questions.ts` and `src/judgment/gates.ts` and add the pure assembly in `src/review/review-extraction.ts`: a verdict choice among approve, revise, and unclear, a per-candidate choice among critical, required, recommendation, and not a finding, a declared effect of reducing work, and acceptance only when the verdict is at least 0.8 and not unclear, every line is at least 0.8, and the verdict is consistent with the lines in both directions, assembling the submission from verbatim candidate lines; verify with a table of answer sets covering acceptance, an uncertain line, an approval with a blocking line, a revise without a blocking line, and an unclear or uncertain verdict, and that the assembled submission passes the existing submission schema.
+- [x] 1.2 Register the `review.extraction` decision in `src/judgment/questions.ts` and `src/judgment/gates.ts` and add the pure assembly in `src/review/review-extraction.ts`: a verdict choice among approve, revise, and unclear, a per-candidate choice among critical, required, recommendation, and not a finding, a declared effect of reducing work, and acceptance only when the verdict is at least 0.8 and not unclear, every line is at least 0.8, and the verdict is consistent with the lines in both directions, assembling the submission from verbatim candidate lines; verify with a table of answer sets covering acceptance, an uncertain line, an approval with a blocking line, a revise without a blocking line, and an unclear or uncertain verdict, and that the assembled submission passes the existing submission schema.
 
   ```yaml harness-task
   id: "1.2"
@@ -30,7 +30,7 @@
 
 ## 2. Review Artifact Provenance
 
-- [ ] 2.1 Add an optional extraction mark naming the decision record to the review artifact in `src/review/review-artifact.ts`, with rendering as one optional metadata line, reading through an optional-line reader, and unchanged verdict, digest, and list handling; verify with tests that a marked artifact round-trips, that an artifact written before this change parses as not extracted, and that every existing artifact test passes unchanged.
+- [x] 2.1 Add an optional extraction mark naming the decision record to the review artifact in `src/review/review-artifact.ts`, with rendering as one optional metadata line, reading through an optional-line reader, and unchanged verdict, digest, and list handling; verify with tests that a marked artifact round-trips, that an artifact written before this change parses as not extracted, and that every existing artifact test passes unchanged.
 
   ```yaml harness-task
   id: "2.1"
@@ -46,7 +46,7 @@
 
 ## 3. Integration and Measurement
 
-- [ ] 3.1 Wire extraction into `runBrokeredPlanningReviewer` in `src/review/planning-reviewer.ts` through an optional judgment runtime on the reviewer request: on a response that is not valid structured output and has candidate lines, attempt an extraction before the corrective retry and before the final failure, return an accepted extraction with a marker in enforce mode, send the unchanged retry when not accepted or unavailable, never judge a valid or schema-rejected response or an empty one, and in shadow mode send the retry and reconcile the record with its verdict and blocking count; verify in the reviewer tests each of those paths, that the retry message, session, attempt limit, and final error are identical to the current ones when judgment does not act, and that disabled judgment sends nothing.
+- [x] 3.1 Wire extraction into `runBrokeredPlanningReviewer` in `src/review/planning-reviewer.ts` through an optional judgment runtime on the reviewer request: on a response that is not valid structured output and has candidate lines, attempt an extraction before the corrective retry and before the final failure, return an accepted extraction with a marker in enforce mode, send the unchanged retry when not accepted or unavailable, never judge a valid or schema-rejected response or an empty one, and in shadow mode send the retry and reconcile the record with its verdict and blocking count; verify in the reviewer tests each of those paths, that the retry message, session, attempt limit, and final error are identical to the current ones when judgment does not act, and that disabled judgment sends nothing.
 
   ```yaml harness-task
   id: "3.1"
@@ -60,7 +60,7 @@
   manual: null
   ```
 
-- [ ] 3.2 Thread the optional judgment runtime and the extraction marker through `dispatchPlanningReview` in `src/review/planning-reviewer.ts`, `reviewChange` in `src/controller/review.ts`, and the review phase, writing the mark into the persisted review artifact; verify with review command tests that an accepted extraction is persisted with its mark, that the reviewer's tool use is still audited and a non-read-only tool still fails the review, that the assembled review passes the same validation, and that the existing review command tests pass unchanged.
+- [x] 3.2 Thread the optional judgment runtime and the extraction marker through `dispatchPlanningReview` in `src/review/planning-reviewer.ts`, `reviewChange` in `src/controller/review.ts`, and the review phase, writing the mark into the persisted review artifact; verify with review command tests that an accepted extraction is persisted with its mark, that the reviewer's tool use is still audited and a non-read-only tool still fails the review, that the assembled review passes the same validation, and that the existing review command tests pass unchanged.
 
   ```yaml harness-task
   id: "3.2"
@@ -74,7 +74,7 @@
   manual: null
   ```
 
-- [ ] 3.3 Build the fixture corpus of recorded reviewer responses with their expected structure under `tests/fixtures/judgment/` and add the agreement report in `src/judgment/review-extraction-report.ts`, giving the rate at which extraction would have been accepted and the rate at which its verdict agreed with the retry's; verify that a corpus test replays every response through the candidate parser, the decision, and the assembly and matches the expected structure, and that the report is correct over hand-built records including unreconciled ones.
+- [x] 3.3 Build the fixture corpus of recorded reviewer responses with their expected structure under `tests/fixtures/judgment/` and add the agreement report in `src/judgment/review-extraction-report.ts`, giving the rate at which extraction would have been accepted and the rate at which its verdict agreed with the retry's; verify that a corpus test replays every response through the candidate parser, the decision, and the assembly and matches the expected structure, and that the report is correct over hand-built records including unreconciled ones.
 
   ```yaml harness-task
   id: "3.3"
@@ -90,7 +90,7 @@
 
 ## 4. Documentation and Verification
 
-- [ ] 4.1 Add the review extraction row to the per-call-site table in `docs/security.md`, naming the reviewer's response text and its candidate lines; verify the documentation checks pass.
+- [x] 4.1 Add the review extraction row to the per-call-site table in `docs/security.md`, naming the reviewer's response text and its candidate lines; verify the documentation checks pass.
 
   ```yaml harness-task
   id: "4.1"
@@ -104,7 +104,7 @@
   manual: null
   ```
 
-- [ ] 4.2 Run the full validation set and compare pass and fail counts against the recorded pre-existing platform baseline, confirming that the reviewer runner is identical to today's with judgment disabled and that existing review artifacts still parse.
+- [x] 4.2 Run the full validation set and compare pass and fail counts against the recorded pre-existing platform baseline, confirming that the reviewer runner is identical to today's with judgment disabled and that existing review artifacts still parse.
 
   ```yaml harness-task
   id: "4.2"

@@ -1,0 +1,43 @@
+{
+  "name": "uncertain-line-not-accepted",
+  "description": "A confident verdict, but one line the service is unsure how to classify.",
+  "response": "This needs work.\n\n- The migration has no rollback.\n- Error handling could arguably be tighter, depending on the caller.\n",
+  "candidates": [
+    {
+      "text": "This needs work.",
+      "heading": null
+    },
+    {
+      "text": "The migration has no rollback.",
+      "heading": null
+    },
+    {
+      "text": "Error handling could arguably be tighter, depending on the caller.",
+      "heading": null
+    }
+  ],
+  "answers": {
+    "verdict": {
+      "choice": "revise",
+      "confidence": 0.93
+    },
+    "lines": [
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.9
+      },
+      {
+        "choice": "required",
+        "confidence": 0.92
+      },
+      {
+        "choice": "recommendation",
+        "confidence": 0.62
+      }
+    ]
+  },
+  "expected": {
+    "accepted": false,
+    "abstainReason": "line 3"
+  }
+}

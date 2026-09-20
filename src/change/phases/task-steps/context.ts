@@ -1,5 +1,6 @@
 import type { ModelStack } from "../../../../extensions/fusion-harness/modules/model-stack.ts";
 import type { AtomicJsonStore } from "../../../persistence/atomic-json-store.ts";
+import type { JudgmentRuntime } from "../../../judgment/ask.ts";
 import { HarnessError } from "../../../shared/errors.ts";
 import type { AgentRunObserver } from "../../agent-progress.ts";
 
@@ -15,6 +16,8 @@ export interface TaskStepContext {
   store: AtomicJsonStore;
   stack: ModelStack;
   onAgentStart?: AgentRunObserver;
+  /** Absent means judgment plays no part: no request, no record, no change to any prompt. */
+  judgment?: JudgmentRuntime;
 }
 
 export function parseAgentJson(text: string, label: string): unknown {

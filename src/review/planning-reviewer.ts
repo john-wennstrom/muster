@@ -9,7 +9,13 @@ import { HarnessError } from "../shared/errors.ts";
 import {
   planningReviewSubmissionSchema,
   type PlanningReviewSubmission,
+  type ReviewExtractionMark,
 } from "./review-artifact.ts";
+import {
+  attemptReviewExtraction,
+  reconcileReviewExtraction,
+  type PlanningReviewJudgment,
+} from "./review-extraction.ts";
 
 const REVIEW_TOOLS = READONLY_TOOLS.split(",");
 
@@ -35,11 +41,15 @@ export interface PlanningReviewerRequest {
   access: "read";
   tools: readonly string[];
   signal?: AbortSignal;
+  /** Absent means judgment plays no part: no request, no record, no change to any retry. */
+  judgment?: PlanningReviewJudgment;
 }
 
 export interface PlanningReviewerResponse {
   review: PlanningReviewSubmission;
   toolNames: readonly string[];
+  /** Present only when the review was recovered from the reviewer's prose, not parsed from it. */
+  extraction?: ReviewExtractionMark;
 }
 
 export type PlanningReviewerRunner = (
@@ -59,6 +69,7 @@ export interface PlanningReviewDispatchOptions {
   prompt: string;
   runner: PlanningReviewerRunner;
   signal?: AbortSignal;
+  judgment?: PlanningReviewJudgment;
 }
 
 export interface PlanningReviewAssignment {
@@ -76,6 +87,7 @@ export interface PlanningReviewAssignment {
 export interface PlanningReviewDispatchResult {
   review: PlanningReviewSubmission;
   assignment: PlanningReviewAssignment;
+  extraction?: ReviewExtractionMark;
 }
 
 export type PlanningReviewerChildRunner = (
@@ -85,7 +97,9 @@ export type PlanningReviewerChildRunner = (
 // Reviewers sometimes burn their whole turn on reasoning and never emit the
 // JSON object, or wrap it in a fence despite being told not to. Both are
 // recoverable by nudging the same session to stop and answer, so a bad
-// response gets one corrective retry before failing the review outright.
+// response gets one corrective retry before failing the review outright. A response
+// that is not JSON at all is first offered to review extraction, which can recover the
+// review from the reviewer's own prose without spending the retry.
 const MAX_REVIEW_ATTEMPTS = 2;
 
 function tryParseReviewerJson(text: string): { success: true; value: unknown } | { success: false; error: string } {
@@ -101,6 +115,8 @@ export async function runBrokeredPlanningReviewer(
   childRunner: PlanningReviewerChildRunner = runLegacyReadOnlyChild,
 ): Promise<PlanningReviewerResponse> {
   let correction: string | undefined;
+  // The record of an extraction that did not replace the retry, to compare with the retry's result.
+  let unactedRecordId: string | null = null;
   for (let attempt = 1; attempt <= MAX_REVIEW_ATTEMPTS; attempt += 1) {
     const run = newRun("REVIEWER", request.model);
     await childRunner({
@@ -139,7 +155,27 @@ export async function runBrokeredPlanningReviewer(
     const parsed = parsedJson.success
       ? planningReviewSubmissionSchema.safeParse(parsedJson.value)
       : undefined;
-    if (parsed?.success) return { review: parsed.data, toolNames: run.toolNames };
+    if (parsed?.success) {
+      if (request.judgment) {
+        await reconcileReviewExtraction(request.judgment, request.changeName, unactedRecordId, parsed.data);
+      }
+      return { review: parsed.data, toolNames: run.toolNames };
+    }
+
+    // Only a response that is not JSON at all is extracted. JSON that fails the schema is a
+    // reviewer contradicting itself, which no classification of its lines can resolve.
+    if (!parsedJson.success && request.judgment) {
+      const extraction = await attemptReviewExtraction(
+        request.judgment,
+        request.changeName,
+        run.text,
+        request.signal,
+      );
+      if (extraction.accepted) {
+        return { review: extraction.submission, toolNames: run.toolNames, extraction: extraction.mark };
+      }
+      unactedRecordId = extraction.recordId ?? unactedRecordId;
+    }
 
     const reason = !parsedJson.success
       ? `it was not valid JSON (${parsedJson.error})`
@@ -204,6 +240,7 @@ export async function dispatchPlanningReview(
     access: "read",
     tools,
     signal: options.signal,
+    ...(options.judgment ? { judgment: options.judgment } : {}),
   };
   const response = await options.runner(request);
 
@@ -232,6 +269,7 @@ export async function dispatchPlanningReview(
 
   return {
     review: parsedReview.data,
+    ...(response.extraction ? { extraction: response.extraction } : {}),
     assignment: {
       runId: options.runId,
       changeName: options.changeName,

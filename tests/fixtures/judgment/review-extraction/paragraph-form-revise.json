@@ -1,0 +1,52 @@
+{
+  "name": "paragraph-form-revise",
+  "description": "Findings written as standalone paragraphs with no list or headings.",
+  "response": "The plan is mostly sound.\n\nThe design never says how partial writes are recovered, and task 2.1 depends on that\nbeing decided.\n\nA shorter task list would be easier to review.\n",
+  "candidates": [
+    {
+      "text": "The plan is mostly sound.",
+      "heading": null
+    },
+    {
+      "text": "The design never says how partial writes are recovered, and task 2.1 depends on that being decided.",
+      "heading": null
+    },
+    {
+      "text": "A shorter task list would be easier to review.",
+      "heading": null
+    }
+  ],
+  "answers": {
+    "verdict": {
+      "choice": "revise",
+      "confidence": 0.9
+    },
+    "lines": [
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.95
+      },
+      {
+        "choice": "required",
+        "confidence": 0.86
+      },
+      {
+        "choice": "recommendation",
+        "confidence": 0.88
+      }
+    ]
+  },
+  "expected": {
+    "accepted": true,
+    "review": {
+      "verdict": "REVISE",
+      "criticalFindings": [],
+      "requiredChanges": [
+        "The design never says how partial writes are recovered, and task 2.1 depends on that being decided."
+      ],
+      "recommendations": [
+        "A shorter task list would be easier to review."
+      ]
+    }
+  }
+}

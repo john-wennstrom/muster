@@ -1,0 +1,44 @@
+{
+  "name": "bold-headings-mixed-revise",
+  "description": "Bold-only lines and a colon label acting as headings.",
+  "response": "**Blocking issues**\n- Task 4 depends on a table that no task creates.\n\nNice to have:\n- Add an example to the design.\n",
+  "candidates": [
+    {
+      "text": "Task 4 depends on a table that no task creates.",
+      "heading": "Blocking issues"
+    },
+    {
+      "text": "Add an example to the design.",
+      "heading": "Nice to have"
+    }
+  ],
+  "answers": {
+    "verdict": {
+      "choice": "revise",
+      "confidence": 0.95
+    },
+    "lines": [
+      {
+        "choice": "required",
+        "confidence": 0.94
+      },
+      {
+        "choice": "recommendation",
+        "confidence": 0.93
+      }
+    ]
+  },
+  "expected": {
+    "accepted": true,
+    "review": {
+      "verdict": "REVISE",
+      "criticalFindings": [],
+      "requiredChanges": [
+        "Task 4 depends on a table that no task creates."
+      ],
+      "recommendations": [
+        "Add an example to the design."
+      ]
+    }
+  }
+}

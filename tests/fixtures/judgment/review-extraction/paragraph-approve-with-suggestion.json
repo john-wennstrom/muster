@@ -1,0 +1,50 @@
+{
+  "name": "paragraph-approve-with-suggestion",
+  "description": "A clean approval in prose with one optional suggestion.",
+  "response": "I read all four artifacts and found no blocking problems.\n\nThe requirements map cleanly onto the tasks.\n\nOptionally, name the retry limit in the design.\n",
+  "candidates": [
+    {
+      "text": "I read all four artifacts and found no blocking problems.",
+      "heading": null
+    },
+    {
+      "text": "The requirements map cleanly onto the tasks.",
+      "heading": null
+    },
+    {
+      "text": "Optionally, name the retry limit in the design.",
+      "heading": null
+    }
+  ],
+  "answers": {
+    "verdict": {
+      "choice": "approve",
+      "confidence": 0.97
+    },
+    "lines": [
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.98
+      },
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.95
+      },
+      {
+        "choice": "recommendation",
+        "confidence": 0.9
+      }
+    ]
+  },
+  "expected": {
+    "accepted": true,
+    "review": {
+      "verdict": "APPROVE",
+      "criticalFindings": [],
+      "requiredChanges": [],
+      "recommendations": [
+        "Optionally, name the retry limit in the design."
+      ]
+    }
+  }
+}

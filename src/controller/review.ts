@@ -119,6 +119,7 @@ export async function reviewChange(
     criticalFindings: dispatched.review.criticalFindings,
     requiredChanges: dispatched.review.requiredChanges,
     recommendations: dispatched.review.recommendations,
+    ...(dispatched.extraction ? { extraction: dispatched.extraction } : {}),
   });
   await dependencies.writeReview(reviewPath, review);
 

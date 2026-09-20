@@ -1,0 +1,9 @@
+{
+  "name": "empty-response",
+  "description": "Nothing to classify.",
+  "response": "",
+  "candidates": [],
+  "expected": {
+    "accepted": false
+  }
+}

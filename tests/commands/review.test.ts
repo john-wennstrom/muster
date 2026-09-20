@@ -14,7 +14,13 @@ import {
   hashReviewedArtifacts,
 } from "../../src/review/artifact-digest.ts";
 import { createReviewArtifact, parseReviewArtifact } from "../../src/review/review-artifact.ts";
-import type { PlanningReviewerRunner } from "../../src/review/planning-reviewer.ts";
+import { runBrokeredPlanningReviewer, type PlanningReviewerRunner } from "../../src/review/planning-reviewer.ts";
+import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import { createJudgmentRuntime } from "../../src/judgment/ask.ts";
+import { listDecisionRecords } from "../../src/judgment/audit.ts";
+import type { JudgmentAnswers } from "../../src/judgment/client.ts";
+import { reviewExtractionLineQuestionId } from "../../src/judgment/questions.ts";
+import { AtomicJsonStore } from "../../src/persistence/atomic-json-store.ts";
 
 const temporaryDirectories: string[] = [];
 const observedAt = "2026-09-12T12:00:00.000Z";
@@ -211,5 +217,151 @@ describe("change review command", () => {
       allowed: false,
       nextAction: "review",
     });
+  });
+});
+const PROSE = [
+  "Overall the plan needs work.",
+  "",
+  "## Required changes",
+  "- The migration has no rollback.",
+  "",
+  "## Recommendations",
+  "- Consider a shorter task list.",
+].join("\n");
+
+function extractionAnswers(verdict: string, kinds: readonly string[]): JudgmentAnswers {
+  const answers: Record<string, JudgmentAnswers[string]> = {
+    verdict: { type: "choice", choice: verdict, probabilities: { [verdict]: 0.95 }, confidence: 0.95 },
+  };
+  kinds.forEach((kind, position) => {
+    answers[reviewExtractionLineQuestionId(position + 1)] = {
+      type: "choice",
+      choice: kind,
+      probabilities: { [kind]: 0.95 },
+      confidence: 0.95,
+    };
+  });
+  return answers;
+}
+
+/** Runs the real reviewer runner over a reviewer that only ever writes prose. */
+async function reviewProse(options: {
+  answers: JudgmentAnswers;
+  toolNames?: readonly string[];
+  judgment?: "enforce" | "absent";
+}) {
+  const { repositoryRoot, changeRoot } = await createChange();
+  const store = new AtomicJsonStore(resolve(repositoryRoot, ".store"));
+  const runtime = createJudgmentRuntime({
+    env: { MUSTER_JEV: "1", MUSTER_JEV_API_KEY: "key", MUSTER_JEV_MODE: "enforce" },
+    store,
+    client: {
+      async request() {
+        return {
+          available: true,
+          answers: options.answers,
+          model: "jev-1.13.0",
+          inputTokens: 100,
+          outputTokens: 0,
+          durationMs: 1,
+        };
+      },
+    },
+  });
+  let childCalls = 0;
+  const runner: PlanningReviewerRunner = (request) => runBrokeredPlanningReviewer(request, async (child) => {
+    childCalls += 1;
+    child.run.status = "done";
+    child.run.exitCode = 0;
+    child.run.text = PROSE;
+    child.run.toolNames = [...(options.toolNames ?? ["muster_read"])];
+    return child.run as AgentRun;
+  });
+  const input = {
+    repositoryRoot,
+    changeRoot,
+    changeName: "add-search",
+    runId: "run-1",
+    sessionsRoot: resolve(repositoryRoot, ".fusion", "sessions"),
+    author: { model: "openai/author", sessionId: "author-session" },
+    candidates: [{ model: "openai/reviewer", available: true }],
+    runner,
+    ...(options.judgment === "absent" ? {} : { judgment: { runtime, store } }),
+  };
+  const outcome = await reviewChange(input, { now: () => new Date(observedAt) }).then(
+    (result) => ({ result, error: undefined as unknown }),
+    (error: unknown) => ({ result: undefined, error }),
+  );
+  return { ...outcome, changeRoot, repositoryRoot, store, childCalls: () => childCalls };
+}
+
+describe("change review with extraction", () => {
+  test("persists an accepted extraction with its mark, and the mark names the decision record", async () => {
+    const run = await reviewProse({ answers: extractionAnswers("revise", ["not_a_finding", "required", "recommendation"]) });
+
+    expect(run.error).toBeUndefined();
+    expect(run.childCalls()).toBe(1);
+    const [record] = await listDecisionRecords(run.store, "add-search");
+    const path = resolve(run.changeRoot, "review.md");
+    const markdown = await readFile(path, "utf8");
+    const persisted = parseReviewArtifact(markdown, path);
+    expect(persisted.extraction).toEqual({ recordId: record!.recordId });
+    expect(markdown).toContain(`- Extraction record: \`${record!.recordId}\``);
+    expect(persisted).toMatchObject({
+      verdict: "REVISE",
+      requiredChanges: ["The migration has no rollback."],
+      recommendations: ["Consider a shorter task list."],
+      criticalFindings: [],
+      model: "openai/reviewer",
+    });
+    expect(run.result?.nextAction).toBe("refine");
+    expect(run.result?.review.extraction).toEqual({ recordId: record!.recordId });
+  });
+
+  test("the persisted review is bound to the controller's digest and passes the same lifecycle checks", async () => {
+    const run = await reviewProse({ answers: extractionAnswers("revise", ["not_a_finding", "required", "recommendation"]) });
+
+    const digest = await hashReviewedArtifacts(await discoverReviewedArtifacts(run.repositoryRoot, run.changeRoot));
+    expect(run.result?.review.artifactDigest).toBe(digest);
+    const snapshot = createChangeSnapshot(snapshotInput(digest, run.result!.review));
+    expect(snapshot.lifecycle).toBe("REVIEW_REQUIRED");
+    expect(snapshot.freshness.review).toBe("current");
+    expect(resolveChangeAction("implement", snapshot)).toMatchObject({ allowed: false, nextAction: "review" });
+  });
+
+  test("an accepted approval is persisted as an approval with its mark", async () => {
+    const run = await reviewProse({ answers: extractionAnswers("approve", ["not_a_finding", "recommendation", "recommendation"]) });
+
+    expect(run.result?.review).toMatchObject({ verdict: "APPROVE", requiredChanges: [] });
+    expect(run.result?.review.extraction).toBeDefined();
+    expect(run.result?.nextAction).toBe("implement");
+  });
+
+  test("the reviewer's tool use is still audited: a non-read-only tool fails the review and persists nothing", async () => {
+    const run = await reviewProse({
+      answers: extractionAnswers("revise", ["not_a_finding", "required", "recommendation"]),
+      toolNames: ["muster_read", "write"],
+    });
+
+    expect(run.error).toMatchObject({ code: "REVIEW_TOOL_DENIED" });
+    await expect(readFile(resolve(run.changeRoot, "review.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("without judgment the same prose fails the review and leaves no review artifact", async () => {
+    const run = await reviewProse({
+      answers: extractionAnswers("revise", ["not_a_finding", "required", "recommendation"]),
+      judgment: "absent",
+    });
+
+    expect(run.error).toMatchObject({ code: "REVIEW_ARTIFACT_INVALID" });
+    expect(run.childCalls()).toBe(2);
+    await expect(readFile(resolve(run.changeRoot, "review.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("an unaccepted extraction persists nothing marked", async () => {
+    const run = await reviewProse({ answers: extractionAnswers("unclear", ["not_a_finding", "not_a_finding", "not_a_finding"]) });
+
+    expect(run.error).toMatchObject({ code: "REVIEW_ARTIFACT_INVALID" });
+    expect(run.childCalls()).toBe(2);
   });
 });

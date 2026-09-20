@@ -1,0 +1,35 @@
+{
+  "name": "approve-with-blocking-line-not-accepted",
+  "description": "The prose approves and yet says something must be done first.",
+  "response": "Approved.\n\n- Task 2.1 must add a rollback before this can ship.\n",
+  "candidates": [
+    {
+      "text": "Approved.",
+      "heading": null
+    },
+    {
+      "text": "Task 2.1 must add a rollback before this can ship.",
+      "heading": null
+    }
+  ],
+  "answers": {
+    "verdict": {
+      "choice": "approve",
+      "confidence": 0.85
+    },
+    "lines": [
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.95
+      },
+      {
+        "choice": "required",
+        "confidence": 0.9
+      }
+    ]
+  },
+  "expected": {
+    "accepted": false,
+    "abstainReason": "approve with a critical or required line"
+  }
+}

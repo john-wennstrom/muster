@@ -6,6 +6,7 @@ import { synthesizeLegacyStack } from "../../extensions/fusion-harness/modules/m
 import { runProductionReview } from "../../src/change/phases/review.ts";
 import type { OpenSpecAdapter } from "../../src/openspec/adapter.ts";
 import type { OpenSpecStatus } from "../../src/openspec/protocol.ts";
+import { createInertJudgmentRuntime } from "../../src/judgment/ask.ts";
 import { createReviewArtifact, parseReviewArtifact } from "../../src/review/review-artifact.ts";
 
 const roots: string[] = [];
@@ -74,5 +75,50 @@ describe("production review runtime", () => {
     expect(outcome).toMatchObject({ status: "success", action: "review", runId: "review-run" });
     expect(persisted.model).toBe("openai/reviewer");
     expect(sessionIds).toHaveLength(1);
+  });
+  test("hands the judgment runtime to the reviewer and persists the extraction mark it returns", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "muster-review-runtime-"));
+    roots.push(root);
+    const changeRoot = resolve(root, "openspec", "changes", "add-search");
+    await mkdir(resolve(changeRoot, "specs", "search"), { recursive: true });
+    await Promise.all([
+      writeFile(resolve(changeRoot, "proposal.md"), "# Proposal\n"),
+      writeFile(resolve(changeRoot, "design.md"), "# Design\n"),
+      writeFile(resolve(changeRoot, "tasks.md"), "# Tasks\n"),
+      writeFile(resolve(changeRoot, "specs", "search", "spec.md"), "# Search\n"),
+    ]);
+    const status = { changeName: "add-search", changeRoot } as unknown as OpenSpecStatus;
+    const stack = synthesizeLegacyStack({
+      architectModel: "openai/architect",
+      builderModel: "openai/reviewer",
+      architectThinking: "high",
+      builderThinking: "high",
+    });
+    const judgment = createInertJudgmentRuntime();
+    let seen: unknown;
+
+    const outcome = await runProductionReview({
+      cwd: root,
+      changeName: "add-search",
+      runId: "review-run",
+      openSpec: { status: async () => status } as unknown as OpenSpecAdapter,
+      modelStack: stack,
+      judgment,
+      now: () => new Date("2026-09-17T10:00:00.000Z"),
+      runner: async (request) => {
+        seen = request.judgment?.runtime;
+        return {
+          review: { verdict: "REVISE", criticalFindings: [], requiredChanges: ["Add a rollback."], recommendations: [] },
+          toolNames: ["muster_read"],
+          extraction: { recordId: "decision-abc" },
+        };
+      },
+    });
+
+    const persisted = parseReviewArtifact(await readFile(resolve(changeRoot, "review.md"), "utf8"), resolve(changeRoot, "review.md"));
+    expect(seen).toBe(judgment);
+    expect(outcome).toMatchObject({ status: "blocked", action: "review" });
+    expect(persisted.extraction).toEqual({ recordId: "decision-abc" });
+    expect(persisted.requiredChanges).toEqual(["Add a rollback."]);
   });
 });

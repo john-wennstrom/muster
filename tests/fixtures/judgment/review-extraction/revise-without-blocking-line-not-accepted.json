@@ -1,0 +1,35 @@
+{
+  "name": "revise-without-blocking-line-not-accepted",
+  "description": "The prose asks for another pass but names nothing that blocks.",
+  "response": "This needs another pass.\n\n- Perhaps rename the capability.\n",
+  "candidates": [
+    {
+      "text": "This needs another pass.",
+      "heading": null
+    },
+    {
+      "text": "Perhaps rename the capability.",
+      "heading": null
+    }
+  ],
+  "answers": {
+    "verdict": {
+      "choice": "revise",
+      "confidence": 0.9
+    },
+    "lines": [
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.9
+      },
+      {
+        "choice": "recommendation",
+        "confidence": 0.9
+      }
+    ]
+  },
+  "expected": {
+    "accepted": false,
+    "abstainReason": "revise with no critical or required line"
+  }
+}

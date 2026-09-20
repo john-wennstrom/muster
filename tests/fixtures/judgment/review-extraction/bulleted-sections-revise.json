@@ -1,0 +1,71 @@
+{
+  "name": "bulleted-sections-revise",
+  "description": "Findings under headed sections, in bullets.",
+  "response": "I read proposal.md, design.md, tasks.md and the spec.\n\n## Critical findings\n- The migration in task 2.1 drops the column before the backfill finishes, so a failure loses data.\n\n## Required changes\n- Add a rollback step to task 2.1.\n- The spec has no scenario for a failed backfill.\n\n## Recommendations\n- Consider splitting task 3.2, which touches six modules.\n",
+  "candidates": [
+    {
+      "text": "I read proposal.md, design.md, tasks.md and the spec.",
+      "heading": null
+    },
+    {
+      "text": "The migration in task 2.1 drops the column before the backfill finishes, so a failure loses data.",
+      "heading": "Critical findings"
+    },
+    {
+      "text": "Add a rollback step to task 2.1.",
+      "heading": "Required changes"
+    },
+    {
+      "text": "The spec has no scenario for a failed backfill.",
+      "heading": "Required changes"
+    },
+    {
+      "text": "Consider splitting task 3.2, which touches six modules.",
+      "heading": "Recommendations"
+    }
+  ],
+  "answers": {
+    "verdict": {
+      "choice": "revise",
+      "confidence": 0.96
+    },
+    "lines": [
+      {
+        "choice": "not_a_finding",
+        "confidence": 0.97
+      },
+      {
+        "choice": "critical",
+        "confidence": 0.93
+      },
+      {
+        "choice": "required",
+        "confidence": 0.95
+      },
+      {
+        "choice": "required",
+        "confidence": 0.9
+      },
+      {
+        "choice": "recommendation",
+        "confidence": 0.94
+      }
+    ]
+  },
+  "expected": {
+    "accepted": true,
+    "review": {
+      "verdict": "REVISE",
+      "criticalFindings": [
+        "The migration in task 2.1 drops the column before the backfill finishes, so a failure loses data."
+      ],
+      "requiredChanges": [
+        "Add a rollback step to task 2.1.",
+        "The spec has no scenario for a failed backfill."
+      ],
+      "recommendations": [
+        "Consider splitting task 3.2, which touches six modules."
+      ]
+    }
+  }
+}
