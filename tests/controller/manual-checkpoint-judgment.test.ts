@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { guardRuntimeManualAction } from "../../src/controller/manual-checkpoint.ts";
 import { createInertJudgmentRuntime, type JudgmentRuntime, type JudgmentVerdict } from "../../src/judgment/ask.ts";
-import { abstain, act, type CommandGateValue } from "../../src/judgment/gates.ts";
+import { abstain, act } from "../../src/judgment/decision.ts";
+import { type CommandGateValue } from "../../src/judgment/decisions/command-classification.ts";
 import { AtomicJsonStore } from "../../src/persistence/atomic-json-store.ts";
 import { checkpointRecordSchema } from "../../src/persistence/records.ts";
 

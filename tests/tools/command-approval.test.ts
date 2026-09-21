@@ -10,8 +10,9 @@ import {
   type JudgmentVerdict,
 } from "../../src/judgment/ask.ts";
 import type { JudgmentClient, JudgmentClientRequest } from "../../src/judgment/client.ts";
-import { abstain, act, type CommandGateValue } from "../../src/judgment/gates.ts";
-import { COMMAND_UNCERTAIN_NONE_REASON } from "../../src/judgment/gates.ts";
+import { abstain, act } from "../../src/judgment/decision.ts";
+import { type CommandGateValue } from "../../src/judgment/decisions/command-classification.ts";
+import { COMMAND_UNCERTAIN_NONE_REASON } from "../../src/judgment/decisions/command-classification.ts";
 import { COMMAND_CATEGORIES, COMMAND_QUESTION_IDS } from "../../src/judgment/questions.ts";
 import {
   COMMAND_JUDGMENT_CACHE_SIZE,

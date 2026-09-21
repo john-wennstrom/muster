@@ -1,0 +1,3 @@
+Task mode: write. Declared read scopes: ["src/**"]. Declared write scopes: ["src/toolbar.ts"].
+
+Keep repository changes within the declared write scopes.

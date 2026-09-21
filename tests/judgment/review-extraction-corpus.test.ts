@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { JudgmentAnswers } from "../../src/judgment/client.ts";
-import { reviewExtractionDecision } from "../../src/judgment/gates.ts";
+import { reviewExtractionDecision } from "../../src/judgment/decisions/review-extraction.ts";
 import { reviewExtractionLineQuestionId } from "../../src/judgment/questions.ts";
 import { planningReviewSubmissionSchema } from "../../src/review/review-artifact.ts";
 import { assembleReviewSubmission, parseReviewCandidates } from "../../src/review/review-extraction.ts";
@@ -17,7 +17,7 @@ import { assembleReviewSubmission, parseReviewCandidates } from "../../src/revie
  * live service and a retry is measured by the shadow-mode report, not here.
  */
 
-const DIRECTORY = resolve(import.meta.dir, "../fixtures/judgment/review-extraction");
+const DIRECTORY = resolve(import.meta.dir, "data/review-extraction");
 
 interface CorpusEntry {
   name: string;

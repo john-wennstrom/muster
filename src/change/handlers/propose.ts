@@ -6,8 +6,8 @@ export const createProposeHandler = defineChangeHandler("propose", async (reques
   if (!request.changeName) {
     return {
       status: "blocked" as const,
-      summary: "Usage: /change propose <change> <goal>",
-      next: "/change propose <change> <goal>",
+      summary: "Usage: /change propose <change> [lane=small|medium|large] <goal>",
+      next: "/change propose <change> [lane=small|medium|large] <goal>",
     };
   }
   return (request.options.runners?.planning ?? runProductionPlanning)({
@@ -17,6 +17,7 @@ export const createProposeHandler = defineChangeHandler("propose", async (reques
     onAgentStart: request.onAgentStart,
     runId: request.runId,
     prompt: request.prompt,
+    lane: request.lane,
     signal: request.signal,
     argv: request.options.argv,
   });

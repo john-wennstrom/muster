@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LANE_POLICY } from "../controller/lane.ts";
 import { createFreshRoleSession } from "../agents/role-runner.ts";
 import type { DependencyReport } from "../agents/reports.ts";
 import type { GitStatusEntry, GitWorktree } from "../execution/git.ts";
@@ -102,6 +103,8 @@ export interface FinalValidationTask {
 export interface CommandEvidence {
   command: string;
   exitCode: number;
+  /** Present when the command was not run again: the source digest its passing result was recorded against. */
+  reused?: { sourceDigest: string };
 }
 
 export interface OpenSpecValidationInput {
@@ -269,14 +272,29 @@ function evaluateEvidence(input: CollectedInputs): ValidationCheck {
       if (!confirmed) reasons.push(`Manual task ${task.id} has no confirmed checkpoint`);
       continue;
     }
-    const approved = reviews.some((review) =>
+    const approving = reviews.filter((review) =>
       review.kind === "task" &&
       review.runId === manifest.runId &&
       review.taskId === task.id &&
       review.verdict === "APPROVE" &&
       review.artifactDigest === result.sourceDigest
     );
-    if (!approved) reasons.push(`Task ${task.id} lacks a matching approved review`);
+    if (approving.length === 0) {
+      reasons.push(`Task ${task.id} lacks a matching approved review`);
+      continue;
+    }
+    // A reviewer's approval always stands. A judgment approval stands only where the lane permits
+    // reduced work and the record names the decision that skipped the review.
+    const judged = approving.every((review) => review.kind === "task" && review.basis === "judgment");
+    if (judged) {
+      const lane = manifest.lane ?? "medium";
+      const named = approving.some((review) => review.kind === "task" && review.judgmentRecordId);
+      if (!LANE_POLICY[lane].reducesWorkAllowed) {
+        reasons.push(`Task ${task.id} has a skipped review, which the ${lane} lane does not permit`);
+      } else if (!named) {
+        reasons.push(`Task ${task.id} has a skipped review that names no judgment record`);
+      }
+    }
   }
   return check("evidence", reasons, [
     `task-results=${input.evidence.taskResults.length}`,

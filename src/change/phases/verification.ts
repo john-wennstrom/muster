@@ -6,6 +6,7 @@ import { verifyChange } from "../../controller/verify.ts";
 import { computeSourceDigest, readSourceDigest } from "../../execution/change-digests.ts";
 import { GitAdapter } from "../../execution/git.ts";
 import { loadValidatedTaskDocument } from "../../execution/load-tasks.ts";
+import { reusableCommands } from "../../execution/verification-reuse.ts";
 import { OpenSpecAdapter } from "../../openspec/adapter.ts";
 import { openChangeRun } from "../../persistence/run-store.ts";
 import {
@@ -92,8 +93,15 @@ async function verificationState(options: ProductionVerificationOptions) {
   const collectCommands = async (): Promise<CommandEvidence[]> => {
     if (commandEvidence) return commandEvidence;
     const commands = [...new Set(tasks.flatMap((task) => task.verify))];
+    // A task's passing evidence at this very source is not run again; everything else, and the full suite, is.
+    const reusable = reusableCommands(tasks, taskResults, sourceDigest);
     commandEvidence = [];
-    for (const command of commands) commandEvidence.push(await runCommand(command, manifest.worktree.path, options.signal));
+    for (const command of commands) {
+      const reusedDigest = reusable.get(command);
+      commandEvidence.push(reusedDigest
+        ? { command, exitCode: 0, reused: { sourceDigest: reusedDigest } }
+        : await runCommand(command, manifest.worktree.path, options.signal));
+    }
     commandEvidence.push(await runCommand("bun test", manifest.worktree.path, options.signal));
     return commandEvidence;
   };

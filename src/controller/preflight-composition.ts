@@ -1,10 +1,7 @@
-import {
-  PREFLIGHT_RELEVANCE_FLOOR,
-  type PreflightGateValue,
-} from "../judgment/gates.ts";
+import { TRIAGE_RELEVANCE_FLOOR, type TriageGateValue } from "../judgment/decisions/change-triage.ts";
 
 /**
- * Turns a confident preflight judgment into the preflight result the planning phase already
+ * Turns a confident triage disposition into the preflight result the planning phase already
  * handles, so nothing downstream can tell which path produced it. Everything here is a template
  * over structured answers: judgment writes no text, and code composes only what the answers and
  * the retrieved candidates already say.
@@ -21,8 +18,13 @@ export interface PreflightCandidate {
   readonly matchedTerms: readonly string[];
 }
 
+/** A triage gate value whose disposition may act. */
+export type ActingTriage = Pick<TriageGateValue, "candidates"> & {
+  readonly disposition: "proceed" | "already_satisfied";
+};
+
 export interface ComposedPreflight {
-  readonly disposition: PreflightGateValue["disposition"];
+  readonly disposition: ActingTriage["disposition"];
   readonly summary: string;
   readonly evidence: { path: string; reason: string }[];
 }
@@ -36,12 +38,12 @@ const plural = (count: number, noun: string): string => `${count} ${noun}${count
  * order its answers index into.
  */
 export function composePreflight(
-  value: PreflightGateValue,
+  value: ActingTriage,
   candidates: readonly PreflightCandidate[],
 ): ComposedPreflight {
   const relevant = value.candidates
     .filter(({ index, relevance }) =>
-      relevance >= PREFLIGHT_RELEVANCE_FLOOR && candidates[index - 1] !== undefined)
+      relevance >= TRIAGE_RELEVANCE_FLOOR && candidates[index - 1] !== undefined)
     .sort((left, right) => right.relevance - left.relevance || left.index - right.index)
     .slice(0, MAX_PREFLIGHT_EVIDENCE);
   const evidence = relevant.map(({ index, relevance }) => {
@@ -54,7 +56,7 @@ export function composePreflight(
   const retrieved = plural(candidates.length, "candidate file");
   if (value.disposition === "already_satisfied") {
     const implementing = value.candidates.filter(({ implements: implemented }) =>
-      implemented >= PREFLIGHT_RELEVANCE_FLOOR).length;
+      implemented >= TRIAGE_RELEVANCE_FLOOR).length;
     return {
       disposition: "already_satisfied",
       summary: `Judged already satisfied by the checked-out code: ${implementing} of ${retrieved} retrieved already implement the request.`,

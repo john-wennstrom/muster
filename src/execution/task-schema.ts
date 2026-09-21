@@ -9,8 +9,9 @@ import { HarnessError } from "../shared/errors.ts";
 import { manualActionCategorySchema } from "../persistence/records.ts";
 
 const nonEmptyLine = z.string().min(1).refine((value) => !/[\r\n]/.test(value));
-const taskId = z.string().regex(/^[0-9]+(?:\.[0-9A-Za-z_-]+)+$/);
-const manualSchema = z
+export const taskIdSchema = z.string().regex(/^[0-9]+(?:\.[0-9A-Za-z_-]+)+$/);
+const taskId = taskIdSchema;
+export const taskManualSchema = z
   .object({
     category: manualActionCategorySchema,
     condition: nonEmptyLine.optional(),
@@ -31,7 +32,7 @@ const taskMetadataSchema = z
     requirements: z.array(nonEmptyLine).min(1),
     scenarios: z.array(nonEmptyLine).min(1),
     verify: z.array(nonEmptyLine).min(1),
-    manual: manualSchema.nullable(),
+    manual: taskManualSchema.nullable(),
   })
   .strict();
 

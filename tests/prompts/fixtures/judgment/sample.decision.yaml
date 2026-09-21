@@ -1,0 +1,23 @@
+decision: sample.decision
+questions:
+  - id: disposition
+    type: choice
+    instructions: "What should {{subject}} do?"
+    criteria:
+      go: "Go ahead."
+      stop: null
+  - repeat: candidates
+    questions:
+      - id: "candidate_{{index}}_implements"
+        type: noul
+        instructions: "Does candidate {{index}}, {{path}}, already do it?"
+      - id: "candidate_{{index}}_size"
+        type: score
+        instructions: "How big is candidate {{index}}?"
+        criteria: ["small", "large"]
+  - id: coverage
+    type: noul
+    instructions: "Do the candidates cover the request?"
+    criteria:
+      true: "Every part is covered."
+      false: "Some part is not."

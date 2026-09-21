@@ -76,10 +76,14 @@ export function resolveModelStack(
 /** The optional economy builder lane's model. It has no alias, no fallback, and no other source. */
 export const ECONOMY_BUILDER_ENV = "MUSTER_BUILDER_ECONOMY_MODEL";
 
+/** The optional economy reviewer model. Independent of the builder's, with no alias or fallback. */
+export const ECONOMY_REVIEWER_ENV = "MUSTER_REVIEWER_ECONOMY_MODEL";
+
 /**
  * The economy builder lane: the primary builder's slot with only the model replaced, so its
- * thinking level, prompts, and tools are the primary's. It exists only when the user names a
- * model; the harness never infers or defaults one, so an unset or blank override means no lane.
+ * prompts and tools are the primary's. Its thinking is chosen per task by routing. It exists only
+ * when the user names a model; the harness never infers or defaults one, so an unset or blank
+ * override means no lane.
  */
 export function economyBuilderSlot(
   stack: ModelStack,
@@ -87,6 +91,20 @@ export function economyBuilderSlot(
 ): ModelSlot | null {
   const model = env[ECONOMY_BUILDER_ENV]?.trim();
   return model ? withModel(stack.primaryBuilder, model) : null;
+}
+
+/**
+ * The economy reviewer lane: the slot an ordinary review would use, with only the model replaced.
+ * It exists only when the user names a model, and is independent of the builder lane.
+ */
+export function economyReviewerSlot(
+  stack: ModelStack,
+  env: NodeJS.ProcessEnv = process.env,
+): ModelSlot | null {
+  const model = env[ECONOMY_REVIEWER_ENV]?.trim();
+  if (!model) return null;
+  const ordinary = stack.slots.find((slot) => slot.model !== stack.primaryBuilder.model) ?? stack.slots[0]!;
+  return withModel(ordinary, model);
 }
 
 export function roleModel(stack: ModelStack, role: ModelRole): string {

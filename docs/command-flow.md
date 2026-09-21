@@ -1,8 +1,8 @@
 # Command flow
 
-Every slash command Muster registers, and what each one does step by step. The diagrams follow the code, not the design documents, so they show what runs today. Where a judgment call site or a controller exists but nothing calls it yet, the diagram marks it as not wired.
+The one slash command Muster registers, `/change`, and what each of its nine actions does step by step. The diagrams follow the code, not the design documents, so they show what runs today, including the three lanes (`small`, `medium`, `large`) that decide how much of the pipeline a change gets.
 
-Sources: [dispatcher](../src/change/dispatch.ts), [command table](../src/change/commands.ts), [action resolver](../src/controller/action-resolver.ts), [snapshot](../src/controller/change-snapshot.ts), [planning phase](../src/change/phases/planning.ts), [review phase](../src/change/phases/review.ts), [implementation phase](../src/change/phases/implementation.ts), [verification phase](../src/change/phases/verification.ts), [finish phase](../src/change/phases/finish.ts). For what leaves the machine at each judgment call site, see the [security model](security.md).
+Sources: [dispatcher](../src/change/dispatch.ts), [command table](../src/change/commands.ts), [action resolver](../src/controller/action-resolver.ts), [snapshot](../src/controller/change-snapshot.ts), [planning](../src/planning/run.ts), [planning phase](../src/change/phases/planning.ts), [plan review](../src/controller/plan-review.ts), [review phase](../src/change/phases/review.ts), [implementation phase](../src/change/phases/implementation.ts), [verification phase](../src/change/phases/verification.ts), [finish phase](../src/change/phases/finish.ts). For what leaves the machine at each judgment call site, see the [security model](security.md).
 
 Contents:
 
@@ -18,7 +18,6 @@ Contents:
 10. [Finish](#10-finish)
 11. [Status](#11-status)
 12. [Judgment runtime](#12-judgment-runtime)
-13. [Legacy and Fusion commands](#13-legacy-and-fusion-commands)
 
 How to read the colors: [How to read the diagrams](#how-to-read-the-diagrams).
 
@@ -37,9 +36,9 @@ flowchart LR
   classDef llmJev fill:#f8d7da,stroke:#1e8449,stroke-width:4px,color:#1a1a1a
 ```
 
-Red is an LLM session and green is a Jev call. A red node with a thick green border is a step that contains both, used in the overview diagrams where the individual calls are not drawn. Two Jev decisions, `context.capsule_ranking` and `debugging.thrash`, are built but not called anywhere, so they never appear in green.
+Red is an LLM session and green is a Jev call. A red node with a thick green border is a step that contains both, used in the overview diagrams where the individual calls are not drawn. Every catalogued decision is called somewhere in these diagrams; section 12 lists them in the order they fire.
 
-Of the nine `/change` commands, `verify`, `finish` and `status` spend no tokens. `verify` runs nine deterministic gates and the test commands, and no agent is dispatched. The where-the-tokens-go breakdown and ways to reduce it are in [simplification.md](simplification.md).
+Of the nine `/change` actions, `verify`, `finish` and `status` spend no tokens. `verify` runs nine deterministic gates and the test commands, and no agent is dispatched. A small-lane change with one task can start as few as two model sessions from proposal to a passing verification. The where-the-tokens-go breakdown and ways to reduce it are in [simplification.md](simplification.md).
 
 ## 1. Command surface
 
@@ -48,14 +47,13 @@ Of the nine `/change` commands, `verify`, `finish` and `status` spend no tokens.
 ```mermaid
 flowchart LR
   pi(["Pi host"]) --> ext["registerMuster"]
-  ext --> fh["registerFusionHarness"]
   ext --> chg["registerChangeCommand"]
 
-  subgraph change["/change - preferred workflow surface"]
+  subgraph change["/change - the only command"]
     direction TB
     c1["explore prompt<br/>read-only, no change needed"]
-    c2["propose change goal<br/>creates the change"]
-    c3["refine change guidance"]
+    c2["propose change lane= goal<br/>creates the change"]
+    c3["refine change lane= guidance"]
     c4["review change guidance"]
     c5["implement change"]
     c6["resume change checkpoint-id"]
@@ -64,46 +62,15 @@ flowchart LR
     c9["status change<br/>read-only"]
   end
   chg --> change
-
-  subgraph legacy["Deprecated aliases - print guidance, then run the old handler"]
-    direction TB
-    l1["/refine change"]
-    l2["/implement change"]
-    l3["/ship change"]
-  end
-  fh --> legacy
-
-  subgraph openspec["OpenSpec helpers"]
-    direction TB
-    o1["/os-status change"]
-    o2["/init"]
-  end
-  fh --> openspec
-
-  subgraph fusion["Fusion Harness diagnostics and orchestration"]
-    direction TB
-    f1["/fh - list commands, toggle model bar"]
-    f2["/fh-only - one slot"]
-    f3["/fh-model - pick slot, model, thinking"]
-    f4["/fh-system-prompt"]
-    f5["/fh-reset"]
-    f6["/fh-opinion - parallel read-only answers"]
-    f7["/fh-debate - read-only debate rounds"]
-    f8["/fh-fusion - research then one merge"]
-    f9["/fh-collaborate - plan, DAG, one writer at a time"]
-    f10["/fh-auto-validate - gate, build, fix loop"]
-  end
-  fh --> fusion
-
-  l1 -. "same lifecycle check as" .-> c3
-  l2 -. "same lifecycle check as" .-> c5
-  l3 -. "same lifecycle check as" .-> c8
+  ext --> flags["flags: fh-config, architect, builder,<br/>planning-max-tokens, planning-max-cost"]
   classDef llm fill:#f8d7da,stroke:#c0392b,color:#1a1a1a
   classDef jev fill:#d4edda,stroke:#1e8449,color:#1a1a1a
   classDef llmJev fill:#f8d7da,stroke:#1e8449,stroke-width:4px,color:#1a1a1a
   class c2,c3,c4,c5,c6 llmJev
-  class c1,l1,l2,f2,f6,f7,f8,f9,f10 llm
+  class c1 llm
 ```
+
+The commands `/refine`, `/implement`, `/ship`, `/os-status`, `/init` and every `/fh-*` command were removed and are not registered or aliased.
 
 ## 2. Dispatch pipeline
 
@@ -267,105 +234,91 @@ flowchart TD
 
 ## 5. Propose and refine
 
-`/change propose <change> <goal>` creates a change and its planning artifacts. `/change refine <change> [guidance]` revises them. Both call `runProductionPlanning` with a different phase.
+`/change propose <change> [lane=small|medium|large] <goal>` creates a change and its planning artifacts. `/change refine <change> [lane=...] [guidance]` revises them. Both call `runProductionPlanning` with a different phase, and both run [src/planning/run.ts](../src/planning/run.ts): choose the lane, plan in one session (after opinions and a debate on large), validate the plan in code, then render every artifact from templates.
 
 ```mermaid
 flowchart TD
   a(["/change propose or refine"]) --> gate{"phase"}
-  gate -- "propose (not lifecycle gated)" --> pre
-  gate -- "refine (PLANNING, REVIEW_REQUIRED,<br/>DESIGN_CONFLICT or BLOCKED)" --> early["fetch OpenSpec status early<br/>read review.md"]
+  gate -- "propose (not lifecycle gated)" --> lanearg
+  gate -- "refine (PLANNING, REVIEW_REQUIRED,<br/>DESIGN_CONFLICT or BLOCKED)" --> early["fetch OpenSpec status early<br/>read review.md and the current artifacts"]
   early --> rev{"latest verdict<br/>REVISE?"}
   rev -- yes --> fold["fold required changes and critical<br/>findings into the request text"]
-  rev -- no --> pre
-  fold --> pre
+  rev -- no --> lanearg
+  fold --> lanearg
 
-  pre["planning budget<br/>default 1,000,000 tokens and 1.50 USD<br/>MUSTER_PLANNING_MAX_TOKENS, MUSTER_PLANNING_MAX_COST_USD<br/>or --planning-max-tokens, --planning-max-cost"] --> jrt["create judgment runtime from the environment"]
+  lanearg{"lane= argument given?"} -- yes --> user["the user's lane<br/>no candidates, no judgment request"]
+  lanearg -- no --> cand["retrieve up to 10 candidate files by code<br/>600 byte excerpts, denylisted files excluded"]
+  cand --> pat["pattern classification over the request<br/>and the candidates sets the floor:<br/>direct and bounded are medium,<br/>architectural is large"]
+  pat --> jt{"judgment enabled?"}
+  jt -- no --> lane
+  jt -- yes --> triage["judge change.triage<br/>disposition, four risks, mechanical, reach,<br/>two questions per candidate"]
+  triage --> tv{"enforce mode<br/>and confident?"}
+  tv -- "confident risk" --> up["raise the lane"]
+  tv -- "every risk and the reach confident" --> down["lower it to small"]
+  tv -- "already satisfied, corroborated by a candidate" --> sat["outcome: blocked<br/>no session runs"]
+  tv -- no --> lane
+  up --> lane
+  down --> lane
+  user --> lane["record the lane with the change's run records<br/>a lane only ever moves up"]
 
-  jrt --> jp{"judgment enabled?"}
-  jp -- no --> agentPre
-  jp -- yes --> cand["retrieve up to 10 candidate files by code<br/>600 byte excerpts, denylisted files excluded"]
-  cand --> judgePre["judge planning.preflight<br/>disposition plus per-candidate relevance"]
-  judgePre --> acted{"enforce mode<br/>and confident?"}
-  acted -- yes --> compose["compose preflight from the judgment<br/>no agent runs, avoided cost recorded"]
-  acted -- no --> agentPre
+  lane --> ln{"lane"}
+  ln -- "small or medium" --> plan
+  ln -- large --> opin["forecast, then two specialist opinions<br/>parallel read-only sessions"]
+  opin --> ob{"optional budget<br/>available?"}
+  ob -- yes --> deb["one debate session over the opinions"]
+  ob -- no --> plan
+  deb --> plan
 
-  agentPre["budget forecast for preflight<br/>blocked_mandatory throws BUDGET_EXHAUSTED"] --> pchild["bounded read-only architect child<br/>brokered tools, at most 6 read/search calls, low thinking<br/>candidates pre-loaded only in enforce mode that did not act"]
-  pchild --> pparse["parsePreflight<br/>exactly one JSON object with disposition,<br/>summary, evidence paths, optional question"]
-  compose --> disp
-  pparse --> recon["reconcile record: which path produced it,<br/>agreement and evidence overlap in shadow mode"]
-  recon --> disp{"disposition"}
-
-  disp -- needs_clarification --> blockQ["outcome: blocked<br/>next is the specific question"]
-  disp -- already_satisfied --> blockS["outcome: blocked<br/>evidence listed, asks which branch or entry point still fails"]
-  disp -- proceed --> ph{"phase"}
-
-  ph -- propose --> exists{"OpenSpec knows<br/>this change?"}
-  exists -- no --> create["install fusion-driven schema if missing<br/>openspec create change with that schema"]
-  exists -- yes --> st
-  create --> st["OpenSpec status and artifact instructions<br/>for proposal, specs, design, tasks"]
-  ph -- refine --> st
-
-  st --> risk["resolve risk inputs<br/>pattern baseline for contract, migration,<br/>security boundary, design ambiguity"]
-  risk --> jc{"judgment enabled?"}
-  jc -- yes --> judgeC["judge planning.complexity"]
-  judgeC --> merge["enforce and confident: replace pattern inputs<br/>otherwise keep the pattern values<br/>reconcile agreement with pattern"]
-  jc -- no --> classify
-  merge --> classify["classifyChange<br/>file count 2 or fewer low, up to 8 medium, more high<br/>capabilities 1 low, 2 medium, 3 or more high<br/>migration, security, ambiguity are high<br/>public contract is medium"]
-
-  classify --> cls{"classification"}
-  cls -- "direct (thinking low)" --> minimal
-  cls -- "bounded (thinking medium)" --> minimal
-  cls -- "architectural (configured thinking)" --> opt
-  minimal["minimal route<br/>synthesis only"] --> synthF
-  opt["forecast specialist opinions<br/>two or more parallel read-only children,<br/>one per builder slot in rotation"] --> optB{"optional budget<br/>available?"}
-  optB -- no --> skipped["optional_skipped_budget<br/>synthesis only"]
-  optB -- yes --> debate["forecast then run one debate child<br/>reads all opinions"]
-  skipped --> synthF
-  debate --> synthF
-
-  synthF["mandatory synthesis budget forecast<br/>blocked_mandatory throws BUDGET_EXHAUSTED"] --> synth["synthesis child returns one JSON bundle<br/>proposal.md, design.md, specs/capability/spec.md, tasks.md"]
-  synth --> write["writeArtifacts"]
-  write --> v1["parse bundle, reject duplicate paths,<br/>reject paths outside the change root,<br/>require proposal, design, tasks and one capability spec"]
-  v1 --> tq["assessTaskQuality: judge planning.task_quality<br/>only when judgment is enabled and tasks.md parses<br/>with at most 40 tasks, advice only"]
-  tq --> files["write files to openspec/changes/change"]
-  v1 -. "invalid bundle" .-> retry{"attempt below 2?"}
-  retry -- yes --> resynth["synthesis again with the rejection reason<br/>fed back and a JSON escaping reminder"]
-  resynth --> write
-  retry -- no --> fail["PLANNING_ARTIFACT_INVALID"]
-  files --> done["outcome: success<br/>task quality findings listed when enforce mode produced any<br/>next: /change review change"]
+  plan["plan session: one read-only architect session<br/>returns a typed plan as JSON<br/>lane thinking: small and medium lower, large as configured"] --> chk["parse and validate the plan in code<br/>references resolve, ids unique, dependencies acyclic,<br/>verification executables allowed"]
+  chk --> ok{"valid?"}
+  ok -- no --> retry["one more plan session with the<br/>specific failures listed"]
+  retry --> ok2{"valid?"}
+  ok2 -- no --> fail["PLANNING_ARTIFACT_INVALID<br/>with the whole list"]
+  ok2 -- yes --> disp
+  ok -- yes --> disp{"plan disposition"}
+  disp -- "needs_clarification or already_satisfied" --> blockq["outcome: blocked<br/>next is the specific question<br/>nothing is written"]
+  disp -- plan --> norm["normalizePlan<br/>merge chained tasks with the same write scope,<br/>notes name each merge"]
+  norm --> ex{"OpenSpec knows<br/>this change?"}
+  ex -- no --> create["install the fusion-driven schema if missing<br/>openspec create change"]
+  ex -- yes --> render
+  create --> render["render proposal, one delta spec per capability,<br/>design and tasks from prompts/artifacts<br/>write them under openspec/changes/change"]
+  render --> done["outcome: success on the chosen lane<br/>merge notes listed<br/>next: /change review change"]
   classDef llm fill:#f8d7da,stroke:#c0392b,color:#1a1a1a
   classDef jev fill:#d4edda,stroke:#1e8449,color:#1a1a1a
   classDef llmJev fill:#f8d7da,stroke:#1e8449,stroke-width:4px,color:#1a1a1a
-  class judgePre,judgeC,tq jev
-  class pchild,opt,debate,synth,resynth llm
+  class triage jev
+  class opin,deb,plan,retry llm
 ```
 
-Each planning child records a usage entry in the change's run store, and the budget ledger is updated whether or not the child succeeded.
+Each planning session records a usage entry in the change's run store, and the planning budget ledger (1,000,000 tokens and 1.50 USD by default, `MUSTER_PLANNING_MAX_TOKENS` and `MUSTER_PLANNING_MAX_COST_USD` or `--planning-max-tokens` and `--planning-max-cost`) is updated whether or not the session succeeded. An optional stage the budget cannot afford is skipped; the plan session is mandatory and an unaffordable one stops the command with `BUDGET_EXHAUSTED`.
 
 ## 6. Review
 
-`/change review <change> [guidance]` runs an independent, fresh-context planning review over the proposal, specs, design and tasks. It is only allowed in `REVIEW_REQUIRED`.
+`/change review <change> [guidance]` approves the plan. It is only allowed in `REVIEW_REQUIRED`. Plan lint runs first on every lane; then the lane decides who approves.
 
 ```mermaid
 flowchart TD
   a(["/change review change guidance"]) --> g["lifecycle gate: REVIEW_REQUIRED only"]
-  g --> setup["OpenSpec status, model stack, run id,<br/>usage store, judgment runtime"]
-  setup --> tflag{"judgment enabled AND<br/>MUSTER_JEV_REVIEW_TRIAGE=1?"}
-  setup --> notes{"judgment enabled?"}
-  notes -- yes --> qn["read tasks.md, load still-current<br/>task quality notes from plan time"]
-  notes -- no --> disc
-  qn --> disc
-  tflag --> disc["discover reviewed artifacts<br/>hash them into the artifact digest<br/>read existing review.md if any"]
+  g --> setup["OpenSpec status, model stack, run id,<br/>usage store, judgment runtime<br/>read the change's lane"]
+  setup --> lint["plan lint in code, on every lane<br/>artifacts exist and pass strict validation,<br/>references resolve against the real specs,<br/>every scenario is cited, verification commands allowed,<br/>write scopes avoid credentials and .git,<br/>dependencies acyclic, small lane limits"]
+  lint --> lf{"any error?"}
+  lf -- yes --> lfail["outcome: blocked, the whole list<br/>no reviewer, no judgment request<br/>next: /change refine change"]
+  lf -- no --> sem{"task list small enough<br/>to ask about, judgment enabled?"}
+  sem -- no --> lanechk
+  sem -- yes --> pl["judge plan.lint<br/>six task-quality concerns,<br/>findings are fixed templates filled in by code"]
+  pl --> lanechk{"lane"}
+  lanechk -- small --> sm{"clean and confident, or<br/>the service unavailable?"}
+  sm -- yes --> lintok["write review.md: mode lint, model lint,<br/>the checks that ran, whether the semantic check ran<br/>outcome: success, no reviewer<br/>next: /change implement change"]
+  sm -- "finding, uncertain concern, or over the limits" --> esc["escalate the lane to medium<br/>findings become unverified notes"]
+  lanechk -- "medium or large" --> tri
+  esc --> tri
 
-  disc --> tri{"triage enabled?"}
+  tri{"judgment enabled AND an approving review<br/>exists AND no guidance AND only the proposal<br/>or design changed?"}
   tri -- no --> disp
-  tri -- yes --> capture["capture reviewed set:<br/>per-file digests, proposal text, design text"]
-  capture --> assess["assessReviewTriage: judge review.triage<br/>only if: existing review is APPROVE,<br/>no guidance given, a retained copy exists,<br/>specs and tasks unchanged<br/>sends unified diffs of proposal and design"]
-  assess --> carry{"immaterial edit, confident,<br/>and fewer than 3 carry-forwards in a row?"}
+  tri -- yes --> jt["judge review.triage<br/>unified diffs of proposal and design"]
+  jt --> carry{"immaterial edit, confident,<br/>fewer than 3 carry-forwards in a row?"}
   carry -- no --> disp
-  carry -- yes --> recheck{"artifact digest still<br/>the same?"}
-  recheck -- no --> disp
-  recheck -- yes --> carried["write review.md: APPROVE carried forward<br/>round plus 1, names basis digest, count, judged answers<br/>no reviewer runs"]
+  carry -- yes --> carried["write review.md: APPROVE carried forward<br/>names basis digest, count and judged answers<br/>no reviewer runs"]
   carried --> okOut
 
   disp["dispatchPlanningReview<br/>fresh reviewer session, a model other than the<br/>author's preferred, else the same model,<br/>read tools only, brokered planning reviewer child"] --> parsed{"reviewer output is valid<br/>structured verdict?"}
@@ -374,23 +327,22 @@ flowchart TD
   extract --> after["verdict APPROVE or REVISE<br/>critical findings, required changes, recommendations"]
   after --> same{"artifact digest unchanged<br/>while the reviewer ran?"}
   same -- no --> stale["REVIEW_ARTIFACT_INVALID"]
-  same -- yes --> wr["write review.md<br/>round, model, artifact digest, verdict"]
-  wr --> trecon{"triage enabled?"}
-  trecon -- yes --> tr["reconcile triage record<br/>on APPROVE retain the approved set<br/>at most 3 retentions per change"]
-  trecon -- no --> verdict
-  tr --> verdict{"verdict"}
+  same -- yes --> wr["write review.md<br/>round, mode reviewer, model, artifact digest, verdict"]
+  wr --> verdict{"verdict"}
   verdict -- APPROVE --> okOut["outcome: success<br/>lifecycle becomes READY<br/>next: /change implement change"]
   verdict -- REVISE --> revise["outcome: blocked<br/>required changes listed<br/>next: /change refine change<br/>refine folds them into its prompt automatically"]
   classDef llm fill:#f8d7da,stroke:#c0392b,color:#1a1a1a
   classDef jev fill:#d4edda,stroke:#1e8449,color:#1a1a1a
   classDef llmJev fill:#f8d7da,stroke:#1e8449,stroke-width:4px,color:#1a1a1a
-  class assess,extract jev
+  class pl,jt,extract jev
   class disp llm
 ```
 
+A lint approval is stale outside the small lane, so an escalation makes the next `/change review` dispatch a reviewer.
+
 ## 7. Implement and resume
 
-`/change implement <change>` compiles `tasks.md` into a dependency DAG and runs dependency-ready tasks in a dedicated worktree. `/change resume <change> <checkpoint-id>` confirms a pause and then runs the same flow.
+`/change implement <change>` compiles `tasks.md` into a dependency DAG and runs dependency-ready tasks in a dedicated worktree. `/change resume <change> <checkpoint-id>` confirms a pause and then runs the same flow. The phase is [implementation.ts](../src/change/phases/implementation.ts); it opens the run manifest through [run-manifest.ts](../src/execution/run-manifest.ts) and hands each task to [unit-runner.ts](../src/execution/unit-runner.ts).
 
 ```mermaid
 flowchart TD
@@ -406,8 +358,9 @@ flowchart TD
   wt --> man{"run manifest exists?"}
   man -- yes --> idc{"manifest change, repository and<br/>worktree match the selection?"}
   idc -- no --> conflict["RECOVERY_STATE_CONFLICT"]
-  idc -- yes --> chg{"artifact digest differs<br/>from the manifest's?"}
-  man -- no --> newm["write manifest: lifecycle READY,<br/>tasks ready or completed,<br/>model assignments, worktree identity"]
+  idc -- yes --> lref["refresh the manifest's lane<br/>from the change's lane record"]
+  lref --> chg{"artifact digest differs<br/>from the manifest's?"}
+  man -- no --> newm["write manifest: lifecycle READY, the lane,<br/>tasks ready or completed,<br/>model assignments, worktree identity"]
   newm --> chg
   chg -- yes --> inval["recovery action invalidate_run"]
   chg -- no --> pend["recovery actions restore_checkpoint<br/>for each pending checkpoint"]
@@ -430,6 +383,7 @@ flowchart TD
   ronly -- no --> sch["runChangeScheduler<br/>see section 8 for each task"]
 
   sch --> res{"scheduler states"}
+  res -- "a recovery decision ended a task" --> rend["escalated: the task stays ready,<br/>outcome blocked, next: /change review change<br/>stopped: outcome blocked with the reason<br/>and the failure record's path"]
   res -- "any design_conflict" --> dc["persist design_conflict on those tasks<br/>status design_conflict"]
   res -- "all completed" --> comp["status completed"]
   res -- "any awaiting_user" --> pau["status paused"]
@@ -447,11 +401,11 @@ flowchart TD
   class sch llmJev
 ```
 
-The scheduler runs at most one writing task at a time under a writer lease and lets read-only tasks run alongside. A task that throws is attempted a second time; see section 8 for what counts as a retry.
+The scheduler runs at most one writing task at a time under a writer lease and lets read-only tasks run alongside. A task gets at most two attempts in a run; section 8 shows what ends one and what starts the second.
 
 ## 8. One task through the pipeline
 
-This is the `execute` callback the scheduler runs for each dependency-ready task, in [implementation.ts](../src/change/phases/implementation.ts) and [task-runner.ts](../src/execution/task-runner.ts).
+This is the `execute` callback the scheduler runs for each dependency-ready task ([unit-runner.ts](../src/execution/unit-runner.ts)), with the step modules under `src/change/phases/task-steps/` and the pipeline in [task-runner.ts](../src/execution/task-runner.ts).
 
 ```mermaid
 flowchart TD
@@ -463,15 +417,15 @@ flowchart TD
   ck --> pau(["outcome awaiting_user"])
   man -- no --> t0["record attempt start time"]
 
-  t0 --> route{"first attempt AND<br/>economy lane configured AND<br/>judgment enabled?"}
-  route -- no --> prim["primary builder slot"]
-  route -- yes --> jr["judge routing.task_model<br/>needs MUSTER_JEV_MODEL_ROUTING=1<br/>and MUSTER_BUILDER_ECONOMY_MODEL"]
-  jr --> lane{"enforce mode AND confident:<br/>mechanical, low risk, narrow reach?"}
-  lane -- yes --> eco["economy builder slot<br/>primary with only the model replaced"]
+  t0 --> route{"first attempt AND judgment enabled<br/>AND the lane permits reduced work?"}
+  route -- no --> prim["configured builder thinking<br/>primary builder model<br/>reviewer thinking high"]
+  route -- yes --> jr["judge routing.task_model<br/>one request per task, verdict carried<br/>to the builder and the reviewer"]
+  jr --> lane{"enforce mode AND confident:<br/>mechanical, low risk, narrow or moderate reach?"}
   lane -- no --> prim
+  lane -- yes --> eco["thinking per task: narrow gives builder low<br/>and reviewer medium, moderate gives medium and high<br/>economy models only where configured:<br/>MUSTER_BUILDER_ECONOMY_MODEL<br/>MUSTER_REVIEWER_ECONOMY_MODEL"]
 
   prim --> b
-  eco --> b["fresh builder session<br/>brokered child in the change worktree<br/>declared scopes in the prompt<br/>8 hour timeout"]
+  eco --> b["fresh builder session<br/>brokered child in the change worktree<br/>declared scopes in the prompt<br/>the latest failure record, when there is one<br/>8 hour timeout"]
   b --> cc["each brokered host command:<br/>rules, allowlist, profile, then<br/>judge command.classification with a 1.5 second bound"]
   cc --> claim{"builder claim"}
   claim -- blocked --> ob["evaluateTaskOutcome: blocked<br/>needs a reason"]
@@ -482,40 +436,49 @@ flowchart TD
   vb --> ver["run task.verify commands in the worktree<br/>host runner, verification profile<br/>bun, node, npm, npx, git, openspec only<br/>no shell operators, 120 second cap<br/>stop at the first non-zero exit"]
   ver --> vp{"all passed?"}
   vp -- no --> vf["not completed: verification failed"]
-  vp -- yes --> rb["forecast review budget"]
-  rb --> jf["judge review.task_focus<br/>diff excerpt up to 24,000 bytes,<br/>skipped when a changed path is denylisted"]
-  jf --> rv["fresh read-only reviewer child<br/>contract, diff, test output, scopes, TDD evidence<br/>focus items only when enforce mode acted<br/>120 second timeout"]
+  vp -- yes --> jf["judge review.task_focus<br/>diff excerpt up to 24,000 bytes,<br/>skipped when a changed path is denylisted"]
+  jf --> sk{"enforce mode, every answer confidently good,<br/>lane permits reduction, verification passed,<br/>TDD accepted, diff complete and in write scope,<br/>none denylisted, first attempt?"}
+  sk -- yes --> skip["review skipped:<br/>review record APPROVE, model skipped,<br/>basis judgment, the decision record id"]
+  sk -- no --> rv["fresh read-only reviewer child<br/>contract, diff, test output, scopes, TDD evidence<br/>focus items only when enforce mode acted<br/>120 second timeout"]
   rv --> ap{"approved?"}
   ap -- no --> rp["blocked: findings become repair input"]
-  ap -- yes --> pe["persistEvidence<br/>task-results, reviews/task, tdd, reports"]
+  ap -- yes --> pe
+  skip --> pe["persistEvidence<br/>task-results, reviews/task, tdd, reports"]
   pe --> sync["tick the checkbox in tasks.md<br/>update manifest for this task"]
-  sync --> rec["reconcile first-attempt outcome into<br/>task quality and routing decision records"]
+  sync --> rec["reconcile first-attempt outcome into<br/>the routing decision record"]
   rec --> done(["outcome completed"])
 
-  ob --> stuck(["outcome blocked<br/>dependents on this branch are blocked,<br/>unrelated branches continue<br/>a later /change implement runs it again"])
-  tb --> stuck
-  vf --> stuck
-  rp --> stuck
+  ob --> fr
+  tb --> fr
+  vf --> fr
+  rp --> fr["write the failure record: outcome, evidence,<br/>reproduction, stated fix, changed paths<br/>bounded, redacted, two latest kept"]
+  fr --> tr["judge task.recovery once<br/>retry, escalate or stop"]
+  tr --> rd{"enforce mode AND confident?"}
+  rd -- "retry, verification failed or repairs required,<br/>and a second attempt is left" --> again
+  rd -- escalate --> escl["escalateLane, refresh the manifest lane<br/>the task stays ready<br/>command ends blocked, next: /change review"]
+  rd -- stop --> stp["command ends blocked with the reason<br/>and the failure record's path"]
+  rd -- "otherwise, or judgment off, unavailable,<br/>uncertain or shadow" --> stuck(["outcome blocked<br/>dependents on this branch are blocked,<br/>unrelated branches continue<br/>a later /change implement runs it again<br/>with the failure in the builder prompt"])
   odc --> dcend(["outcome design_conflict"])
 
-  t0 -. "any step throws:<br/>unparseable builder JSON, child crash, git error" .-> thr{"attempt below 2?"}
-  thr -- yes --> again["second attempt<br/>always the primary builder,<br/>never the economy lane"]
+  t0 -. "any step throws:<br/>unparseable builder JSON, child crash, git error" .-> tf["failure record, then task.recovery once"]
+  tf --> thr{"decision ends the task?"}
+  thr -- yes --> stp
+  thr -- no --> att{"attempt below 2?"}
+  att -- yes --> again["second attempt<br/>primary builder and configured thinking,<br/>never an economy lane<br/>the reviewer runs, it is never skipped"]
   again --> t0
-  thr -- no --> dbg(["outcome debugging<br/>lifecycle BLOCKED"])
+  att -- no --> dbg(["outcome debugging<br/>lifecycle BLOCKED"])
   classDef llm fill:#f8d7da,stroke:#c0392b,color:#1a1a1a
   classDef jev fill:#d4edda,stroke:#1e8449,color:#1a1a1a
   classDef llmJev fill:#f8d7da,stroke:#1e8449,stroke-width:4px,color:#1a1a1a
-  class jr,cc,jf jev
+  class jr,cc,jf,tr jev
   class b,rv llm
 ```
 
-A task gets a second attempt only when an attempt throws. A returned `blocked` outcome (the builder claimed it, TDD evidence was rejected, verification failed, or the reviewer asked for repair) is final for that run: it blocks the task's dependents and leaves everything else running. Two thrown attempts end in `debugging`, which the snapshot derives as `BLOCKED`.
-
-Two judgment call sites are built but not connected to task execution yet, so nothing is sent for them: `context.capsule_ranking` (context capsule assembly) and `debugging.thrash` (the repair loop that records failures). The [security model](security.md) lists both with that caveat.
+Without judgment a returned `blocked` outcome (the builder claimed it, TDD evidence was rejected, verification failed, or the reviewer asked for repair) is final for that run, and only a thrown attempt is retried. Every failed attempt is still recorded, so the next attempt starts informed. With judgment in enforce mode `task.recovery` can add the second attempt to a blocked task, never a third.
 
 ## 9. Verify
 
-`/change verify <change>` runs fresh-context final verification. It is only allowed in `VERIFYING`, which is the state after every task is checked and before a current validation exists. No agent runs here: `runFinalValidation` opens a fresh session identity but every gate is a code collector, so this command spends no tokens. It only runs the test commands.
+`/change verify <change>` runs final verification. It is only allowed in `VERIFYING`, which is the state after every task is checked and before a current validation exists. No agent runs here: `runFinalValidation` opens a fresh session identity but every gate is a check over recorded evidence and command results.
 
 ```mermaid
 flowchart TD
@@ -524,14 +487,18 @@ flowchart TD
   st --> rd["read run manifest, task results, task reviews,<br/>dependency reports, checkpoints"]
   rd --> git["read worktree identity, status, worktree list<br/>source digest from the change worktree"]
   git --> plr["read review.md, artifact digest"]
-  plr --> cmd["collectCommands<br/>every distinct task.verify command<br/>then the full suite: bun test, at the worktree root<br/>each through the host runner, verification profile"]
-  cmd --> val["runFinalValidation - nine gates"]
+  plr --> reuse{"for each task: every verify command recorded<br/>with exit 0 in its result AND the recorded<br/>source digest equals the current one?"}
+  reuse -- yes --> reused["commands are not run again<br/>marked reused, with the digest, in verification.md"]
+  reuse -- no --> cmd["run each distinct command<br/>through the host runner, verification profile"]
+  reused --> full
+  cmd --> full["the full suite always runs:<br/>bun test, at the worktree root"]
+  full --> val["runFinalValidation - nine gates"]
 
   subgraph gates["Gates, each must pass"]
     direction TB
     g1["openspec: planning complete,<br/>all artifacts done, strict validation passes"]
     g2["tasks: all done, each linked to a requirement<br/>and scenario, each has a verify command"]
-    g3["evidence: manifest present, every task has<br/>completed persisted evidence and an APPROVE review"]
+    g3["evidence: manifest present, every task has completed<br/>persisted evidence and an APPROVE review;<br/>a skipped review counts only where the manifest's<br/>lane permits reduction and it names a decision record"]
     g4["tests: each focused command exited 0<br/>and the full suite exited 0"]
     g5["findings: no unresolved blocking review findings"]
     g6["design: design.md present, aligned, with evidence"]
@@ -579,12 +546,12 @@ flowchart TD
   snap --> ok{"snapshot readable?"}
   ok -- no --> b["outcome: blocked<br/>no readable production snapshot"]
   ok -- yes --> u["load usage summary from the run store"]
-  u --> r["render:<br/>Change, Lifecycle, Review freshness,<br/>Validation freshness, pending checkpoint count,<br/>usage by phase, host execution notice"]
+  u --> r["render:<br/>Change, Lifecycle, Lane, Review freshness,<br/>Validation freshness, pending checkpoint count,<br/>Judgment block, usage by phase,<br/>host execution notice"]
 ```
 
 ## 12. Judgment runtime
 
-Every judgment call site goes through the same runtime in [src/judgment/ask.ts](../src/judgment/ask.ts). With judgment off, nothing is sent and behavior is exactly what it is without it.
+Every judgment call site goes through the same runtime in [src/judgment/ask.ts](../src/judgment/ask.ts), and every site that can act asks through `tryJudge`, which returns nothing to use when judgment is off or unavailable. Judgment is enabled by `MUSTER_JEV=1` and `MUSTER_JEV_API_KEY`, and once enabled it enforces by default; `MUSTER_JEV_MODE=shadow` selects shadow. With judgment off, nothing is sent and behavior is exactly what it is without it. No decision has its own enabling flag.
 
 ```mermaid
 flowchart TD
@@ -594,9 +561,7 @@ flowchart TD
   key -- no --> nc["not configured: fallback"]
   key -- yes --> mode{"MUSTER_JEV_MODE is<br/>shadow, enforce or unset?"}
   mode -- "any other value" --> inv["invalid configuration: fallback"]
-  mode -- valid --> dflag{"call site has its own flag?<br/>review.triage: MUSTER_JEV_REVIEW_TRIAGE<br/>routing.task_model: MUSTER_JEV_MODEL_ROUTING"}
-  dflag -- "set to something other than 1" --> off2["disabled: fallback"]
-  dflag -- ok --> deny{"any declared source path is a<br/>credential file: .env, keys, .npmrc,<br/>.aws, .kube, and similar?"}
+  mode -- valid --> deny{"any declared source path is a<br/>credential file: .env, keys, .npmrc,<br/>.aws, .kube, and similar?"}
   deny -- yes --> refuse["refused, nothing sent"]
   deny -- no --> red["redact every string in the state<br/>bearer tokens, credential flags,<br/>key value secrets, private keys,<br/>secret URL parameters, the API key itself"]
   red --> size{"state plus longest question<br/>within 32,000 tokens, all questions<br/>within 64,000 tokens?"}
@@ -606,10 +571,10 @@ flowchart TD
   ver -- no --> disc["discarded: fallback"]
   ver -- yes --> rec["write decision record to the run store<br/>digest of the redacted state, never the state"]
   rec --> m2{"mode"}
-  m2 -- shadow --> sh["record only<br/>caller behaves as without judgment"]
-  m2 -- enforce --> conf{"gate says act:<br/>confident and unambiguous?"}
+  m2 -- shadow --> sh["record only<br/>caller behaves as without judgment<br/>and reconciles what would have happened"]
+  m2 -- "enforce (the default)" --> conf{"gate says act:<br/>confident and unambiguous?"}
   conf -- no --> abst["abstain: caller behaves as without judgment"]
-  conf -- yes --> act["outcome handed to the caller<br/>which may skip an agent, add advice,<br/>choose a model, or carry a review forward"]
+  conf -- yes --> act["outcome handed to the caller<br/>which may choose a lane, skip an agent or a review,<br/>choose thinking or a model, add advice,<br/>carry a review forward, or end a task"]
   classDef llm fill:#f8d7da,stroke:#c0392b,color:#1a1a1a
   classDef jev fill:#d4edda,stroke:#1e8449,color:#1a1a1a
   classDef llmJev fill:#f8d7da,stroke:#1e8449,stroke-width:4px,color:#1a1a1a
@@ -620,60 +585,13 @@ The call sites, in the order they fire during a change:
 
 | Order | Decision | Where | Can change behavior in enforce mode |
 | --- | --- | --- | --- |
-| 1 | `planning.preflight` | propose, refine | yes: skips the preflight agent |
-| 2 | `planning.complexity` | propose, refine | yes: replaces pattern risk inputs |
-| 3 | `planning.task_quality` | propose, refine, before writing artifacts | no: advice only |
-| 4 | `review.triage` | review, needs its own flag | yes: can carry an approval forward |
-| 5 | `review.extraction` | review, only for unstructured reviewer output | yes: extracts findings |
-| 6 | `routing.task_model` | implement, first attempt, needs its own flag | yes: picks the economy lane |
-| 7 | `command.classification` | implement, every brokered host command | yes: a non-none category denies the command |
-| 8 | `review.task_focus` | implement, before each task review | no: adds focus to the reviewer prompt |
-| - | `context.capsule_ranking` | not connected | - |
-| - | `debugging.thrash` | not connected | - |
+| 1 | `change.triage` | propose, refine, unless `lane=` is given | yes: chooses the lane, or ends the command when the request is already satisfied |
+| 2 | `plan.lint` | review, after deterministic lint passes | yes: approves a small-lane plan without a reviewer, or escalates it |
+| 3 | `review.triage` | review, when an approved review exists and only the proposal or design changed | yes: can carry an approval forward |
+| 4 | `review.extraction` | review, only for unstructured reviewer output | yes: extracts findings |
+| 5 | `routing.task_model` | implement, first attempt, when the lane permits reduced work | yes: thinking per task, and the economy models where configured |
+| 6 | `command.classification` | implement, every brokered host command | yes: a non-none category denies the command |
+| 7 | `review.task_focus` | implement, before each task review | yes: adds focus, or skips the review when every guard holds |
+| 8 | `task.recovery` | implement, after a failed attempt | yes: retry once more, escalate the lane, or stop for a person |
 
-## 13. Legacy and Fusion commands
-
-These commands were retired and are no longer registered. The diagram below is kept until the documentation refresh in the last change of the simplification series replaces it.
-
-```mermaid
-flowchart TD
-  subgraph legacyBox["Deprecated aliases"]
-    direction TB
-    lr(["/refine, /implement, /ship change"]) --> notice["warning: prefer the /change equivalent"]
-    notice --> lc{"controller configured?"}
-    lc -- no --> old
-    lc -- yes --> lg["resolveChangeAction for refine, implement or finish"]
-    lg --> la{"allowed?"}
-    la -- no --> lb["warning with reason and next command<br/>stop"]
-    la -- yes --> old["old handler runs"]
-    old --> o1["refine: read-only debate, revised design.md,<br/>then tasks.md, strict validate"]
-    old --> o2["implement: pick next incomplete phase,<br/>collaborate, run verify commands, tick boxes"]
-    old --> o3["ship: no unchecked tasks, strict validate,<br/>openspec verify if supported, archive"]
-  end
-
-  subgraph helpers["OpenSpec helpers"]
-    direction TB
-    os(["/os-status change"]) --> os1["status, tasks per phase"]
-    ini(["/init"]) --> ini1{"openspec/config.yaml<br/>exists?"}
-    ini1 -- yes --> ini2["nothing to do"]
-    ini1 -- no --> ini3["run openspec init, 60 second cap<br/>may need an interactive terminal"]
-  end
-
-  subgraph fh["Fusion Harness"]
-    direction TB
-    fhc(["/fh"]) --> fh1["list every /fh-* command,<br/>toggle the multi-row model bar"]
-    fo(["/fh-only slot prompt"]) --> fo1["run one configured slot,<br/>or arm the next plain prompt"]
-    fm(["/fh-model"]) --> fm1["session-only slot, model, thinking choice,<br/>never rewrites YAML"]
-    fs(["/fh-system-prompt"]) --> fs1["show the system prompt of every slot"]
-    fr(["/fh-reset"]) --> fr1["fresh host session and fresh slot memories"]
-    fop(["/fh-opinion prompt"]) --> fop1["every slot answers independently,<br/>strict read-only tools, compare opinions"]
-    fd(["/fh-debate prompt"]) --> fd1["opening, rebuttal, closing rounds,<br/>every survivor sees every other opinion, no judge"]
-    ff(["/fh-fusion prompt"]) --> ff1["all slots research in parallel read-only,<br/>one fresh FUSION agent merges and builds,<br/>every slot acknowledges the merged context"]
-    fc(["/fh-collaborate prompt"]) --> fc1["every agent plans read-only,<br/>architect merges one delegation DAG,<br/>tasks run as dependencies clear,<br/>exactly one shared-CWD writer at a time"]
-    fa(["/fh-auto-validate prompt"]) --> fa1["validator designs an acceptance gate first,<br/>builder builds, gate runs, failures feed back<br/>until pass or --max-validations, default 5"]
-  end
-  classDef llm fill:#f8d7da,stroke:#c0392b,color:#1a1a1a
-  classDef jev fill:#d4edda,stroke:#1e8449,color:#1a1a1a
-  classDef llmJev fill:#f8d7da,stroke:#1e8449,stroke-width:4px,color:#1a1a1a
-  class o1,o2,fop1,fd1,ff1,fc1,fa1,fo1 llm
-```
+The [security model](security.md) lists what each call site sends.

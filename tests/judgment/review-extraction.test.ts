@@ -1,28 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import type { JudgmentAnswers } from "../../src/judgment/client.ts";
-import {
-  REVIEW_EXTRACTION_CONFIDENCE_FLOOR,
-  judgmentCatalog,
-  reviewExtractionDecision,
-  reviewExtractionState,
-  validateCatalog,
-  validateDecision,
-  type ReviewExtractionGateValue,
-} from "../../src/judgment/gates.ts";
+import { REVIEW_EXTRACTION_CONFIDENCE_FLOOR, reviewExtractionDecision, reviewExtractionState, type ReviewExtractionGateValue } from "../../src/judgment/decisions/review-extraction.ts";
+import { judgmentCatalog, validateCatalog } from "../../src/judgment/catalog.ts";
+import { validateDecision } from "../../src/judgment/decision.ts";
 import {
   REVIEW_EXTRACTION_LINE_KINDS,
   REVIEW_EXTRACTION_QUESTION_IDS,
   REVIEW_EXTRACTION_VERDICTS,
   parseReviewExtractionLineQuestionId,
   reviewExtractionLineQuestionId,
-  reviewExtractionQuestions,
-} from "../../src/judgment/questions.ts";
+  } from "../../src/judgment/questions.ts";
 import { planningReviewSubmissionSchema } from "../../src/review/review-artifact.ts";
 import {
   assembleReviewSubmission,
   parseReviewCandidates,
-  type ReviewCandidate,
+  type ReviewCandidate
 } from "../../src/review/review-extraction.ts";
+import { loadQuestions } from "../../src/prompts/questions.ts";
+
+const reviewExtractionQuestions = (count: number) => loadQuestions("review.extraction", { candidates: Array.from({ length: count }, () => ({})) });
 
 type Kind = (typeof REVIEW_EXTRACTION_LINE_KINDS)[number];
 type Verdict = (typeof REVIEW_EXTRACTION_VERDICTS)[number];
@@ -33,7 +29,7 @@ const verdict = (choice: Verdict | string, confidence = 0.9): JudgmentAnswers =>
     choice,
     probabilities: { [choice]: confidence },
     confidence,
-  },
+  }
 });
 
 /** A verdict, then one line answer per entry, each with its own confidence. */

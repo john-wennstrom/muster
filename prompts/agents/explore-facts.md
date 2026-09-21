@@ -1,0 +1,5 @@
+---
+variables: [FACTS_JSON]
+---
+SUPPLEMENTAL FACTS
+{{FACTS_JSON}}

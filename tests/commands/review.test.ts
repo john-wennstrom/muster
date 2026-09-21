@@ -366,8 +366,8 @@ describe("change review with extraction", () => {
   });
 });
 
-describe("change review with task quality notes", () => {
-  const promptFor = async (taskQualityNotes?: readonly string[]) => {
+describe("change review with plan lint notes", () => {
+  const promptFor = async (planLintNotes?: readonly string[]) => {
     const { repositoryRoot, changeRoot } = await createChange();
     const prompts: string[] = [];
     const runner: PlanningReviewerRunner = async (request) => {
@@ -386,7 +386,7 @@ describe("change review with task quality notes", () => {
       author: { model: "openai/author", sessionId: "author-session" },
       candidates: [{ model: "openai/reviewer", available: true }],
       runner,
-      ...(taskQualityNotes ? { taskQualityNotes } : {}),
+      ...(planLintNotes ? { planLintNotes } : {}),
     }, { now: () => new Date(observedAt) });
     return { prompt: prompts[0]!, result, changeRoot };
   };

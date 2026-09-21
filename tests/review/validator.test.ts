@@ -322,3 +322,44 @@ describe("final validator and planned manual tasks", () => {
     expect(result.checks.find((check) => check.gate === "evidence")).toMatchObject({ status: "FAIL" });
   });
 });
+
+describe("final validator and skipped reviews", () => {
+  const skipped: ReviewRecord = {
+    ...taskReview,
+    model: "skipped",
+    basis: "judgment",
+    judgmentRecordId: "judgment-record-1",
+  } as ReviewRecord;
+
+  const withSkip = (
+    lane: RunManifest["lane"],
+    review: ReviewRecord = skipped,
+  ): FinalValidatorDependencies => ({
+    ...dependencies([]),
+    readEvidence: async () => ({ manifest: { ...manifest, lane }, taskResults: [taskResult], reviews: [review] }),
+  });
+  const evidence = async (deps: FinalValidatorDependencies) =>
+    (await runFinalValidation(options(deps))).checks.find((check) => check.gate === "evidence");
+
+  test("a skipped review on a lane that permits reduced work passes", async () => {
+    expect(await evidence(withSkip("medium"))).toMatchObject({ status: "PASS" });
+    expect(await evidence(withSkip("small"))).toMatchObject({ status: "PASS" });
+  });
+
+  test("a skipped review on the large lane fails naming the task", async () => {
+    const check = await evidence(withSkip("large"));
+    expect(check).toMatchObject({ status: "FAIL" });
+    expect(check?.summary).toContain("Task 1.1 has a skipped review");
+  });
+
+  test("a skipped review that names no judgment record fails naming the task", async () => {
+    const { judgmentRecordId: _id, ...unnamed } = skipped as ReviewRecord & { judgmentRecordId?: string };
+    const check = await evidence(withSkip("medium", unnamed as ReviewRecord));
+    expect(check).toMatchObject({ status: "FAIL" });
+    expect(check?.summary).toContain("Task 1.1 has a skipped review that names no judgment record");
+  });
+
+  test("a reviewer's approval is unaffected by the lane", async () => {
+    expect(await evidence(withSkip("large", taskReview))).toMatchObject({ status: "PASS" });
+  });
+});

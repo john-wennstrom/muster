@@ -26,6 +26,8 @@ export interface ChangeCommandSpec {
   /** Lowest and highest accepted count of arguments following the change slug; null is unbounded. */
   arity: { min: number; max: number | null };
   usage: string;
+  /** Whether the argument right after the change name may be `lane=<small|medium|large>`. */
+  laneOption?: true;
 }
 
 export const changeCommands = {
@@ -45,7 +47,8 @@ export const changeCommands = {
     readOnly: false,
     runIdentity: "per-invocation",
     arity: { min: 0, max: null },
-    usage: "/change propose <change> <goal>",
+    usage: "/change propose <change> [lane=small|medium|large] <goal>",
+    laneOption: true,
   },
   refine: {
     args: "change+text",
@@ -54,7 +57,8 @@ export const changeCommands = {
     readOnly: false,
     runIdentity: "per-invocation",
     arity: { min: 0, max: null },
-    usage: "/change refine <change> [guidance]",
+    usage: "/change refine <change> [lane=small|medium|large] [guidance]",
+    laneOption: true,
   },
   review: {
     args: "change+text",

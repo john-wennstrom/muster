@@ -49,6 +49,8 @@ export interface TaskPipelineBuilderResult {
   implementationPersisted: boolean;
   tddEvidence?: TddEvidenceRecord;
   reason?: string;
+  /** What the builder says it changed, kept with a failure so the next attempt can see it. */
+  statedFix?: string;
   checkpointId?: string;
   conflict?: DesignConflictEvidence;
 }
@@ -56,11 +58,15 @@ export interface TaskPipelineBuilderResult {
 export interface TaskPipelineVerificationResult {
   passed: boolean;
   evidence: readonly string[];
+  /** The command that failed, present only when verification did not pass. */
+  failure?: { command: string; exitCode: number | null; output: string };
 }
 
 export interface TaskPipelineReviewResult {
   approved: boolean;
   findings: readonly string[];
+  /** Present when no reviewer ran and a judgment decision approved the task instead. */
+  skipped?: { decisionRecordId: string };
 }
 
 export interface TaskPipelineOptions {

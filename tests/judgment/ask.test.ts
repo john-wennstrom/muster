@@ -19,20 +19,9 @@ import {
   type JudgmentQuestions,
   type JudgmentUnavailableReason,
 } from "../../src/judgment/client.ts";
-import {
-  abstain,
-  act,
-  defineDecision,
-  noulBand,
-  noulOf,
-} from "../../src/judgment/gates.ts";
+import { abstain, act, defineDecision, noulBand, noulOf } from "../../src/judgment/decision.ts";
 import { noul } from "../../src/judgment/questions.ts";
-import {
-  JudgmentFixtureMissingError,
-  createDeadClient,
-  createRecordingClient,
-  createReplayClient,
-} from "../../src/judgment/replay.ts";
+import { createDeadClient } from "../helpers/scripted-judgment.ts";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -46,7 +35,7 @@ async function tempDirectory() {
 }
 
 const API_KEY = "sk-test-key-do-not-leak";
-const enabled = { MUSTER_JEV: "1", MUSTER_JEV_API_KEY: API_KEY };
+const enabled = { MUSTER_JEV: "1", MUSTER_JEV_API_KEY: API_KEY, MUSTER_JEV_MODE: "shadow" };
 const change = "judgment-layer";
 
 const decision = defineDecision<{ request: string }, "escalate">({
@@ -54,6 +43,7 @@ const decision = defineDecision<{ request: string }, "escalate">({
   version: 1,
   effects: ["adds_caution"],
   representativeInput: { request: "x" },
+  state: (input) => input,
   questions: ({ request }) => [
     ["public_contract", noul(`Does the request change a public contract? Request: ${request.length} chars`)],
   ],
@@ -236,19 +226,6 @@ describe("unavailable results fall back", () => {
     });
   });
 
-  test("a decision with its own flag runs only when that flag is set", async () => {
-    const flagged = defineDecision({ ...decision, enabledBy: "MUSTER_JEV_TEST_FLAG" });
-    const { client, sent } = scripted(0.95);
-    const off = await setup({ client });
-    expect(await off.runtime.judge(flagged, request)).toMatchObject({ kind: "fallback", reason: "disabled" });
-    expect(sent).toEqual([]);
-    expect(await listDecisionRecords(off.store, change)).toEqual([]);
-
-    const on = await setup({ client, env: { ...enabled, MUSTER_JEV_TEST_FLAG: "1" } });
-    expect(await on.runtime.judge(flagged, request)).toMatchObject({ kind: "shadow" });
-    expect(sent).toHaveLength(1);
-  });
-
   test("a persistence failure never reaches the caller", async () => {
     const { client } = scripted(0.95);
     const failures: unknown[] = [];
@@ -397,14 +374,13 @@ describe("egress through the entry point", () => {
     }
   });
 
-  test("the API key never appears in a record, usage record, or fixture", async () => {
+  test("the API key never appears in a record or usage record", async () => {
     const root = await tempDirectory();
-    const fixtures = await tempDirectory();
     const store = new AtomicJsonStore(root);
     const runtime = createJudgmentRuntime({
       env: enabled,
       store,
-      client: createRecordingClient(scripted(0.95).client, fixtures),
+      client: scripted(0.95).client,
     });
     await runtime.judge(decision, {
       ...request,
@@ -415,30 +391,9 @@ describe("egress through the entry point", () => {
       (await readdir(directory, { recursive: true, withFileTypes: true }))
         .filter((entry) => entry.isFile())
         .map((entry) => join(entry.parentPath, entry.name));
-    const all = [...await files(root), ...await files(fixtures)];
-    expect(all.length).toBeGreaterThanOrEqual(3);
+    const all = await files(root);
+    expect(all.length).toBeGreaterThanOrEqual(2);
     for (const path of all) expect(await readFile(path, "utf8")).not.toContain(API_KEY);
-  });
-});
-
-describe("recorded fixtures through the entry point", () => {
-  test("a recorded response is replayed with no network", async () => {
-    const fixtures = await tempDirectory();
-    const live = scripted(0.95);
-    const recorder = await setup({ client: createRecordingClient(live.client, fixtures) });
-    await recorder.runtime.judge(decision, request);
-
-    const replayed = await setup({ client: createReplayClient(fixtures) });
-    expect(await replayed.runtime.judge(decision, request)).toMatchObject({ kind: "shadow" });
-    expect(live.sent).toHaveLength(1);
-  });
-
-  test("a missing recording fails the test instead of falling back", async () => {
-    const { store, runtime } = await setup({ client: createReplayClient(await tempDirectory()) });
-
-    await expect(runtime.judge(decision, request)).rejects.toBeInstanceOf(JudgmentFixtureMissingError);
-    await expect(runtime.judge(decision, request)).rejects.toThrow(/test\.sample/);
-    expect(await listDecisionRecords(store, change)).toEqual([]);
   });
 });
 

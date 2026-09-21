@@ -14,6 +14,7 @@ import {
   reconcileReviewExtraction,
   type PlanningReviewJudgment,
 } from "./review-extraction.ts";
+import { renderPrompt, type RenderedPrompt } from "../prompts/render.ts";
 
 const REVIEW_TOOLS = READONLY_TOOLS.split(",");
 
@@ -106,6 +107,18 @@ function tryParseReviewerJson(text: string): { success: true; value: unknown } |
   }
 }
 
+/** What the planning reviewer is asked, with the output contract and any correction after a rejected reply. */
+export function planningReviewerPrompt(reviewRequest: string, correction?: string): RenderedPrompt {
+  return renderPrompt("planning-reviewer", {
+    REVIEW_REQUEST: reviewRequest,
+    CORRECTION_BLOCK: correction ?? "",
+  });
+}
+
+export function planningReviewCorrection(reason: string): string {
+  return renderPrompt("planning-review-correction", { REASON: reason });
+}
+
 export async function runBrokeredPlanningReviewer(
   request: PlanningReviewerRequest,
   childRunner: PlanningReviewerChildRunner = runAgent,
@@ -118,15 +131,7 @@ export async function runBrokeredPlanningReviewer(
     await childRunner({
       access: "read",
       run,
-      prompt: [
-        request.prompt,
-        [
-          "Return exactly one JSON object with only these fields — no markdown or code fence, no other fields, nothing before or after it:",
-          '{"verdict":"APPROVE"|"REVISE","criticalFindings":string[],"requiredChanges":string[],"recommendations":string[]}',
-          "criticalFindings, requiredChanges, and recommendations are arrays of single-line strings (use [] when there are none). verdict must be REVISE if either criticalFindings or requiredChanges is non-empty; otherwise APPROVE.",
-        ].join("\n"),
-        correction,
-      ].filter((line): line is string => Boolean(line)).join("\n\n"),
+      prompt: planningReviewerPrompt(request.prompt, correction),
       role: "reviewer",
       runId: request.runId,
       childId: request.sessionId,
@@ -186,7 +191,7 @@ export async function runBrokeredPlanningReviewer(
         !parsedJson.success ? {} : { issues: parsed!.error.issues },
       );
     }
-    correction = `Your previous response was rejected: ${reason}. Stop any further analysis and respond now with only the JSON object — no reasoning, no prose, no markdown fence, nothing before or after it.`;
+    correction = planningReviewCorrection(reason);
   }
   throw new HarnessError("REVIEW_ARTIFACT_INVALID", "Planning reviewer did not return one JSON review object", {});
 }

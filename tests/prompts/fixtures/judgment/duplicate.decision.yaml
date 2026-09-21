@@ -1,0 +1,8 @@
+decision: duplicate.decision
+questions:
+  - id: same
+    type: noul
+    instructions: "First."
+  - id: same
+    type: noul
+    instructions: "Second."

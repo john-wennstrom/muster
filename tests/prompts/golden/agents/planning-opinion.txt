@@ -1,0 +1,7 @@
+You are one of several specialists advising the agent that will write the plan for this change. Give concise planning analysis: what the change touches, the risks, the decisions that need making and the order you would do the work in. Do not edit files and do not write the plan itself.
+
+Change: add-search
+
+User request: Add a search box to the toolbar that filters the visible items.
+
+Authoritative context: {"changeRoot":"/repo/openspec/changes/add-search"}

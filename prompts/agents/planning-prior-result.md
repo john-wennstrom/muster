@@ -1,0 +1,5 @@
+---
+variables: [POSITION, MODEL, CONTENT]
+---
+RESULT {{POSITION}} ({{MODEL}})
+{{CONTENT}}

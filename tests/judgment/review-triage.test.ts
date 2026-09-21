@@ -2,17 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { createJudgmentRuntime } from "../../src/judgment/ask.ts";
 import { listDecisionRecords } from "../../src/judgment/audit.ts";
 import type { JudgmentAnswers, JudgmentClient } from "../../src/judgment/client.ts";
-import {
-  REVIEW_TRIAGE_CHANGE_BELOW,
-  REVIEW_TRIAGE_CONFIDENCE_AT_LEAST,
-  REVIEW_TRIAGE_ENABLE_VARIABLE,
-  REVIEW_TRIAGE_MATERIALITY_BELOW,
-  judgmentCatalog,
-  reviewTriageDecision,
-  reviewTriageState,
-  validateCatalog,
-  validateDecision,
-} from "../../src/judgment/gates.ts";
+import { REVIEW_TRIAGE_CHANGE_BELOW, REVIEW_TRIAGE_CONFIDENCE_AT_LEAST, REVIEW_TRIAGE_MATERIALITY_BELOW, reviewTriageDecision, reviewTriageState } from "../../src/judgment/decisions/review-triage.ts";
+import { judgmentCatalog, validateCatalog } from "../../src/judgment/catalog.ts";
+import { validateDecision } from "../../src/judgment/decision.ts";
 import {
   REVIEW_TRIAGE_CHANGE_QUESTION_IDS,
   REVIEW_TRIAGE_MATERIALITY_LEVELS,
@@ -42,12 +34,10 @@ function clean(overrides: JudgmentAnswers = {}): JudgmentAnswers {
 }
 
 describe("review.triage decision", () => {
-  test("is registered, valid, gated by its own flag, and only reduces work", () => {
+  test("is registered, valid, and only reduces work", () => {
     expect(judgmentCatalog).toContain(reviewTriageDecision);
     expect(() => validateCatalog(judgmentCatalog)).not.toThrow();
     expect(reviewTriageDecision.effects).toEqual(["reduces_work"]);
-    expect(reviewTriageDecision.enabledBy).toBe("MUSTER_JEV_REVIEW_TRIAGE");
-    expect(REVIEW_TRIAGE_ENABLE_VARIABLE).toBe("MUSTER_JEV_REVIEW_TRIAGE");
   });
 
   test("asks a four-level materiality rubric and five yes/no questions", () => {
@@ -166,23 +156,23 @@ describe("review.triage enabling flag", () => {
 
   const base = { MUSTER_JEV: "1", MUSTER_JEV_API_KEY: "key", MUSTER_JEV_MODE: "enforce" };
 
-  test("judgment without the triage flag sends nothing and falls back", async () => {
-    const result = await run(base);
+  test("without judgment enabled nothing is sent and the decision falls back", async () => {
+    const result = await run({ MUSTER_JEV_MODE: "enforce" });
     expect(result.verdict).toEqual({ kind: "fallback", reason: "disabled", recordId: null });
     expect(result.requests).toBe(0);
     expect(result.records).toEqual([]);
   });
 
-  test("with the flag, enforce mode hands back the acting outcome", async () => {
-    const result = await run({ ...base, MUSTER_JEV_REVIEW_TRIAGE: "1" });
+  test("with judgment enabled, enforce mode hands back the acting outcome", async () => {
+    const result = await run(base);
     expect(result.requests).toBe(1);
     expect(result.verdict.kind).toBe("enforce");
     expect(result.records).toHaveLength(1);
     expect(result.records[0]!.wouldHaveActed).toBe(true);
   });
 
-  test("with the flag in shadow mode, the outcome is recorded and not handed back", async () => {
-    const result = await run({ ...base, MUSTER_JEV_MODE: "shadow", MUSTER_JEV_REVIEW_TRIAGE: "1" });
+  test("in shadow mode the outcome is recorded and not handed back", async () => {
+    const result = await run({ ...base, MUSTER_JEV_MODE: "shadow" });
     expect(result.verdict.kind).toBe("shadow");
     expect(result.records[0]!.wouldHaveActed).toBe(true);
     expect(result.records[0]!.acted).toBe(false);

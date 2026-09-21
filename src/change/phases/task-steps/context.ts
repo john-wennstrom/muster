@@ -1,4 +1,4 @@
-import type { ModelSlot, ModelStack } from "../../../agents/model-stack.ts";
+import type { ModelSlot, ModelStack, Thinking } from "../../../agents/model-stack.ts";
 import type { AtomicJsonStore } from "../../../persistence/atomic-json-store.ts";
 import type { JudgmentRuntime } from "../../../judgment/ask.ts";
 import { HarnessError } from "../../../shared/errors.ts";
@@ -23,6 +23,21 @@ export interface TaskStepContext {
    * Absent means every builder task runs on the primary builder and routing sends nothing.
    */
   economyBuilder?: ModelSlot | null;
+  /** The optional economy reviewer, configured independently of the builder lane. */
+  economyReviewer?: ModelSlot | null;
+  /**
+   * Each task's routing verdict, set once before its first attempt so a single request serves both
+   * the builder and the reviewer. A task with no entry runs as configured.
+   */
+  routing?: Map<string, TaskRouting>;
+}
+
+/** What routing chose for one task, carried from its builder to its reviewer. */
+export interface TaskRouting {
+  /** True when the routing gate acted: the economy lanes are eligible, each when configured. */
+  economy: boolean;
+  builderThinking: Thinking;
+  reviewerThinking: Thinking;
 }
 
 export function parseAgentJson(text: string, label: string): unknown {

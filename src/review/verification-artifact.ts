@@ -18,6 +18,8 @@ const verificationCommandSchema = z.object({
   command: singleLine,
   exitCode: z.number().int(),
   outcome: z.enum(["PASS", "FAIL"]),
+  /** Present when the command was not run at verify: its result from the task's own run, still current. */
+  reused: z.object({ sourceDigest: digest }).strict().optional(),
   evidenceLinks: z.array(evidenceLinkSchema),
 }).strict().superRefine((command, context) => {
   const expected = command.exitCode === 0 ? "PASS" : "FAIL";

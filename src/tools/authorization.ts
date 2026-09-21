@@ -2,6 +2,7 @@ import { readdir, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { WriterLeaseRecord } from "../execution/writer-lease.ts";
 import type { BrokerAuditEvent } from "./protocol.ts";
+import { scopeMatches } from "../shared/scope.ts";
 
 export type AgentRole = "architect" | "builder" | "reviewer" | "validator";
 export type AuthorizedTaskState = "ready" | "running" | "completed" | "blocked" | "awaiting_user";
@@ -95,16 +96,6 @@ async function canonicalTarget(worktreePath: string, targetPath: string): Promis
     path: current,
     relativePath: relative(root, current).split(sep).join("/"),
   };
-}
-
-function scopeMatches(path: string, scope: string): boolean {
-  const normalized = scope.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/$/, "");
-  if (normalized === "**") return true;
-  if (normalized.endsWith("/**")) {
-    const root = normalized.slice(0, -3);
-    return path === root || path.startsWith(`${root}/`);
-  }
-  return path === normalized;
 }
 
 function leaseMatches(context: AuthorizationContext, root: string): boolean {

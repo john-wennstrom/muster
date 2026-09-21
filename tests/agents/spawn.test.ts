@@ -6,6 +6,7 @@ import { synthesizeLegacyStack } from "../../src/agents/model-stack.ts";
 import { newRun } from "../../src/agents/run-record.ts";
 import { runAgent } from "../../src/agents/spawn.ts";
 import { runProcess } from "../../src/shared/process.ts";
+import { promptFor } from "../helpers/prompt.ts";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -40,7 +41,7 @@ describe("runAgent", () => {
         run,
         modelStack: stack,
         onAgentStart: (started_) => started.push(started_.role),
-        prompt: "explore",
+        prompt: promptFor("explore"),
         role: "architect",
         runId: "run-1",
         childId: "child-1",
@@ -64,12 +65,38 @@ describe("runAgent", () => {
     expect(result.args[result.args.indexOf("--session-dir") + 1]).toContain(resolve(root, "sessions", "run-1", "change.explore", "architect"));
   });
 
+  test("a raw string is rejected before any child process starts", async () => {
+    const run = newRun("ARCHITECT", "fixture/architect");
+    const originalEntry = process.argv[1];
+    process.argv[1] = "/nonexistent/child.mjs";
+    try {
+      await expect(runAgent({
+        access: "read",
+        run,
+        prompt: "explore the repository" as never,
+        role: "architect",
+        runId: "run-1",
+        childId: "child-1",
+        taskId: "change.explore",
+        description: "explore",
+        assignee: "architect",
+        thinking: "low",
+        sessionDir: "/tmp/never-used",
+        cwd: process.cwd(),
+        timeoutMs: 1_000,
+      })).rejects.toMatchObject({ code: "PROMPT_TEMPLATE_INVALID" });
+    } finally {
+      process.argv[1] = originalEntry!;
+    }
+    expect(run.status).toBe("pending");
+  });
+
   test("a spawn failure settles the run as failed and rethrows", async () => {
     const run = newRun("ARCHITECT", "fixture/architect");
     await expect(runAgent({
       access: "read",
       run,
-      prompt: "explore",
+      prompt: promptFor("explore"),
       role: "architect",
       runId: "run-1",
       childId: "child-1",
@@ -94,6 +121,7 @@ describe("runAgent", () => {
         launchers.push(relative(root, path).replaceAll("\\", "/"));
       }
     }
-    expect(launchers).toEqual(["agents/spawn.ts"]);
+    // spawn.ts is the single entry point; the process it starts is launched from pi-process.ts alone.
+    expect(launchers).toEqual(["agents/pi-process.ts"]);
   });
 });

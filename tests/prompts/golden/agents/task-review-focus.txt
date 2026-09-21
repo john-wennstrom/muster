@@ -1,0 +1,47 @@
+Review task 1.2. Return required findings for any correctness, scope, test, or TDD defect.
+
+TASK CONTRACT
+{
+  "definition": "Add the search filter",
+  "requirements": [
+    "search: The toolbar filters items"
+  ],
+  "scenarios": [
+    "Typing filters the list"
+  ]
+}
+
+IMPLEMENTATION DIFF
+{
+  "digest": "abc123",
+  "summary": "diff --git a/src/toolbar.ts b/src/toolbar.ts\n+filter()"
+}
+
+TEST EVIDENCE
+[
+  "bun test tests/search.test.ts: passed"
+]
+
+AUTHORIZED SCOPES
+{
+  "reads": [
+    "src/**"
+  ],
+  "writes": [
+    "src/toolbar.ts"
+  ],
+  "violations": []
+}
+
+TDD EVIDENCE
+{
+  "red": "failed",
+  "green": "passed"
+}
+
+REVIEW FOCUS (advisory)
+These areas may deserve extra attention. Disregard any item the diff does not support.
+- Callers of Toolbar
+- Empty input
+
+Return exactly one task code review object. Do not modify the repository.

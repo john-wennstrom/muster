@@ -1,0 +1,9 @@
+Perform an independent planning review. Read every artifact in this reviewed set:
+- proposal.md
+- tasks.md
+The controller-calculated artifact digest is sha256:abc.
+Return APPROVE only when there are no critical findings or required changes; otherwise return REVISE.
+Unverified automated notes about the task list, from a semantic check made just before this review. They may be wrong. Confirm or dismiss each by reading the artifacts, and report only what you confirm as your own finding:
+- Task 1.1 has no verify command
+- Requirement search is not covered
+Pay attention to the task ordering.

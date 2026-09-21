@@ -59,7 +59,6 @@ export const failureClassifications = {
   RECOVERY_STATE_CONFLICT: { blocker: "invalid_evidence" },
   SNAPSHOT_INCONSISTENT: { blocker: "invalid_evidence" },
   STATE_OBSERVATION_CONFLICT: { blocker: "invalid_evidence" },
-  DEBUGGING_STATE_INVALID: { blocker: "invalid_evidence" },
 
   PLANNING_ARTIFACT_INVALID: { blocker: "invalid_evidence" },
   REVIEW_ARTIFACT_INVALID: { blocker: "invalid_evidence", artifact: "review.md" },
@@ -79,6 +78,8 @@ export const failureClassifications = {
   COMMAND_HANDLER_MISSING: { blocker: null },
   EXPLORE_AGENT_FAILED: { blocker: null },
   JUDGMENT_QUESTION_INVALID: { blocker: null },
+  LANE_TRANSITION_INVALID: { blocker: null },
+  PROMPT_TEMPLATE_INVALID: { blocker: null },
   PLANNING_AGENT_FAILED: { blocker: null },
   REVIEW_TOOL_DENIED: { blocker: null },
   UNEXPECTED_ERROR: { blocker: null },

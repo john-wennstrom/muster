@@ -110,7 +110,10 @@ async function fixture(taskChecked = true) {
   return { root, changeRoot, adapter, archiveCalls, identity, head };
 }
 
-async function seedPassingEvidence(subject: Awaited<ReturnType<typeof fixture>>): Promise<void> {
+async function seedPassingEvidence(
+  subject: Awaited<ReturnType<typeof fixture>>,
+  recorded: { verificationEvidence?: string[]; sourceDigest?: string } = {},
+): Promise<void> {
   const now = "2026-09-17T10:02:00.000Z";
   const artifactDigest = await hashReviewedArtifacts(
     await discoverReviewedArtifacts(subject.root, subject.changeRoot),
@@ -136,8 +139,8 @@ async function seedPassingEvidence(subject: Awaited<ReturnType<typeof fixture>>)
       runId: "run-add-search",
       taskId: "1.1",
       outcome: "completed",
-      sourceDigest,
-      verificationEvidence: ["bun test tests/search.test.ts"],
+      sourceDigest: recorded.sourceDigest ?? sourceDigest,
+      verificationEvidence: recorded.verificationEvidence ?? ["bun test tests/search.test.ts"],
       completedAt: now,
     }),
     store.write("run-add-search", "reviews/task-1.1.json", {
@@ -346,5 +349,62 @@ describe("production implementation and verification runtime", () => {
     expect(outcome).toMatchObject({ status: "cancelled", action: "implement", next: "/change status add-search" });
     const manifest = JSON.parse(await readFile(resolve(subject.root, ".fusion", "runs", "run-add-search", "manifest.json"), "utf8"));
     expect(manifest).toMatchObject({ lifecycle: "CANCELLED", tasks: { "1.1": "cancelled" } });
+  });
+
+  describe("reusing a task's current verification evidence", () => {
+    async function verifyWith(recorded: { verificationEvidence?: string[]; sourceDigest?: string }) {
+      const subject = await fixture();
+      await runProductionImplementation({
+        cwd: subject.root,
+        changeName: "add-search",
+        reviewFreshness: "current",
+        argv: [],
+        openSpec: subject.adapter,
+        ports: {
+          selectWorktree: async () => ({
+            repositoryId: subject.identity.id,
+            commonDirectory: subject.identity.commonDirectory,
+            path: subject.identity.root,
+            branch: "muster/add-search",
+            head: subject.head.commit,
+            reused: true,
+          }),
+        },
+      });
+      await seedPassingEvidence(subject, recorded);
+      const ran: string[] = [];
+      await runProductionVerification({
+        cwd: subject.root,
+        changeName: "add-search",
+        argv: [],
+        openSpec: subject.adapter,
+        ports: { runCommand: async (command) => { ran.push(command); return { command, exitCode: 0 }; } },
+        now: () => new Date("2026-09-17T10:05:00.000Z"),
+      });
+      const artifact = await readFile(resolve(subject.changeRoot, "verification.md"), "utf8");
+      return { ran, artifact };
+    }
+
+    test("unchanged source reuses the task's commands, labels them, and still runs the full suite", async () => {
+      const { ran, artifact } = await verifyWith({ verificationEvidence: ["bun test tests/search.test.ts: exit 0"] });
+
+      expect(ran).toEqual(["bun test"]);
+      expect(artifact).toMatch(/"command": "bun test tests\/search.test.ts",\s+"exitCode": 0,\s+"outcome": "PASS",\s+"reused": \{\s+"sourceDigest": "[a-f0-9]{64}"/);
+    });
+
+    test("changed source runs the task's commands again", async () => {
+      const { ran, artifact } = await verifyWith({
+        verificationEvidence: ["bun test tests/search.test.ts: exit 0"],
+        sourceDigest: "d".repeat(64),
+      });
+
+      expect(ran).toEqual(["bun test tests/search.test.ts", "bun test"]);
+      expect(artifact).not.toContain('"reused"');
+    });
+
+    test("evidence that does not record the command passing runs it again", async () => {
+      const { ran } = await verifyWith({ verificationEvidence: ["bun test tests/search.test.ts: exit 1"] });
+      expect(ran).toEqual(["bun test tests/search.test.ts", "bun test"]);
+    });
   });
 });

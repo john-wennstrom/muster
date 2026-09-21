@@ -4,6 +4,7 @@ import { READONLY_TOOLS } from "../agents/child-runtime.ts";
 import { createFreshRoleSession } from "../agents/role-runner.ts";
 import { HarnessError } from "../shared/errors.ts";
 import type { ReviewModelCandidate } from "./planning-reviewer.ts";
+import { renderPrompt, type RenderedPrompt } from "../prompts/render.ts";
 
 const REVIEW_TOOLS = READONLY_TOOLS.split(",");
 const nonEmptyString = z.string().min(1);
@@ -111,32 +112,24 @@ export function createTaskCodeReview(
   });
 }
 
-function section(heading: string, value: unknown): string {
-  return `${heading}\n${JSON.stringify(value, null, 2)}`;
-}
-
-function focusBlock(focus: readonly string[] | undefined): string[] {
-  if (!focus || focus.length === 0) return [];
-  return [[
-    "REVIEW FOCUS (advisory)",
-    "These areas may deserve extra attention. Disregard any item the diff does not support.",
-    ...focus.map((item) => `- ${item}`),
-  ].join("\n")];
+function focusBlock(focus: readonly string[] | undefined): string {
+  if (!focus || focus.length === 0) return "";
+  return renderPrompt("task-review-focus", { FOCUS_ITEMS: focus.map((item) => `- ${item}`).join("\n") });
 }
 
 export function renderTaskCodeReviewPrompt(
   options: TaskCodeReviewDispatchOptions,
-): string {
-  return [
-    `Review task ${options.taskId}. Return required findings for any correctness, scope, test, or TDD defect.`,
-    section("TASK CONTRACT", options.contract),
-    section("IMPLEMENTATION DIFF", options.diff),
-    section("TEST EVIDENCE", options.tests),
-    section("AUTHORIZED SCOPES", options.scopes),
-    section("TDD EVIDENCE", options.tddEvidence),
-    ...focusBlock(options.focus),
-    "Return exactly one task code review object. Do not modify the repository.",
-  ].join("\n\n");
+): RenderedPrompt {
+  const json = (value: unknown) => JSON.stringify(value, null, 2);
+  return renderPrompt("task-review", {
+    TASK_ID: options.taskId,
+    TASK_CONTRACT: json(options.contract),
+    IMPLEMENTATION_DIFF: json(options.diff),
+    TEST_EVIDENCE: json(options.tests),
+    AUTHORIZED_SCOPES: json(options.scopes),
+    TDD_EVIDENCE: json(options.tddEvidence),
+    REVIEW_FOCUS_BLOCK: focusBlock(options.focus),
+  });
 }
 
 function selectReviewer(

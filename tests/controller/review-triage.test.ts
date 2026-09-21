@@ -45,7 +45,6 @@ const enabledEnv = {
   MUSTER_JEV: "1",
   MUSTER_JEV_API_KEY: "key",
   MUSTER_JEV_MODE: "enforce",
-  MUSTER_JEV_REVIEW_TRIAGE: "1",
 };
 
 interface Harness {

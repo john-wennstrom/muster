@@ -25,19 +25,17 @@ function present(value: string | undefined): value is string {
 
 /**
  * Pure function of an environment object. Content leaves the machine only when both the
- * enabling flag and an API key are present; an unrecognized mode is unavailable rather than
- * guessed, because it must neither send content nor change behavior.
+ * enabling flag and an API key are present, and once they are, decisions act (enforce) unless
+ * the operator selects shadow; an unrecognized mode is unavailable rather than guessed, because
+ * it must neither send content nor change behavior.
  */
-export function resolveJudgmentPolicy(
-  env: JudgmentEnvironment,
-  options: { readonly decisionFlag?: string } = {},
-): JudgmentPolicy {
+export function resolveJudgmentPolicy(env: JudgmentEnvironment): JudgmentPolicy {
   if (env[JUDGMENT_ENABLE_VARIABLE]?.trim() !== "1") return { enabled: false, reason: "disabled" };
   const apiKey = env[JUDGMENT_API_KEY_VARIABLE];
   if (!present(apiKey)) return { enabled: false, reason: "not_configured" };
 
   const rawMode = env[JUDGMENT_MODE_VARIABLE];
-  const mode = present(rawMode) ? rawMode.trim() : "shadow";
+  const mode = present(rawMode) ? rawMode.trim() : "enforce";
   if (mode !== "shadow" && mode !== "enforce") {
     return {
       enabled: false,
@@ -46,8 +44,5 @@ export function resolveJudgmentPolicy(
     };
   }
 
-  if (options.decisionFlag && env[options.decisionFlag]?.trim() !== "1") {
-    return { enabled: false, reason: "disabled", detail: `${options.decisionFlag} is not set` };
-  }
   return { enabled: true, mode, apiKey: apiKey.trim() };
 }

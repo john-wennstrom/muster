@@ -138,3 +138,26 @@ describe("verification artifact", () => {
     expect(parseVerificationArtifact(await readFile(path, "utf8"), path)).toEqual(previous);
   });
 });
+
+describe("reused command evidence", () => {
+  test("a reused command keeps its source digest through render and parse, and an ordinary one has none", () => {
+    const base = passingArtifact();
+    const artifact = createVerificationArtifact({
+      ...base,
+      commands: [
+        { command: "bun test a", exitCode: 0, reused: { sourceDigest: "c".repeat(64) }, evidenceLinks: [] },
+        { command: "bun test", exitCode: 0, evidenceLinks: [] },
+      ],
+    });
+    const parsed = parseVerificationArtifact(renderVerificationArtifact(artifact), "verification.md");
+    expect(parsed.commands[0]!.reused).toEqual({ sourceDigest: "c".repeat(64) });
+    expect(parsed.commands[1]!.reused).toBeUndefined();
+  });
+
+  test("a reused entry needs a well-formed digest", () => {
+    expect(() => createVerificationArtifact({
+      ...passingArtifact(),
+      commands: [{ command: "bun test a", exitCode: 0, reused: { sourceDigest: "nope" }, evidenceLinks: [] }],
+    })).toThrow(HarnessError);
+  });
+});

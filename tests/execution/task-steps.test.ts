@@ -10,6 +10,7 @@ import type { ValidatedTask } from "../../src/execution/task-schema.ts";
 import { runBuilderStep, builderPrompt } from "../../src/change/phases/task-steps/builder.ts";
 import { runVerificationStep } from "../../src/change/phases/task-steps/verification.ts";
 import type { TaskStepContext } from "../../src/change/phases/task-steps/context.ts";
+import { recordFailure } from "../../src/execution/recovery.ts";
 import { HarnessError } from "../../src/shared/errors.ts";
 import { createInertJudgmentRuntime } from "../../src/judgment/ask.ts";
 
@@ -73,6 +74,32 @@ describe("runBuilderStep", () => {
     expect(result).toEqual({ claim: "completed", implementationPersisted: true });
     expect(seenPrompt).toBe(builderPrompt(task()));
     expect(await listChangeUsage(step.store, step.changeName)).toHaveLength(1);
+  });
+
+  test("a task with no failure record gets no failure block, and one with a record gets it on a later invocation", async () => {
+    const step = await stepContext();
+    const prompts: string[] = [];
+    const runChild = async (options: { prompt: string; run: { status: string; text: string } }) => {
+      prompts.push(options.prompt);
+      options.run.status = "done";
+      options.run.text = JSON.stringify({ claim: "completed", implementationPersisted: true });
+      return undefined as never;
+    };
+
+    await runBuilderStep(step, task(), execution, undefined, runChild as never);
+    expect(prompts[0]).not.toContain("Prior failure");
+
+    await recordFailure(step.store, step.changeName, task().id, {
+      attempt: 1,
+      outcome: "blocked",
+      evidence: ["bun test: exit 1"],
+      reproduction: { command: "bun test", exitCode: 1, output: "Expected 1, received 0" },
+      changedPaths: ["src/search.ts"],
+      recordedAt: "2026-09-21T10:00:00.000Z",
+    });
+    await runBuilderStep(step, task(), execution, undefined, runChild as never);
+    expect(prompts[1]).toContain("Prior failure (attempt 1, blocked)");
+    expect(prompts[1]).toContain("Expected 1, received 0");
   });
 
   test("reports a blocked claim when the agent run fails", async () => {
@@ -144,6 +171,17 @@ describe("runVerificationStep", () => {
     expect(result.passed).toBe(true);
     expect(commands).toEqual(["bun test a", "bun run typecheck"]);
     expect(result.evidence).toEqual(["bun test a: exit 0", "bun run typecheck: exit 0"]);
+  });
+
+  test("a failure carries the failing command, its exit code and its output for the failure record", async () => {
+    const result = await runVerificationStep(
+      task({ verify: ["bun test a"] } as Partial<ValidatedTask>),
+      "/worktree",
+      undefined,
+      async () => ({ exitCode: 1, stdout: "out\n", stderr: "err" } as never),
+    );
+
+    expect(result.failure).toEqual({ command: "bun test a", exitCode: 1, output: "out\nerr" });
   });
 
   test("stops at the first failing command", async () => {

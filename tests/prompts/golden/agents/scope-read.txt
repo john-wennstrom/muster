@@ -1,0 +1,3 @@
+Task mode: read. Declared read scopes: ["**"]. Declared write scopes: [].
+
+Do not modify repository files.

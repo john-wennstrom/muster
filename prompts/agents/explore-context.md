@@ -1,0 +1,5 @@
+---
+variables: [CONTEXT_JSON]
+---
+AUTHORITATIVE CONTEXT
+{{CONTEXT_JSON}}

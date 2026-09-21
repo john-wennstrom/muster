@@ -1,0 +1,2 @@
+The most recent planning review (round 2) requested REVISE. Address every required change below before returning to review:
+- Handle the empty-query case

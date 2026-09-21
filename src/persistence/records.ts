@@ -70,6 +70,8 @@ export const runManifestSchema = z
       })
       .nullable(),
     checkpoints: z.array(nonEmptyString),
+    /** The change's lane when the run was created or last read; a run from before lanes has none. */
+    lane: z.enum(["small", "medium", "large"]).optional(),
     createdAt: timestamp,
     updatedAt: timestamp,
   })
@@ -110,6 +112,10 @@ export const reviewRecordSchema = z.discriminatedUnion("kind", [
     artifactDigest: nonEmptyString,
     model: nonEmptyString,
     findings: z.array(z.string()),
+    /** `reviewer` when a reviewer read the diff (the default); `judgment` when a decision skipped the review. */
+    basis: z.enum(["reviewer", "judgment"]).optional(),
+    /** The judgment record that skipped the review; a judgment basis names one. */
+    judgmentRecordId: nonEmptyString.optional(),
     createdAt: timestamp,
   })
     .strict(),
@@ -126,6 +132,7 @@ export const validationRecordSchema = z
       z.object({
         command: nonEmptyString,
         exitCode: z.number().int(),
+        reused: z.object({ sourceDigest: nonEmptyString }).strict().optional(),
       }),
     ),
     createdAt: timestamp,

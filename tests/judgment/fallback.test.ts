@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { AtomicJsonStore } from "../../src/persistence/atomic-json-store.ts";
 import { createJudgmentRuntime, type JudgmentVerdict } from "../../src/judgment/ask.ts";
 import type { JudgmentUnavailableReason } from "../../src/judgment/client.ts";
-import { abstain, act, defineDecision, noulBand, noulOf } from "../../src/judgment/gates.ts";
+import { abstain, act, defineDecision, noulBand, noulOf } from "../../src/judgment/decision.ts";
 import { noul } from "../../src/judgment/questions.ts";
-import { createDeadClient } from "../../src/judgment/replay.ts";
+import { createDeadClient } from "../helpers/scripted-judgment.ts";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -40,6 +40,7 @@ const decision = defineDecision<{ request: string }, string>({
   version: 1,
   effects: ["reduces_work"],
   representativeInput: { request: "x" },
+  state: (input) => input,
   questions: () => [["q", noul("Is it so?")]],
   gate: (answers) => {
     const value = noulOf(answers, "q");

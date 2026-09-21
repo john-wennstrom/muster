@@ -1,0 +1,7 @@
+Perform an independent planning review. Read every artifact in this reviewed set:
+- proposal.md
+- design.md
+- specs/search/spec.md
+- tasks.md
+The controller-calculated artifact digest is sha256:abc.
+Return APPROVE only when there are no critical findings or required changes; otherwise return REVISE.

@@ -42,6 +42,69 @@ describe("planning review artifact", () => {
     expect(markdown).not.toContain("<!--");
   });
 
+  test("a reviewer review says so, and a file without a mode is a reviewer review", () => {
+    const artifact = approved();
+    expect(artifact.mode).toBe("reviewer");
+    const markdown = renderReviewArtifact(artifact);
+    expect(markdown).toContain("- Mode: `reviewer`");
+
+    const older = markdown.split("\n").filter((line) => !line.startsWith("- Mode:")).join("\n");
+    expect(older).not.toContain("- Mode:");
+    const parsed = parseReviewArtifact(older, "review.md");
+    expect(parsed.mode).toBe("reviewer");
+    expect(parsed).toEqual(artifact);
+  });
+
+  const lintReview = () => createReviewArtifact({
+    schemaVersion: 1,
+    mode: "lint",
+    round: 1,
+    reviewedAt: "2026-09-12T12:00:00.000Z",
+    model: "lint",
+    artifactDigest: "a".repeat(64),
+    requestedVerdict: "APPROVE",
+    criticalFindings: [],
+    requiredChanges: [],
+    recommendations: [],
+    lint: {
+      checks: ["artifacts exist and parse", "references resolve against the change's specifications"],
+      semanticCheck: "ran",
+      answers: ["task 1.1 verification: clean", "coverage: clean"],
+    },
+  });
+
+  test("a lint approval round trips, names lint as its model, and records the checks and answers", () => {
+    const artifact = lintReview();
+    const markdown = renderReviewArtifact(artifact);
+    expect(markdown).toContain("- Mode: `lint`");
+    expect(markdown).toContain("- Model: `lint`");
+    expect(markdown).toContain("## Lint Checks\n\n- artifacts exist and parse");
+    expect(markdown.split("\n").filter((line) => line.startsWith("- Semantic check:"))).toEqual(["- Semantic check: `ran`"]);
+    expect(markdown).toContain("## Semantic Check Answers\n\n- task 1.1 verification: clean");
+    const parsed = parseReviewArtifact(markdown, "review.md");
+    expect(parsed).toEqual(artifact);
+    expect(parsed).toMatchObject({ mode: "lint", verdict: "APPROVE", lint: { semanticCheck: "ran" } });
+  });
+
+  test("a lint approval can state that the semantic check did not run", () => {
+    const artifact = createReviewArtifact({
+      ...lintReview(),
+      requestedVerdict: "APPROVE",
+      lint: { checks: ["artifacts exist and parse"], semanticCheck: "unavailable", answers: [] },
+    });
+    const parsed = parseReviewArtifact(renderReviewArtifact(artifact), "review.md");
+    expect(parsed.lint).toEqual({ checks: ["artifacts exist and parse"], semanticCheck: "unavailable", answers: [] });
+  });
+
+  test("a lint review cannot claim a model, a revision, or a reviewer's marks", () => {
+    const base = { ...lintReview(), requestedVerdict: "APPROVE" as const };
+    expect(() => createReviewArtifact({ ...base, model: "openai/reviewer" })).toThrow(/names lint as its model|incompatible/);
+    expect(() => createReviewArtifact({ ...base, requiredChanges: ["Fix it."] })).toThrow(HarnessError);
+    expect(() => createReviewArtifact({ ...base, lint: undefined })).toThrow(HarnessError);
+    expect(() => createReviewArtifact({ ...base, extraction: { recordId: "decision-1" } })).toThrow(HarnessError);
+    expect(() => createReviewArtifact({ ...approved(), requestedVerdict: "APPROVE", lint: base.lint })).toThrow(HarnessError);
+  });
+
   test("round trips an extraction mark naming the decision record", () => {
     const artifact = createReviewArtifact({
       ...approved(),

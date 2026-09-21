@@ -1,7 +1,6 @@
 import type { JudgmentRuntime } from "../judgment/ask.ts";
-import { reconcileDecisionRecord } from "../judgment/audit.ts";
-import { reviewTriageDecision, reviewTriageState, type ReviewTriageGateValue, type ReviewTriageInput } from "../judgment/gates.ts";
-import { JudgmentFixtureMissingError } from "../judgment/replay.ts";
+import { reviewTriageDecision, reviewTriageState, type ReviewTriageGateValue, type ReviewTriageInput } from "../judgment/decisions/review-triage.ts";
+import { tryJudge } from "../judgment/try.ts";
 import type { AtomicJsonStore } from "../persistence/atomic-json-store.ts";
 import { REVIEW_TRIAGE_CHANGE_QUESTION_IDS, REVIEW_TRIAGE_QUESTION_IDS } from "../judgment/questions.ts";
 import type { PlanningReviewArtifact } from "./review-artifact.ts";
@@ -180,6 +179,7 @@ const notCarried = (
  */
 export async function assessReviewTriage(input: ReviewTriageAssessmentInput): Promise<ReviewTriageAssessment> {
   const { existingReview, current } = input;
+  // Loading the snapshot is real work, so it is skipped when judgment is off.
   if (!input.triage.runtime.enabled) return notCarried("judged");
 
   let snapshot: ReviewSnapshot | null = null;
@@ -208,23 +208,18 @@ export async function assessReviewTriage(input: ReviewTriageAssessmentInput): Pr
   });
   if (!built.ok) return notCarried(built.reason);
 
-  try {
-    const verdict = await input.triage.runtime.judge(reviewTriageDecision, {
-      input: built.input,
-      changeName: input.changeName,
-      phase: "planning",
-      state: reviewTriageState(built.input),
-      signal: input.signal,
-    });
-    if (verdict.kind !== "enforce" || !verdict.outcome.act || verdict.recordId === null) {
-      return notCarried("judged", verdict.recordId);
-    }
-    return { carry: true, value: verdict.outcome.value, recordId: verdict.recordId };
-  } catch (error) {
-    // A missing recording is a test failure, not an outage; converting it would hide it.
-    if (error instanceof JudgmentFixtureMissingError) throw error;
-    return notCarried("judged");
+  const verdict = await tryJudge(input.triage.runtime, reviewTriageDecision, {
+    input: built.input,
+    changeName: input.changeName,
+    phase: "planning",
+    state: reviewTriageState(built.input),
+    signal: input.signal,
+  });
+  if (!verdict) return notCarried("judged");
+  if (verdict.kind !== "enforce" || !verdict.outcome.act || verdict.recordId === null) {
+    return notCarried("judged", verdict.recordId);
   }
+  return { carry: true, value: verdict.outcome.value, recordId: verdict.recordId };
 }
 
 /**
@@ -239,18 +234,13 @@ export async function reconcileReviewTriage(
   recordId: string | null,
   review: Pick<PlanningReviewArtifact, "verdict" | "criticalFindings" | "requiredChanges">,
 ): Promise<void> {
-  if (!recordId) return;
-  try {
-    const result = await reconcileDecisionRecord(triage.store, changeName, recordId, {
-      observed: {
-        reviewVerdict: review.verdict,
-        reviewRequiredChanges: review.requiredChanges.length,
-        reviewCriticalFindings: review.criticalFindings.length,
-      },
-    });
-    if (!result.found || !result.record.wouldHaveActed) return;
-    await reconcileDecisionRecord(triage.store, changeName, recordId, { agreed: review.verdict === "APPROVE" });
-  } catch {
-    // Reconciliation is measurement; the review stands without it.
-  }
+  const record = await triage.runtime.reconcile(changeName, recordId, {
+    observed: {
+      reviewVerdict: review.verdict,
+      reviewRequiredChanges: review.requiredChanges.length,
+      reviewCriticalFindings: review.criticalFindings.length,
+    },
+  });
+  if (!record?.wouldHaveActed) return;
+  await triage.runtime.reconcile(changeName, recordId, { agreed: review.verdict === "APPROVE" });
 }

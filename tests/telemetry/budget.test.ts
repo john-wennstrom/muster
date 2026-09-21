@@ -143,6 +143,7 @@ describe("budget integration", () => {
     const result = await refine({
       changeName: "budgeted-design",
       prompt: "Refine the design",
+      lane: "large",
       complexity: classifyChange({
         affectedFiles: ["src/a.ts", "src/b.ts", "src/c.ts"],
         affectedCapabilities: ["planning", "execution", "telemetry"],
@@ -163,7 +164,6 @@ describe("budget integration", () => {
         calls.push(request.stage);
         return { model: "test-model", content: request.stage };
       },
-      writeArtifacts: async () => {},
     });
 
     expect(calls).toEqual(["specialist_opinion", "specialist_opinion", "synthesis"]);

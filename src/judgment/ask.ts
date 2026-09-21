@@ -13,16 +13,19 @@ import { prepareEgress } from "./egress.ts";
 import {
   createDecisionRecord,
   digestState,
+  reconcileDecisionRecord,
   writeDecisionRecord,
+  type DecisionRecord,
   type NewDecisionRecord,
+  type Reconciliation,
 } from "./audit.ts";
-import type { Decision, GateOutcome } from "./gates.ts";
+import { judgmentCatalog, validateCatalog } from "./catalog.ts";
+import type { Decision, GateOutcome } from "./decision.ts";
 import {
   resolveJudgmentPolicy,
   type JudgmentEnvironment,
   type JudgmentMode,
 } from "./policy.ts";
-import { JudgmentFixtureMissingError } from "./replay.ts";
 import { validateQuestions } from "./questions.ts";
 import {
   createJudgmentUsage,
@@ -40,7 +43,7 @@ import {
  */
 
 export interface AskRequest {
-  readonly decision: { readonly id: string; readonly version: number; readonly enabledBy?: string };
+  readonly decision: { readonly id: string; readonly version: number };
   readonly changeName: string;
   readonly phase: UsagePhase;
   readonly taskId?: string;
@@ -100,13 +103,19 @@ export interface JudgmentRuntime {
     decision: Decision<Input, Value>,
     request: JudgeRequest<Input>,
   ): Promise<JudgmentVerdict<Value>>;
+  /** Merges observations into a decision record. The merged record, or null; never throws. */
+  reconcile(
+    changeName: string,
+    recordId: string | null,
+    reconciliation: Reconciliation,
+  ): Promise<DecisionRecord | null>;
 }
 
 export interface JudgmentRuntimeOptions {
   readonly env: JudgmentEnvironment;
   readonly store: AtomicJsonStore;
   readonly budget?: JudgmentBudget;
-  /** Replaces the live client, as tests do with a replaying or dead client. */
+  /** Replaces the live client, as tests do with a scripted or dead client. */
   readonly client?: JudgmentClient;
   readonly fetch?: typeof fetch;
   /** Told about a persistence failure, which never reaches the caller. */
@@ -125,6 +134,9 @@ export function createInertJudgmentRuntime(
     async judge() {
       return { kind: "fallback", reason, recordId: null };
     },
+    async reconcile() {
+      return null;
+    },
   };
 }
 
@@ -133,10 +145,17 @@ function leavesNoRecord(reason: JudgmentUnavailableReason): boolean {
   return reason === "disabled" || reason === "not_configured";
 }
 
+let catalogValidated = false;
+
 export function createJudgmentRuntime(options: JudgmentRuntimeOptions): JudgmentRuntime {
   const global = resolveJudgmentPolicy(options.env);
   if (!global.enabled && leavesNoRecord(global.reason)) {
     return createInertJudgmentRuntime(global.reason as "disabled" | "not_configured");
+  }
+  // A malformed question file is a programming error; find it when judgment starts, not mid-run.
+  if (!catalogValidated) {
+    validateCatalog(judgmentCatalog);
+    catalogValidated = true;
   }
   const onError = options.onError ?? (() => {});
 
@@ -151,7 +170,7 @@ export function createJudgmentRuntime(options: JudgmentRuntimeOptions): Judgment
   };
 
   async function askJev(request: AskRequest): Promise<AskResult> {
-    const policy = resolveJudgmentPolicy(options.env, { decisionFlag: request.decision.enabledBy });
+    const policy = resolveJudgmentPolicy(options.env);
     if (!policy.enabled) {
       return {
         available: false,
@@ -200,9 +219,6 @@ export function createJudgmentRuntime(options: JudgmentRuntimeOptions): Judgment
         deadlineMs: request.deadlineMs,
       });
     } catch (error) {
-      // A missing recording is a test failure, not an outage: converting it would let the
-      // fallback run and the test pass while testing nothing.
-      if (error instanceof JudgmentFixtureMissingError) throw error;
       return {
         available: false,
         reason: "network",
@@ -246,14 +262,14 @@ export function createJudgmentRuntime(options: JudgmentRuntimeOptions): Judgment
     request: JudgeRequest<Input>,
   ): Promise<JudgmentVerdict<Value>> {
     // Decide availability before building anything, so a disabled decision does no work.
-    const policy = resolveJudgmentPolicy(options.env, { decisionFlag: decision.enabledBy });
+    const policy = resolveJudgmentPolicy(options.env);
     if (!policy.enabled && leavesNoRecord(policy.reason)) {
       return { kind: "fallback", reason: policy.reason, recordId: null };
     }
 
     const questions = validateQuestions(decision.id, decision.questions(request.input));
     const asked = await askJev({
-      decision: { id: decision.id, version: decision.version, enabledBy: decision.enabledBy },
+      decision: { id: decision.id, version: decision.version },
       changeName: request.changeName,
       phase: request.phase,
       taskId: request.taskId,
@@ -329,5 +345,20 @@ export function createJudgmentRuntime(options: JudgmentRuntimeOptions): Judgment
     }
   }
 
-  return { enabled: true, askJev, judge };
+  async function reconcile(
+    changeName: string,
+    recordId: string | null,
+    reconciliation: Reconciliation,
+  ): Promise<DecisionRecord | null> {
+    if (recordId === null) return null;
+    try {
+      const result = await reconcileDecisionRecord(options.store, changeName, recordId, reconciliation);
+      return result.found ? result.record : null;
+    } catch (error) {
+      onError(error);
+      return null;
+    }
+  }
+
+  return { enabled: true, askJev, judge, reconcile };
 }

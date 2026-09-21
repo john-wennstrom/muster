@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   classifyChange,
-  orchestrationPolicy,
 } from "../../src/controller/complexity-router.ts";
 import { HarnessError } from "../../src/shared/errors.ts";
 
@@ -65,18 +64,5 @@ describe("change complexity router", () => {
       reason: " ",
       actor: "user",
     })).toThrow(expect.objectContaining({ code: "COMPLEXITY_OVERRIDE_INVALID" }) as HarnessError);
-  });
-
-  test("budget exhaustion removes optional reasoning but preserves mandatory gates", () => {
-    const policy = orchestrationPolicy("architectural", { optionalBudgetAvailable: false });
-
-    expect(policy.optional).toEqual({ specialistOpinions: false, debate: false });
-    expect(policy.mandatory).toEqual({
-      tests: true,
-      independentReview: true,
-      finalValidation: true,
-      permissionEnforcement: true,
-      manualCheckpoints: true,
-    });
   });
 });

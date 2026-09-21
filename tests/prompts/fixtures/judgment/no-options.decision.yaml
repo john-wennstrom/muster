@@ -1,0 +1,6 @@
+decision: no-options.decision
+questions:
+  - id: pick
+    type: choice
+    instructions: "Pick one."
+    criteria: {}

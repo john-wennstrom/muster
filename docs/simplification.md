@@ -1,6 +1,6 @@
 # Where the tokens go, and where to simplify
 
-This is a review of the `/change` pipeline as it is coded today, not a plan of record. Colors follow the [legend in command-flow.md](command-flow.md#how-to-read-the-diagrams): red is an LLM session, green is a Jev call. Counts are minimum sessions read from the code, not measurements. No token or cost figures exist for a real run yet.
+This is the review of the `/change` pipeline as it was coded before the simplification series, kept as the record of why the series exists and what it changed. **Every recommendation below is implemented** except the `/change run` driver, which was decided against (see [Decisions taken](#decisions-taken)); the status column in [Other places to simplify](#other-places-to-simplify) says where each landed. The sections that describe today's costs describe the pipeline as it was. Colors follow the [legend in command-flow.md](command-flow.md#how-to-read-the-diagrams): red is an LLM session, green is a Jev call. Counts are minimum sessions read from the code, not measurements. The session promises are enforced by `tests/e2e/session-budget.test.ts`; token and cost figures come from the manual acceptance run and are recorded in [Measured figures](#measured-figures).
 
 ## Short answer
 
@@ -12,9 +12,9 @@ Yes, a triage step should come first, and half of one already exists. Today it d
 
 So a small change and a medium change cost the same. The classifier separates them and then throws the distinction away.
 
-## Where the tokens go today
+## Where the tokens went before the series
 
-Sessions per command for a small two-task change on the default route. Each is a separate Pi child process that starts with an empty context.
+Sessions per command for a small two-task change on the default route, before the series. Each is a separate Pi child process that starts with an empty context.
 
 | Command | LLM sessions | Notes |
 | --- | --- | --- |
@@ -91,17 +91,17 @@ The one real design decision is planning review. The README calls independent re
 
 Ordered by tokens saved per unit of effort.
 
-| # | Change | Saves | Why it is cheap or hard |
-| --- | --- | --- | --- |
-| 1 | Lane-aware policy (above) | 4 to 5 sessions on a small change | The biggest win. Touches the policy, the manifest and the gates. |
-| 2 | Merge tasks that share a write scope and form a `dependsOn` chain into one builder session when the DAG compiles | A builder and a reviewer per merged task | Small. The test job in [e2e-chain-test.md](e2e-chain-test.md) is the example: `1.1` and `1.2` write the same two files, so the second session re-reads what the first just wrote. Also tell the planner to prefer one task per cohesive file set. |
-| 3 | Stop returning artifacts as one escaped JSON string | Output tokens on every plan, plus the retry | Have the session write files through the write tool inside the change root, or return a compact plan and render Markdown in code. A single bad quote today regenerates all four artifacts. |
-| 4 | Fold the preflight session into synthesis for the medium lane | One session | Both explore the same code. Let synthesis return either a disposition or the artifacts. The early stop for an already-satisfied request survives. |
-| 5 | One review over the final diff instead of one per task, unless `review.task_focus` flags risk | A reviewer session per task | Medium effort: the review record and evidence are per task today. |
-| 6 | Reuse a task's verification evidence at `verify` when the source digest is unchanged | Time, not tokens | Verify currently reruns every task's commands and then the full suite. |
-| 7 | A `/change run` driver that chains review, implement and verify, stopping at a checkpoint, a block or a failure, and leaving `finish` explicit | Human steps: about seven commands become two | The lifecycle already names the next command at every step. |
-| 8 | Remove `/refine`, `/implement` and `/ship` after the beta, and shrink `/fh-*` to diagnostics | The costliest and least governed paths | The legacy handlers run multi-slot debates and collaborations outside the budget forecasts and the lifecycle gates. |
-| 9 | Prune the Jev portfolio to decisions that save tokens or protect | Complexity, not tokens | Keep preflight and complexity (merged into triage), review triage, routing, task focus and command classification. `planning.task_quality` and `review.extraction` are advice or repair and can be replaced by a retry until the shadow records show they earn their place. The two unwired decisions can wait. |
+| # | Change | Saves | Why it is cheap or hard | Status |
+| --- | --- | --- | --- | --- |
+| 1 | Lane-aware policy (above) | 4 to 5 sessions on a small change | The biggest win. Touches the policy, the manifest and the gates. | Implemented in simplify-04 and simplify-05, and used by simplify-06. |
+| 2 | Merge tasks that share a write scope and form a `dependsOn` chain into one builder session when the DAG compiles | A builder and a reviewer per merged task | Small. The test job in [e2e-chain-test.md](e2e-chain-test.md) is the example: `1.1` and `1.2` write the same two files, so the second session re-reads what the first just wrote. Also tell the planner to prefer one task per cohesive file set. | Implemented in simplify-06 (`normalizePlan`, at plan time). |
+| 3 | Stop returning artifacts as one escaped JSON string | Output tokens on every plan, plus the retry | Have the session write files through the write tool inside the change root, or return a compact plan and render Markdown in code. A single bad quote today regenerates all four artifacts. | Implemented in simplify-05 (a typed plan rendered by code). |
+| 4 | Fold the preflight session into synthesis for the medium lane | One session | Both explore the same code. Let synthesis return either a disposition or the artifacts. The early stop for an already-satisfied request survives. | Implemented in simplify-05 (there is no preflight session). |
+| 5 | One review over the final diff instead of one per task, unless `review.task_focus` flags risk | A reviewer session per task | Medium effort: the review record and evidence are per task today. | Replaced in simplify-06: a review is skipped per task when every guard holds, instead of one review over the final diff. |
+| 6 | Reuse a task's verification evidence at `verify` when the source digest is unchanged | Time, not tokens | Verify currently reruns every task's commands and then the full suite. | Implemented in simplify-06 (verification reuse). |
+| 7 | A `/change run` driver that chains review, implement and verify, stopping at a checkpoint, a block or a failure, and leaving `finish` explicit | Human steps: about seven commands become two | The lifecycle already names the next command at every step. | Not done, by decision: commands stay deliberate steps. |
+| 8 | Remove `/refine`, `/implement` and `/ship` after the beta, and shrink `/fh-*` to diagnostics | The costliest and least governed paths | The legacy handlers run multi-slot debates and collaborations outside the budget forecasts and the lifecycle gates. | Implemented in simplify-01 (the legacy commands and the extension are removed). |
+| 9 | Prune the Jev portfolio to decisions that save tokens or protect | Complexity, not tokens | Keep preflight and complexity (merged into triage), review triage, routing, task focus and command classification. `planning.task_quality` and `review.extraction` are advice or repair and can be replaced by a retry until the shadow records show they earn their place. The two unwired decisions can wait. | Implemented in simplify-03, simplify-04 and simplify-05 (`planning.preflight`, `planning.complexity` and `planning.task_quality` are gone; `change.triage`, `plan.lint` and `task.recovery` were added). |
 
 ## What not to simplify
 
@@ -132,5 +132,14 @@ Seven OpenSpec changes, in order. Each has a proposal, design, specs and a task 
 | 6 | [simplify-06-lean-execution](../openspec/changes/simplify-06-lean-execution/proposal.md) | Task merging, review skipping, thinking per task, failure records with a retry, escalate or stop decision, verification reuse, a split implementation phase. |
 | 7 | [simplify-07-closeout](../openspec/changes/simplify-07-closeout/proposal.md) | Empty allowlists, size and session budgets as tests, documentation checks, refreshed docs and the end-to-end job. |
 
-Measured figures from a real run go here after the manual acceptance step in the last change's README.
+## Measured figures
+
+The session counts are enforced by tests. Tokens and cost are not, and only a live run measures them. After the manual acceptance run described in the [end-to-end chain test](e2e-chain-test.md), fill in this table from that run's usage records (`/change status` prints usage by phase) and note the date, the models and the judgment mode. Leave a cell empty rather than estimating it.
+
+| Job | Lane | Sessions | Input tokens | Output tokens | Cost | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Single-function job | small | | | | | |
+| Two-file job, disjoint write scopes | medium | | | | | |
+
+Run date, models, and `MUSTER_JEV_MODE`: not yet recorded.
 

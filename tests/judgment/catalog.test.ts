@@ -2,20 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { HarnessError } from "../../src/shared/errors.ts";
 import { classifyFailure } from "../../src/change/failure-classification.ts";
 import type { JudgmentAnswers } from "../../src/judgment/client.ts";
-import {
-  abstain,
-  act,
-  decisionFingerprint,
-  decisionKey,
-  defineDecision,
-  judgmentCatalog,
-  noulBand,
-  noulOf,
-  scoreOf,
-  validateCatalog,
-  validateDecision,
-  type AnyDecision,
-} from "../../src/judgment/gates.ts";
+import { abstain, act, decisionFingerprint, decisionKey, defineDecision, noulBand, noulOf, scoreOf, validateDecision, type AnyDecision } from "../../src/judgment/decision.ts";
+import { judgmentCatalog, validateCatalog } from "../../src/judgment/catalog.ts";
 import {
   choice,
   noul,

@@ -1,0 +1,19 @@
+decision: "review.extraction"
+questions:
+  - id: "verdict"
+    type: "choice"
+    instructions: "The state's response is a reviewer's written review of a plan, and the candidates are its lines. What verdict does the response as a whole reach? Choose approve only when the reviewer clearly concludes the plan can proceed and raises no problem that must be fixed first. Choose revise only when the reviewer raises at least one problem that must be fixed before the plan proceeds. Choose unclear when the response reaches no conclusion, is reasoning or narration without a conclusion, or contradicts itself about whether the plan can proceed. Do not infer a verdict the reviewer did not state."
+    criteria:
+      "approve": "The reviewer concludes the plan can proceed, and raises no problem that must be fixed first."
+      "revise": "The reviewer raises at least one problem that must be fixed before the plan proceeds."
+      "unclear": "The response reaches no conclusion, is reasoning or narration, or contradicts itself about whether the plan can proceed."
+  - repeat: "candidates"
+    questions:
+      - id: "line_{{index}}_kind"
+        type: "choice"
+        instructions: "How does line {{index}}, the entry with index {{index}} in the state's candidates list, function in the review? Judge only what this line says. A line that praises the plan, restates what the plan does, describes what the reviewer read or checked, or introduces a section is not a finding. A line that suggests an optional improvement is a recommendation even when it is worded forcefully. Where a line could be a required change or a recommendation, choose by whether the reviewer says the plan cannot proceed without it."
+        criteria:
+          "critical": "Raises a defect that blocks the plan: something wrong, missing, or unsafe that makes it unworkable as written."
+          "required": "States a change that must be made before implementation starts, without which the plan should not proceed."
+          "recommendation": "Suggests an optional improvement or raises a minor point that does not stop the plan from proceeding."
+          "not_a_finding": "Narration, praise, a restatement of the task, a description of what was read, a heading, or a preamble; it raises nothing."

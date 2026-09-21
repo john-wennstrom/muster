@@ -31,10 +31,19 @@ A release matrix is successful only when all three jobs pass. Local validation p
 
 After the workflow is triggered externally, `acceptance:ci-status` performs a read-only GitHub check for the current `HEAD`. It exits successfully only when the matching workflow and all three operating-system jobs completed successfully.
 
-## Recorded judgment fixtures
+## Judgment in tests
 
-Automated tests never reach the judgment service. Judgment is exercised against recorded responses stored in `tests/fixtures/judgment/`, each keyed by the decision, its version, and a hash of the canonical state and questions. Changing a question's wording, the state a test builds, or a decision's version therefore selects a different recording.
+Automated tests never reach the judgment service. They pass a scripted client to the judgment runtime (`createScriptedClient` in `tests/helpers/scripted-judgment.ts`): a script maps a decision id to fixed answers, or to a function of the request that returns answers keyed by question identifier. A request for a decision the script does not name throws an error that names it, and the test also fails when it ends, even if the caller swallowed the error as an unavailable service, so a test cannot pass while testing nothing. Fallback behavior is tested with `createDeadClient(reason)`, once per unavailable reason.
 
-A request with no matching recording throws a dedicated fixture-missing error that names the decision. It is deliberately not treated as the service being unavailable: if it were, the fallback would run and the test would pass while testing nothing. Fallback behavior is tested separately with a dead-client double, once per unavailable reason.
+Nothing is recorded and nothing is keyed by a hash, so changing a question's wording does not invalidate any test. Two things guard against wording that the live service reads differently from what its author intended. `tests/judgment/client.test.ts` parses a canned response body in the service's documented shape, and `bun run judgment:probe [decision-id]` sends each decision's representative input to the live service and prints the answers and whether the gate would act. The probe needs `MUSTER_JEV=1` and `MUSTER_JEV_API_KEY`, is a tool for a person, and is never run by the suite.
 
-To capture a recording, wrap a live client with the recorder in `src/judgment/replay.ts` in a local run against the real service. CI never records. A recording holds the state as it was sent, after redaction, and never the API key.
+## Guards and budgets
+
+Some invariants of the pipeline are tests, not conventions:
+
+- `tests/layering/source-hygiene.test.ts` fails on any source module that no chain of imports from an entry point reaches. There is no allowlist.
+- `tests/layering/size-budget.test.ts` fails and names any `src/**/*.ts` file over 500 lines, and any `tests/**/*.ts` file over 600 lines whose first comment lacks a line starting `size-budget:` with a reason. Split a file along its responsibilities rather than deleting tests; a single long scenario may carry a `size-budget:` reason instead.
+- `tests/e2e/session-budget.test.ts` replaces the agent child process with a counter (`tests/helpers/session-count.ts`) and drives propose, review, implement and verify. A small one-task change starts at most three sessions and no planning reviewer, a medium one at most four, and a large change starts opinions and a debate before its plan session. The figures are the simplification series' promise; change them only with a stated reason.
+- `tests/prompts` renders every prompt template to a golden file and checks that every catalogued decision has a question file and that every question identifier a gate reads exists in it. Regenerate the goldens on purpose with `bun run tests/prompts/capture.ts`.
+- `bun run docs:check` validates documentation links and command examples, that every catalogued decision has a row in the security model's call-site table, and that the command flow document names every action and every decision.
+

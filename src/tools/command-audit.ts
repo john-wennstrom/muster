@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, readFile, readlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { GitAdapter, type GitStatusEntry } from "../execution/git.ts";
+import { scopeMatches } from "../shared/scope.ts";
 
 export interface RepositoryCommandSnapshot {
   head: string;
@@ -46,16 +47,6 @@ export async function captureRepositoryCommandSnapshot(
     status,
     contentDigest: await pathDigest(worktreePath, status),
   };
-}
-
-function scopeMatches(path: string, scope: string): boolean {
-  const normalized = scope.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/$/, "");
-  if (normalized === "**") return true;
-  if (normalized.endsWith("/**")) {
-    const root = normalized.slice(0, -3);
-    return path === root || path.startsWith(`${root}/`);
-  }
-  return path === normalized;
 }
 
 export function auditRepositoryCommand(

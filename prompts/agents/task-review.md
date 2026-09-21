@@ -1,0 +1,23 @@
+---
+variables: [TASK_ID, TASK_CONTRACT, IMPLEMENTATION_DIFF, TEST_EVIDENCE, AUTHORIZED_SCOPES, TDD_EVIDENCE, REVIEW_FOCUS_BLOCK]
+---
+Review task {{TASK_ID}}. Return required findings for any correctness, scope, test, or TDD defect.
+
+TASK CONTRACT
+{{TASK_CONTRACT}}
+
+IMPLEMENTATION DIFF
+{{IMPLEMENTATION_DIFF}}
+
+TEST EVIDENCE
+{{TEST_EVIDENCE}}
+
+AUTHORIZED SCOPES
+{{AUTHORIZED_SCOPES}}
+
+TDD EVIDENCE
+{{TDD_EVIDENCE}}
+
+{{REVIEW_FOCUS_BLOCK}}
+
+Return exactly one task code review object. Do not modify the repository.

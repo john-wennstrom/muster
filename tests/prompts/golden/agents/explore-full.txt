@@ -1,0 +1,15 @@
+How does the retry policy decide when to stop?
+
+AUTHORITATIVE CONTEXT
+{
+  "changeName": "add-retry",
+  "phase": "explore"
+}
+
+SUPPLEMENTAL FACTS
+[
+  {
+    "source": "serena",
+    "fact": "RetryPolicy is defined in src/retry.ts"
+  }
+]

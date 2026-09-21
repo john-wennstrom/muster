@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { runProcess } from "../../src/shared/process.ts";
 import type { JudgmentRuntime, JudgmentVerdict } from "../../src/judgment/ask.ts";
-import { abstain, act, type CommandGateValue } from "../../src/judgment/gates.ts";
+import { abstain, act } from "../../src/judgment/decision.ts";
+import { type CommandGateValue } from "../../src/judgment/decisions/command-classification.ts";
 import {
   runAuditedHostCommand,
   type HostCommandAuditEvent,

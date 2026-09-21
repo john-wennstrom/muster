@@ -1,13 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";import type { AgentRun } from "../agents/run-record.ts";
-import { createChangeSnapshot, type ChangeSnapshot } from "../controller/change-snapshot.ts";
+import { createChangeSnapshot, type ChangeSnapshot, type SnapshotLane } from "../controller/change-snapshot.ts";
 import {
   computeDiffDigest,
   computeIndexDigest,
   computeSourceDigest,
   readSourceDigest,
 } from "../execution/change-digests.ts";
+import { readLane } from "../controller/lane.ts";
 import { GitAdapter } from "../execution/git.ts";
+import { listDecisionRecords, summarizeDecisions, type DecisionSummary } from "../judgment/audit.ts";
 import { parseTaskDocument } from "../execution/task-parser.ts";
 import { OpenSpecAdapter } from "../openspec/adapter.ts";
 import { CORE_PLANNING_ARTIFACT_IDS } from "../openspec/fusion-driven-schema.ts";
@@ -28,6 +30,12 @@ import { pathExists, readFileOrNull } from "../shared/fs.ts";
 import { HarnessError } from "../shared/errors.ts";
 import { usageFromLegacyRun, type UsagePhase } from "../telemetry/usage.ts";
 import { resolveProductionChange, type ChangeStateQuery } from "./command.ts";
+
+/** The lane planning recorded; a change planned before lanes existed reads as medium. */
+async function loadSnapshotLane(cwd: string, changeName: string): Promise<SnapshotLane> {
+  const record = await readLane(createChangeUsageStore(cwd), changeName);
+  return { lane: record.lane, source: record.source, escalations: record.escalations.length };
+}
 
 const NO_ARTIFACTS_DIGEST = computeSourceDigest("no-reviewed-artifacts", "");
 
@@ -139,6 +147,7 @@ export async function loadProductionChangeSnapshot(
         }
       : null,
     pendingCheckpointIds,
+    lane: await loadSnapshotLane(cwd, options.changeName),
   });
 }
 
@@ -148,6 +157,14 @@ export async function loadProductionChangeUsage(
   const cwd = options.cwd ?? process.cwd();
   const store = createChangeUsageStore(cwd);
   return loadChangeUsageSummary(store, options.changeName);
+}
+
+/** The per-decision summary of the judgment records a change has, empty when it has none. */
+export async function loadProductionDecisionSummaries(
+  options: ChangeStateQuery,
+): Promise<readonly DecisionSummary[]> {
+  const store = createChangeUsageStore(options.cwd ?? process.cwd());
+  return summarizeDecisions(await listDecisionRecords(store, options.changeName));
 }
 
 /** Persists usage/cost telemetry for real agent invocations, tying them to the change being worked on. */

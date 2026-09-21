@@ -8,6 +8,7 @@ import { newRun } from "../../src/agents/run-record.ts";
 import { runProcess } from "../../src/shared/process.ts";
 import { runAgent, standardChildRuntime } from "../../src/agents/spawn.ts";
 import { registerChildBrokerTools, type ChildBrokerConfiguration } from "../../src/agents/child-broker.ts";
+import { promptFor } from "../helpers/prompt.ts";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -80,7 +81,7 @@ describe("standard agent tools", () => {
           modelStack,
           toolMode,
           role: "builder",
-          prompt: "inspect",
+          prompt: promptFor("inspect"),
           runId: "test",
           childId: "child",
           task: {

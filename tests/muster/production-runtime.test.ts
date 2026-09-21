@@ -11,6 +11,8 @@ import { renderExplorePrompt, resolveExploreModel } from "../../src/change/phase
 import { changeSubcommands } from "../../src/change/change-command.ts";
 import { loadChangeUsageSummary, createChangeUsageStore } from "../../src/persistence/change-usage-store.ts";
 import { runProcess } from "../../src/shared/process.ts";
+import { renderChangeStatus } from "../../src/change/outcome.ts";
+import { escalateLane, writeLane } from "../../src/controller/lane.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -147,6 +149,30 @@ describe("production change snapshot", () => {
     expect(snapshot!.pendingCheckpointIds).toEqual([]);
   });
 
+  test("a change with no lane record reads as medium, and status says so", async () => {
+    const root = await repositoryWithChange("add-search");
+    const snapshot = (await loadProductionChangeSnapshot({ cwd: root, changeName: "add-search" }))!;
+    expect(snapshot.lane).toEqual({ lane: "medium", source: "pattern", escalations: 0 });
+    expect(renderChangeStatus(snapshot)).toContain("Lane: medium (pattern), 0 escalation(s)");
+  });
+
+  test("status shows a judged lane and its escalations", async () => {
+    const root = await repositoryWithChange("add-search");
+    const store = createChangeUsageStore(root);
+    await writeLane(store, "add-search", { lane: "small", source: "judgment", reasons: ["every risk judged no"] });
+    await escalateLane(store, "add-search", "medium", "a write fell outside the declared scopes");
+    const snapshot = (await loadProductionChangeSnapshot({ cwd: root, changeName: "add-search" }))!;
+    expect(snapshot.lane).toEqual({ lane: "medium", source: "judgment", escalations: 1 });
+    expect(renderChangeStatus(snapshot)).toContain("Lane: medium (judgment), 1 escalation(s)");
+  });
+
+  test("status shows a lane the user chose", async () => {
+    const root = await repositoryWithChange("add-search");
+    await writeLane(createChangeUsageStore(root), "add-search", { lane: "large", source: "user", reasons: ["the user chose lane=large"] });
+    const snapshot = (await loadProductionChangeSnapshot({ cwd: root, changeName: "add-search" }))!;
+    expect(renderChangeStatus(snapshot)).toContain("Lane: large (user), 0 escalation(s)");
+  });
+
   test("change resolution is read-only until the caller activates the validated change", async () => {
     const root = await repositoryWithChange("add-search");
     const dependencies = createProductionChangeCommandDependencies({ cwd: root });
@@ -212,13 +238,13 @@ describe("explore agent wiring", () => {
   });
 
   test("renderExplorePrompt appends context/facts sections only when non-empty", () => {
-    expect(renderExplorePrompt({
+    expect(String(renderExplorePrompt({
       phase: "explore",
       access: "read",
       prompt: "Why does X fail?",
       authoritativeContext: {},
       supplementalFacts: [],
-    })).toBe("Why does X fail?");
+    }))).toBe("Why does X fail?");
 
     const rendered = renderExplorePrompt({
       phase: "explore",

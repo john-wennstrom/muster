@@ -10,6 +10,7 @@ export const createRefineHandler = defineChangeHandler("refine", async (request)
     onAgentStart: request.onAgentStart,
     runId: request.runId,
     prompt: request.prompt,
+    lane: request.lane,
     signal: request.signal,
     argv: request.options.argv,
   }));

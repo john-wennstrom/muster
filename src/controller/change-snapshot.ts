@@ -1,8 +1,19 @@
 import type { RunManifest } from "../persistence/records.ts";
+import type { Lane, LaneSource } from "./lane.ts";
 import type { PlanningReviewArtifact } from "../review/review-artifact.ts";
 import { HarnessError } from "../shared/errors.ts";
 
 export type ChangeLifecycle = RunManifest["lifecycle"];
+
+/** The change's lane as status shows it: which lane, who chose it, and how often it escalated. */
+export interface SnapshotLane {
+  lane: Lane;
+  source: LaneSource;
+  escalations: number;
+}
+
+/** A change with no lane record was planned before lanes existed, and is medium. */
+export const DEFAULT_SNAPSHOT_LANE: SnapshotLane = Object.freeze({ lane: "medium", source: "pattern", escalations: 0 });
 
 interface TimedObservation {
   observedAt: string;
@@ -33,6 +44,7 @@ export interface ChangeSnapshotInput {
     sourceDigest: string;
   }) | null;
   pendingCheckpointIds: readonly string[];
+  lane?: SnapshotLane;
 }
 
 export interface ChangeSnapshot {
@@ -60,6 +72,8 @@ export interface ChangeSnapshot {
   taskStates: Readonly<Record<string, boolean>>;
   pendingCheckpointIds: readonly string[];
   discrepancies: readonly string[];
+  /** Always set by the snapshot factory; optional so a snapshot built by hand still reads as medium. */
+  lane?: SnapshotLane;
 }
 
 function inconsistent(message: string, details: Readonly<Record<string, unknown>>): never {
@@ -144,11 +158,17 @@ export function createChangeSnapshot(input: ChangeSnapshotInput): ChangeSnapshot
   validateObservationTimes(input);
   validateIdentity(input);
 
+  const lane = input.lane ?? DEFAULT_SNAPSHOT_LANE;
+  // A lint approval stands in for a reviewer only on the small lane, so escalating the change
+  // makes it stale and the next review dispatches a reviewer.
+  const lintOutsideSmall = input.review?.artifact.mode === "lint" && lane.lane !== "small";
   const reviewFreshness: ChangeSnapshot["freshness"]["review"] = !input.review
     ? "missing"
-    : input.review.artifact.artifactDigest === input.openSpec.artifactDigest
-      ? "current"
-      : "stale";
+    : lintOutsideSmall
+      ? "stale"
+      : input.review.artifact.artifactDigest === input.openSpec.artifactDigest
+        ? "current"
+        : "stale";
   const validationFreshness: ChangeSnapshot["freshness"]["validation"] = !input.validation
     ? "missing"
     : input.validation.result === "FAIL"
@@ -195,6 +215,7 @@ export function createChangeSnapshot(input: ChangeSnapshotInput): ChangeSnapshot
     taskStates: Object.freeze({ ...input.openSpec.tasks }),
     pendingCheckpointIds: Object.freeze([...input.pendingCheckpointIds]),
     discrepancies: Object.freeze(discrepancies),
+    lane: Object.freeze({ ...lane }),
   });
 }
 

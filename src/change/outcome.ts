@@ -1,5 +1,6 @@
 import type { ChangeAction } from "../controller/action-resolver.ts";
-import type { ChangeSnapshot } from "../controller/change-snapshot.ts";
+import { DEFAULT_SNAPSHOT_LANE, type ChangeSnapshot } from "../controller/change-snapshot.ts";
+import type { DecisionSummary } from "../judgment/audit.ts";
 import type { ChangeUsageSummary } from "../persistence/change-usage-store.ts";
 import { HOST_EXECUTION_SECURITY_NOTICE } from "../tools/command-profile.ts";
 import type { ChangeCommandContext } from "./context.ts";
@@ -19,17 +20,42 @@ function renderChangeUsage(usage: ChangeUsageSummary): string[] {
   return lines;
 }
 
+/** One line per judgment decision that has records; nothing at all when there are none. */
+function renderJudgmentSummary(decisions: readonly DecisionSummary[]): string[] {
+  if (decisions.length === 0) return [];
+  return [
+    "Judgment:",
+    ...decisions.map((summary) => {
+      const unavailable = Object.entries(summary.unavailable).map(([reason, count]) => `${reason} ${count}`);
+      return [
+        `  ${summary.decision} v${summary.decisionVersion}: ${summary.calls} calls`,
+        `${summary.acted} acted`,
+        `${summary.wouldHaveActed} would have acted`,
+        ...(unavailable.length > 0 ? [`unavailable (${unavailable.join(", ")})`] : []),
+        ...(summary.reconciled > 0 ? [`agreement ${summary.agreed} of ${summary.reconciled}`] : []),
+      ].join(", ");
+    }),
+  ];
+}
+
+function renderLane({ lane, source, escalations }: NonNullable<ChangeSnapshot["lane"]>): string {
+  return `Lane: ${lane} (${source}), ${escalations} escalation(s)`;
+}
+
 export function renderChangeStatus(
   snapshot: ChangeSnapshot,
   usage?: ChangeUsageSummary | null,
+  decisions: readonly DecisionSummary[] = [],
 ): string {
   return [
     `Change: ${snapshot.changeName}`,
     `Lifecycle: ${snapshot.lifecycle}`,
+    renderLane(snapshot.lane ?? DEFAULT_SNAPSHOT_LANE),
     `Review: ${snapshot.freshness.review}`,
     `Validation: ${snapshot.freshness.validation}`,
     `Pending checkpoints: ${snapshot.pendingCheckpointIds.length}`,
     ...(usage ? renderChangeUsage(usage) : []),
+    ...renderJudgmentSummary(decisions),
     HOST_EXECUTION_SECURITY_NOTICE,
   ].join("\n");
 }

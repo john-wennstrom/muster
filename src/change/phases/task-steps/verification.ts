@@ -24,7 +24,9 @@ export async function runVerificationStep(
       signal,
     });
     evidence.push(`${command}: exit ${result.exitCode}`);
-    if (result.exitCode !== 0) return { passed: false, evidence };
+    if (result.exitCode !== 0) {
+      return { passed: false, evidence, failure: { command, exitCode: result.exitCode, output: `${result.stdout ?? ""}${result.stderr ?? ""}` } };
+    }
   }
   return { passed: true, evidence };
 }

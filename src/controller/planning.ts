@@ -5,18 +5,26 @@ import type {
   BudgetEvaluator,
 } from "../telemetry/budget.ts";
 import { HarnessError } from "../shared/errors.ts";
-import {
-  orchestrationPolicy,
-  type ComplexityDecision,
-  type OrchestrationPolicy,
-} from "./complexity-router.ts";
+import type { ComplexityDecision } from "./complexity-router.ts";
+import { LANE_POLICY, type Lane } from "./lane.ts";
 
 export type PlanningPhase = "propose" | "refine";
 export type PlanningAgentStage = "specialist_opinion" | "debate" | "synthesis";
 
+/** What one planning run does, read from the lane policy table and reduced by the optional budget. */
+export interface PlanningPolicy {
+  lane: Lane;
+  optional: {
+    specialistOpinions: boolean;
+    debate: boolean;
+  };
+  budgetDecision: "optional_enabled" | "optional_skipped_budget" | "minimal_route";
+}
+
 export interface PlanningInput {
   changeName: string;
   prompt: string;
+  lane: Lane;
   complexity: ComplexityDecision;
   optionalBudgetAvailable: boolean;
   authoritativeContext?: Readonly<Record<string, unknown>>;
@@ -28,7 +36,7 @@ export interface PlanningAgentRequest {
   changeName: string;
   prompt: string;
   complexity: ComplexityDecision;
-  policy: OrchestrationPolicy;
+  policy: PlanningPolicy;
   authoritativeContext: Readonly<Record<string, unknown>>;
   supplementalFacts: readonly SupplementalFact[];
   priorResults: readonly PlanningAgentResult[];
@@ -40,41 +48,23 @@ export interface PlanningAgentResult {
   content: string;
 }
 
-export interface PlanningArtifactWriteRequest {
-  phase: PlanningPhase;
-  changeName: string;
-  synthesis: PlanningAgentResult;
-  opinions: readonly PlanningAgentResult[];
-  debate?: PlanningAgentResult;
-}
-
 export interface PlanningDependencies {
   runAgent(request: PlanningAgentRequest): Promise<PlanningAgentResult>;
-  writeArtifacts(request: PlanningArtifactWriteRequest): Promise<void>;
   readSupplementalContext?(query: string): Promise<readonly SupplementalFact[]>;
   specialistOpinionCount?: number;
   budget?: BudgetEvaluator;
   budgetEstimates?: Partial<Record<PlanningAgentStage, BudgetAmount>>;
-  /**
-   * Total synthesis attempts (1 = no retry) when `writeArtifacts` rejects the
-   * synthesis output — e.g. a hand-escaped JSON bundle with one bad quote.
-   * Re-running the whole `/change propose` is a full preflight + specialist
-   * pass; feeding the exact parse/validation error back for one corrected
-   * synthesis attempt is far cheaper and usually enough. Defaults to 2.
-   */
-  maxSynthesisAttempts?: number;
 }
 
 export interface PlanningResult {
   phase: PlanningPhase;
   changeName: string;
   complexity: ComplexityDecision;
-  policy: OrchestrationPolicy;
+  policy: PlanningPolicy;
   opinions: readonly PlanningAgentResult[];
   debate?: PlanningAgentResult;
   synthesis: PlanningAgentResult;
   budgetDecisions: readonly BudgetDecision[];
-  artifactsWritten: true;
 }
 
 function scaledEstimate(
@@ -94,8 +84,20 @@ async function runPlanning(
   input: PlanningInput,
   dependencies: PlanningDependencies,
 ): Promise<PlanningResult> {
-  const basePolicy = orchestrationPolicy(input.complexity.classification, {
-    optionalBudgetAvailable: input.optionalBudgetAvailable,
+  const lanePolicy = LANE_POLICY[input.lane];
+  const optionalEligible = lanePolicy.specialistOpinions > 0 || lanePolicy.debate;
+  const optionalEnabled = optionalEligible && input.optionalBudgetAvailable;
+  const basePolicy: PlanningPolicy = Object.freeze({
+    lane: input.lane,
+    optional: Object.freeze({
+      specialistOpinions: lanePolicy.specialistOpinions > 0 && optionalEnabled,
+      debate: lanePolicy.debate && optionalEnabled,
+    }),
+    budgetDecision: !optionalEligible
+      ? "minimal_route" as const
+      : optionalEnabled
+        ? "optional_enabled" as const
+        : "optional_skipped_budget" as const,
   });
   const authoritativeContext = input.authoritativeContext ?? {};
   const supplementalFacts = dependencies.readSupplementalContext
@@ -110,7 +112,7 @@ async function runPlanning(
     supplementalFacts,
   };
 
-  const opinionCount = Math.max(2, dependencies.specialistOpinionCount ?? 2);
+  const opinionCount = Math.max(lanePolicy.specialistOpinions, dependencies.specialistOpinionCount ?? lanePolicy.specialistOpinions);
   const budgetDecisions: BudgetDecision[] = [];
   const forecast = (
     stage: PlanningAgentStage,
@@ -147,7 +149,7 @@ async function runPlanning(
     : undefined;
   const debateEnabled = basePolicy.optional.debate && specialistOpinionsEnabled &&
     debateBudget?.status !== "skipped_optional";
-  const policy: OrchestrationPolicy = Object.freeze({
+  const policy: PlanningPolicy = Object.freeze({
     ...basePolicy,
     optional: Object.freeze({
       specialistOpinions: specialistOpinionsEnabled,
@@ -176,40 +178,12 @@ async function runPlanning(
     );
   }
   const debated = debate ? [...opinions, debate] : opinions;
-  const maxSynthesisAttempts = Math.max(1, dependencies.maxSynthesisAttempts ?? 2);
-  let synthesis = await dependencies.runAgent({
+  const synthesis = await dependencies.runAgent({
     ...baseRequest,
     policy,
     stage: "synthesis",
     priorResults: debated,
   });
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      await dependencies.writeArtifacts({
-        phase,
-        changeName: input.changeName,
-        synthesis,
-        opinions,
-        debate,
-      });
-      break;
-    } catch (error) {
-      if (attempt >= maxSynthesisAttempts) throw error;
-      const reason = error instanceof Error ? error.message : String(error);
-      synthesis = await dependencies.runAgent({
-        ...baseRequest,
-        policy,
-        stage: "synthesis",
-        priorResults: [
-          ...debated,
-          {
-            model: "validator",
-            content: `Your previous response was rejected: ${reason}\n\nReturn exactly one valid JSON object of the required shape, with no markdown fences and no text outside the object. Every double quote that appears inside a string value must be escaped as \\", including quoted phrases inside task descriptions or prose — never a raw " inside a JSON string.`,
-          },
-        ],
-      });
-    }
-  }
 
   return {
     phase,
@@ -220,7 +194,6 @@ async function runPlanning(
     debate,
     synthesis,
     budgetDecisions: Object.freeze(budgetDecisions),
-    artifactsWritten: true,
   };
 }
 

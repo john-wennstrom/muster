@@ -1,15 +1,9 @@
 import { isAbsolute, relative, sep } from "node:path";
 import type { JudgmentRuntime } from "../judgment/ask.ts";
 import { REDACTED } from "../judgment/egress.ts";
-import {
-  commandClassificationDecision,
-  commandState,
-  isUncertainNone,
-  type CommandClassificationInput,
-  type CommandGateValue,
-} from "../judgment/gates.ts";
+import { commandClassificationDecision, commandState, isUncertainNone, type CommandClassificationInput, type CommandGateValue } from "../judgment/decisions/command-classification.ts";
 import { canonicalize } from "../judgment/questions.ts";
-import { JudgmentFixtureMissingError } from "../judgment/replay.ts";
+import { tryJudge } from "../judgment/try.ts";
 import {
   classifyProhibitedCommand,
   READ_ONLY_GIT_COMMANDS,
@@ -141,7 +135,7 @@ async function judgeOnce(
   });
   try {
     const verdict = await Promise.race([
-      judgment.runtime.judge(commandClassificationDecision, {
+      tryJudge(judgment.runtime, commandClassificationDecision, {
         input,
         changeName: judgment.changeName,
         phase: "implementation",
@@ -152,7 +146,7 @@ async function judgeOnce(
       }),
       deadline,
     ]);
-    if (verdict === "deadline" || verdict.kind === "fallback") {
+    if (verdict === "deadline" || verdict === null) {
       return { classification: PROCEED, reusable: false };
     }
     // Shadow mode records what would have stopped and hands nothing back to act on.
@@ -173,10 +167,6 @@ async function judgeOnce(
       classification: { category: null, source: null, uncertainNone: isUncertainNone(verdict.outcome.reason) },
       reusable: true,
     };
-  } catch (error) {
-    // A missing test recording must fail the test; any other failure is just unavailable.
-    if (error instanceof JudgmentFixtureMissingError) throw error;
-    return { classification: PROCEED, reusable: false };
   } finally {
     clearTimeout(timer);
     judgment.signal?.removeEventListener("abort", abort);

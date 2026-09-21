@@ -5,8 +5,8 @@ import { relative, resolve } from "node:path";
 const SRC = resolve(import.meta.dir, "../../src");
 const LAYER = resolve(SRC, "judgment");
 
-/** Directories the layer may import from: shared, telemetry, and persistence, plus itself. */
-const ALLOWED = ["judgment", "shared", "telemetry", "persistence"];
+/** Directories the layer may import from: shared, telemetry, persistence and the question loader, plus itself. */
+const ALLOWED = ["judgment", "shared", "telemetry", "persistence", "prompts"];
 
 /** Named so a violation reads as what it is: modules that must depend on the layer, not reverse. */
 const FORBIDDEN = [
@@ -26,8 +26,8 @@ describe("judgment layer layering", () => {
   test("the layer exists and has modules to scan", async () => {
     const names = (await readdir(LAYER)).filter((name) => name.endsWith(".ts"));
     expect(names).toEqual(expect.arrayContaining([
-      "ask.ts", "audit.ts", "client.ts", "egress.ts", "gates.ts",
-      "policy.ts", "questions.ts", "replay.ts", "usage.ts",
+      "ask.ts", "audit.ts", "catalog.ts", "client.ts", "decision.ts", "egress.ts", "try.ts",
+      "policy.ts", "questions.ts", "usage.ts",
     ]));
   });
 

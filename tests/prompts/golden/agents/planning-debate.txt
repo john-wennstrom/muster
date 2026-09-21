@@ -1,0 +1,11 @@
+Specialists have analysed this change independently. Weigh their opinions against each other and against the code, decide where they disagree, and return one concise analysis for the agent that will write the plan. Do not edit files and do not write the plan itself.
+
+Change: add-search
+
+User request: Add a search box to the toolbar that filters the visible items.
+
+Authoritative context: {"changeRoot":"/repo/openspec/changes/add-search"}
+
+Analysis from specialist opinions and a debate. Use it, and settle any disagreement in the plan:
+RESULT 1 (openai/gpt-test)
+Prefer a debounce.

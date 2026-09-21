@@ -1,14 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { JudgmentAnswers } from "../../src/judgment/client.ts";
-import {
-  COMMAND_UNCERTAIN_NONE_BELOW,
-  commandClassificationDecision,
-  commandState,
-  isUncertainNone,
-  judgmentCatalog,
-  validateCatalog,
-  validateDecision,
-} from "../../src/judgment/gates.ts";
+import { COMMAND_UNCERTAIN_NONE_BELOW, commandClassificationDecision, commandState, isUncertainNone } from "../../src/judgment/decisions/command-classification.ts";
+import { judgmentCatalog, validateCatalog } from "../../src/judgment/catalog.ts";
+import { validateDecision } from "../../src/judgment/decision.ts";
 import {
   COMMAND_CATEGORIES,
   COMMAND_QUESTION_IDS as IDS,

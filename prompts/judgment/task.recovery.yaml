@@ -1,0 +1,12 @@
+decision: "task.recovery"
+questions:
+  - id: "next_step"
+    type: "choice"
+    instructions: "A builder attempt at the task in the state did not complete. Given the failure in the state (its evidence, the command that reproduces it with its exit code and output tail, and what the attempt said it changed), what should happen next? Judge what the failure plainly shows, not how hard the task is. Choose retry when the failure is a defect in the attempt that another attempt with the failure in front of it could fix, such as a wrong condition, a missed case or a failing assertion the output points to. Choose escalate when the failure shows the work is broader or harder than a change of this size, such as many more files or behaviors involved than the task names, or a design question the task did not anticipate. Choose stop when a person must act, such as a missing credential, an unavailable service or tool, a broken environment, or a requirement that cannot be satisfied as written. Where two apply, choose the one that involves a person or more effort."
+    criteria:
+      "retry": "The failure is a fixable defect in the attempt, and the evidence points toward what to change."
+      "escalate": "The failure shows the change is broader or harder than the size of change it was planned as."
+      "stop": "The failure needs a person: an environment problem, a missing credential or service, or a requirement that is ambiguous or cannot be met."
+  - id: "human_needed"
+    type: "noul"
+    instructions: "Does resolving the failure in the state require something an automated coding agent cannot supply by itself, such as a decision between alternatives that only the user can make, a credential or secret, or access to a system or resource that the agent does not have? A failure that a code change could resolve answers no, however difficult it is."

@@ -6,7 +6,8 @@ import type { CollaborationTask } from "../../src/execution/collaboration-task.t
 import { createTaskBroker } from "../../src/agents/task-broker.ts";
 import { runProcess } from "../../src/shared/process.ts";
 import { createInertJudgmentRuntime, type JudgmentRuntime, type JudgmentVerdict } from "../../src/judgment/ask.ts";
-import { abstain, act, type CommandGateValue } from "../../src/judgment/gates.ts";
+import { abstain, act } from "../../src/judgment/decision.ts";
+import { type CommandGateValue } from "../../src/judgment/decisions/command-classification.ts";
 
 const temporaryDirectories: string[] = [];
 

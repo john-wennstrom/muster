@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { parsePreflight } from "../../src/change/phases/planning.ts";
+import { parsePlan } from "../../src/planning/plan-schema.ts";
 import {
   composePreflight,
   MAX_PREFLIGHT_EVIDENCE,
   STANDARD_ALREADY_SATISFIED_QUESTION,
   type PreflightCandidate,
 } from "../../src/controller/preflight-composition.ts";
-import type { PreflightGateValue } from "../../src/judgment/gates.ts";
+import type { ActingTriage } from "../../src/controller/preflight-composition.ts";
 
 const candidates = (count: number): PreflightCandidate[] =>
   Array.from({ length: count }, (_, index) => ({
@@ -21,9 +21,8 @@ const answer = (index: number, implemented: number, needsChange: number) => ({
   relevance: Math.max(implemented, needsChange),
 });
 
-const proceed = (...entries: ReturnType<typeof answer>[]): PreflightGateValue => ({
+const proceed = (...entries: ReturnType<typeof answer>[]): ActingTriage => ({
   disposition: "proceed",
-  confidence: 0.9,
   candidates: entries,
 });
 
@@ -75,42 +74,48 @@ describe("composePreflight", () => {
     expect(composePreflight(proceed(answer(1, 0.1, 0.9), answer(2, 0.1, 0.9)), candidates(3)).summary)
       .toBe("Judged ready to plan: 2 of 3 candidate files retrieved are relevant to the request.");
     expect(composePreflight(
-      { disposition: "already_satisfied", confidence: 0.9, candidates: [answer(1, 0.9, 0.1), answer(2, 0.2, 0.6)] },
+      { disposition: "already_satisfied", candidates: [answer(1, 0.9, 0.1), answer(2, 0.2, 0.6)] },
       candidates(4),
     ).summary).toBe(
       "Judged already satisfied by the checked-out code: 1 of 4 candidate files retrieved already implement the request.",
     );
   });
 
-  test("a composed result satisfies the schema the agent path is held to", () => {
-    for (const value of [
-      proceed(answer(1, 0.1, 0.9)),
-      proceed(),
-      { disposition: "already_satisfied" as const, confidence: 0.9, candidates: [answer(1, 0.9, 0.1)] },
-    ]) {
+  test("a composed already-satisfied result is what a planning session's own answer would carry", () => {
+    const composed = composePreflight(
+      { disposition: "already_satisfied", candidates: [answer(1, 0.9, 0.1)] },
+      candidates(2),
+    );
+    expect(composed.summary.length).toBeGreaterThan(0);
+    for (const entry of composed.evidence) {
+      expect(entry.path.length).toBeGreaterThan(0);
+      expect(entry.reason.length).toBeGreaterThan(0);
+    }
+    expect(parsePlan(JSON.stringify(composed))).toMatchObject({ ok: true, plan: { disposition: "already_satisfied" } });
+  });
+
+  test("every composition has evidence entries with a path and a reason", () => {
+    for (const value of [proceed(answer(1, 0.1, 0.9)), proceed()]) {
       const composed = composePreflight(value, candidates(2));
       expect(composed.summary.length).toBeGreaterThan(0);
-      for (const entry of composed.evidence) {
-        expect(entry.path.length).toBeGreaterThan(0);
-        expect(entry.reason.length).toBeGreaterThan(0);
-      }
-      expect(parsePreflight(JSON.stringify(composed))).toEqual(composed);
+      for (const entry of composed.evidence) expect(entry.reason.length).toBeGreaterThan(0);
     }
   });
 
-  test("an already-satisfied composition has the fields the agent path yields for that disposition", () => {
+  test("an already-satisfied composition has the fields a session yields for that disposition", () => {
     const composed = composePreflight(
-      { disposition: "already_satisfied", confidence: 0.9, candidates: [answer(1, 0.9, 0.1)] },
+      { disposition: "already_satisfied", candidates: [answer(1, 0.9, 0.1)] },
       candidates(1),
     );
-    // The agent path returns disposition, summary, and evidence, with no question: the phase
-    // supplies the standard one, which is exported here so both paths share it.
-    const agent = parsePreflight(JSON.stringify({
+    // A session's answer carries disposition, summary and evidence, with no question here: the run
+    // supplies the standard one, which is exported so both paths share it.
+    const session = parsePlan(JSON.stringify({
       disposition: "already_satisfied",
       summary: "The code already does this.",
       evidence: [{ path: "src/file-1.ts", reason: "Implements it." }],
     }));
-    expect(Object.keys(composed).sort()).toEqual(Object.keys(agent).sort());
+    expect(session.ok).toBeTrue();
+    expect(Object.keys(composed).sort()).toEqual(Object.keys(session.ok ? session.plan : {}).sort());
     expect(composed).not.toHaveProperty("question");
     expect(STANDARD_ALREADY_SATISFIED_QUESTION).toBe(
       "Which branch, deployment, or entry point still exhibits the behavior you want changed?",

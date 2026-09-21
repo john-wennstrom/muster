@@ -27,17 +27,18 @@ import {
 import { loadReviewSnapshot, saveReviewSnapshot, type ReviewSnapshot } from "../review/review-snapshot.ts";
 import type { AtomicJsonStore } from "../persistence/atomic-json-store.ts";
 import { HarnessError } from "../shared/errors.ts";
+import { renderPrompt, type RenderedPrompt } from "../prompts/render.ts";
 
 export interface ReviewChangeInput extends Omit<PlanningReviewDispatchOptions, "cwd" | "prompt"> {
   repositoryRoot: string;
   changeRoot: string;
   prompt?: string;
   /**
-   * Plan-time task quality findings that are still current, already rendered. They reach the
-   * reviewer's prompt as unverified notes and touch nothing else: the verdict and every field
-   * of the review artifact come from the reviewer's output alone.
+   * Findings of the plan.lint semantic check, already rendered. They reach the reviewer's prompt
+   * as unverified notes and touch nothing else: the verdict and every field of the review
+   * artifact come from the reviewer's output alone.
    */
-  taskQualityNotes?: readonly string[];
+  planLintNotes?: readonly string[];
   /**
    * Present only when review triage is enabled. It lets an approval be carried across an edit
    * that only touched the proposal or the design, and turns on retention of what each approving
@@ -77,7 +78,7 @@ async function readExistingReview(path: string): Promise<PlanningReviewArtifact 
   }
 }
 
-const defaultDependencies: ReviewControllerDependencies = {
+export const defaultDependencies: ReviewControllerDependencies = {
   discoverArtifacts: discoverReviewedArtifacts,
   hashArtifacts: hashReviewedArtifacts,
   dispatchReview: dispatchPlanningReview,
@@ -89,30 +90,20 @@ const defaultDependencies: ReviewControllerDependencies = {
   saveSnapshot: saveReviewSnapshot,
 };
 
-function taskQualitySection(notes: readonly string[]): string[] {
-  if (notes.length === 0) return [];
-  return [
-    "",
-    "Unverified automated notes about the task list, from a check made when it was planned. They may be wrong. Confirm or dismiss each by reading the artifacts, and report only what you confirm as your own finding:",
-    ...notes.map((note) => `- ${note}`),
-  ];
-}
-
-function reviewPrompt(
+export function reviewPrompt(
   paths: readonly string[],
   artifactDigest: string,
   additionalPrompt?: string,
-  taskQualityNotes: readonly string[] = [],
-): string {
-  return [
-    "Perform an independent planning review. Read every artifact in this reviewed set:",
-    ...paths.map((path) => `- ${path}`),
-    "",
-    `The controller-calculated artifact digest is ${artifactDigest}.`,
-    "Return APPROVE only when there are no critical findings or required changes; otherwise return REVISE.",
-    ...taskQualitySection(taskQualityNotes),
-    additionalPrompt?.trim(),
-  ].filter((line): line is string => Boolean(line)).join("\n");
+  planLintNotes: readonly string[] = [],
+): RenderedPrompt {
+  return renderPrompt("planning-review-request", {
+    ARTIFACT_PATHS: paths.map((path) => `- ${path}`).join("\n"),
+    ARTIFACT_DIGEST: artifactDigest,
+    PLAN_LINT_BLOCK: planLintNotes.length > 0
+      ? renderPrompt("planning-review-plan-lint", { NOTES: planLintNotes.map((note) => `- ${note}`).join("\n") })
+      : "",
+    ADDITIONAL_INSTRUCTIONS: additionalPrompt?.trim() ?? "",
+  });
 }
 
 /** A digest for every reviewed file and the text of the proposal and the design. */
@@ -144,7 +135,7 @@ export async function reviewChange(
     repositoryRoot: _repositoryRoot,
     changeRoot: _changeRoot,
     prompt: additionalPrompt,
-    taskQualityNotes,
+    planLintNotes,
     triage,
     ...dispatchInput
   } = input;
@@ -214,7 +205,7 @@ export async function reviewChange(
       reviewedPaths(),
       artifactDigest,
       additionalPrompt,
-      taskQualityNotes,
+      planLintNotes,
     ),
   });
 

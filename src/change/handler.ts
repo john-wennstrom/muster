@@ -1,11 +1,12 @@
 import type { ChangeAction } from "../controller/action-resolver.ts";
 import type { ChangeSnapshot } from "../controller/change-snapshot.ts";
+import type { Lane } from "../controller/lane.ts";
 import { HOST_EXECUTION_SECURITY_NOTICE } from "../tools/command-profile.ts";
 import { FALLBACK_ACTOR } from "../shared/actor.ts";
 import type { AgentRunObserver } from "./agent-progress.ts";
 import type { ChangeCommandContext } from "./context.ts";
-import type { ParsedChangeCommand } from "./parse.ts";
-import { acceptsArity, changeCommands } from "./commands.ts";
+import { extractLaneArgument, type ParsedChangeCommand } from "./parse.ts";
+import { acceptsArity, changeCommands, type ChangeCommandSpec } from "./commands.ts";
 import type { CommandOutcome, ProductionRuntimeOptions } from "./command.ts";
 import { changeStateQuery } from "./command.ts";
 import { loadProductionChangeSnapshot } from "./snapshot.ts";
@@ -22,8 +23,10 @@ export interface ChangeHandlerRequest<A extends ChangeAction = ChangeAction> {
   changeName: ChangeNameFor<A>;
   /** The raw argument remainder, already split on whitespace. */
   args: readonly string[];
-  /** The same remainder rejoined and trimmed; empty when the action took no free text. */
+  /** The same remainder rejoined and trimmed, without any `lane=` word; empty when the action took no free text. */
   prompt: string;
+  /** The lane the user asked for with `lane=`, for actions that accept one. */
+  lane?: Lane;
   cwd: string;
   signal?: AbortSignal;
   runId?: string;
@@ -66,12 +69,17 @@ export function defineChangeHandler<A extends ChangeAction>(
     if (spec.change === "required" && !command.changeName) return usageOutcome(action);
     if (!acceptsArity(spec, command.arguments.length)) return usageOutcome(action, command.changeName);
 
+    const laneArgument = (spec as ChangeCommandSpec).laneOption ? extractLaneArgument(command.arguments) : undefined;
+    if (laneArgument?.kind === "invalid") return usageOutcome(action, command.changeName);
+    const args = laneArgument ? laneArgument.rest : command.arguments;
+
     let snapshot: Promise<ChangeSnapshot | null> | undefined;
     const result = await run({
       action,
       changeName: command.changeName as ChangeNameFor<A>,
-      args: command.arguments,
-      prompt: command.arguments.join(" ").trim(),
+      args,
+      prompt: args.join(" ").trim(),
+      ...(laneArgument?.kind === "lane" ? { lane: laneArgument.lane } : {}),
       cwd,
       signal: options.signal ?? context.signal,
       runId: context.run?.runId,

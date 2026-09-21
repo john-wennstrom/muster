@@ -22,7 +22,7 @@ const questions: JudgmentQuestions = {
 };
 
 const sample = JSON.parse(
-  await readFile(resolve(import.meta.dir, "../fixtures/judgment/sample-response.json"), "utf8"),
+  await readFile(resolve(import.meta.dir, "data/sample-response.json"), "utf8"),
 );
 
 function json(body: unknown, status = 200): Response {
@@ -49,7 +49,7 @@ const hangingFetch: typeof fetch = ((_url: unknown, init?: RequestInit) =>
   })) as typeof fetch;
 
 describe("judgment client", () => {
-  test("returns typed answers and usage for a recorded sample response", async () => {
+  test("parses a canned body in the service's documented shape into typed answers and usage", async () => {
     let seen: { url: string; init: RequestInit } | undefined;
     const result = await client((async (url: string, init: RequestInit) => {
       seen = { url, init };
@@ -180,6 +180,15 @@ describe("judgment client", () => {
       expect({ name, ...result }).toMatchObject({ name, available: false, reason: "invalid_response" });
       expect(result).not.toHaveProperty("answers");
     }
+  });
+
+  test("a body that omits a requested question is an invalid response with no partial answers", async () => {
+    const partial = structuredClone(sample);
+    delete partial.answers.materiality;
+    const result = await client((async () => json(partial)) as unknown as typeof fetch)
+      .request({ state: "s", questions });
+    expect(result).toMatchObject({ available: false, reason: "invalid_response" });
+    expect(result).not.toHaveProperty("answers");
   });
 
   test("treats a body that is not JSON as an invalid response", async () => {

@@ -2,25 +2,11 @@
 
 ## Design-to-implementation audit
 
-Audit date: 2026-09-17. Target: [OpenSpec-Driven Multi-Agent Development Harness](../openspec-driven-multi-agent-harness-design.md). This checklist distinguishes production behavior from library implementations and injected test doubles. It includes the current uncommitted changes; it is not a claim about a published release.
+Originally audited 2026-09-17 against the [OpenSpec-Driven Multi-Agent Development Harness](../openspec-driven-multi-agent-harness-design.md) design, and revised on 2026-09-21 after the simplification series (`simplify-01` to `simplify-07`) retired the legacy extension and finished the single pipeline. Completed items are removed; what remains is the gap inventory that was not closed. Items carried over from the original audit were not all re-verified in the revision, so treat an open item as a lead to check, not as a confirmed defect.
 
 ### Current command availability
 
-The default [production dependency factory](../src/change/dependencies.ts) supplies only an `explore` handler. The [command dispatcher](../src/change/change-command.ts) implements the `status` fallback itself. Registration and lifecycle checks exist for all nine actions, but registration is not implementation.
-
-| Command | Current default behavior | Remaining work |
-| --- | --- | --- |
-| `/change explore <idea>` | Spawns a real read-only architect child and posts the final answer to the transcript. | Live progress, cancellation, routing/context/usage integration. |
-| `/change propose <change>` | No production handler. | Assemble planning workflow and artifact creation. |
-| `/change refine <change>` | No production handler. | Assemble planning revision, opinions, and conditional debate. |
-| `/change review <change>` | No production handler. | Assemble independent planning review and durable verdict. |
-| `/change implement <change>` | No production handler. | Assemble the gated worktree/task execution pipeline. |
-| `/change verify <change>` | No production handler. | Assemble final verification and durable evidence. |
-| `/change finish <change>` | No production handler. | Assemble explicit completion and OpenSpec archive handoff. |
-| `/change status <change>` | Reads a snapshot and usage, then displays a transient notification. | Persistent output, incomplete-change handling, run/task details. |
-| `/change resume <change> <checkpoint-id>` | Syntax and lifecycle checks exist; no production handler. | Assemble checkpoint confirmation and interrupted-run recovery. |
-
-Missing handlers report "not available in this build" if dispatch reaches them; lifecycle checks may reject the command first. [Muster registration](../src/muster/index.ts) registers only `/change` and the flags it reads.
+Every `/change` action has a production handler, assembled in [the production dependency factory](../src/change/dependencies.ts): `explore`, `propose`, `refine`, `review`, `implement`, `resume`, `verify`, `finish` and `status`. [Muster registration](../src/muster/index.ts) registers only `/change` and the flags the pipeline reads; the retired commands are not aliased. How the pipeline works today is described in the [README](../README.md) and drawn in the [command flow](command-flow.md).
 
 ### How to use this audit
 
@@ -36,46 +22,12 @@ Labels used below:
 
 Priority: **P0** makes the primary command surface usable and trustworthy; **P1** completes the engineering and recovery contract; **P2** delivers optional integrations and measured optimization. P0 does not permit bypassing P1 correctness gates: those gates must work before production source-writing commands are accepted.
 
-### Existing foundations to reuse
-
-These are implemented building blocks, not a greenfield backlog:
-
-| Area | Existing implementation | Completion caveat |
-| --- | --- | --- |
-| Extension distribution | One Pi entry point registering `/change`. | Most default handlers are absent. |
-| OpenSpec boundary | Typed CLI adapter, handshake, payload validation, packaged schema. | Production snapshot bypasses resolved artifact locations and hides some failures. |
-| Planning review | Artifact hashing, binary verdicts, fresh reviewer selection, brokered reviewer runner. | No production command assembly. |
-| Lifecycle | Snapshot derivation, precedence, command prerequisites, transition rules. | Collector and real-file lifecycle interactions need correction. |
-| Execution | Markdown/YAML task parser, metadata validation, DAG, scheduler, worktrees, writer leases. | No default end-to-end task executor. |
-| Agent safety | Broker protocol, clean child extension, role/path authorization, audited host runner. | Must be connected consistently to the new writer pipeline. |
-| Engineering gates | TDD evidence policy, debugging state, task review, completion pipeline, final validation. | Several dependencies remain callbacks; real evidence collection is not assembled. |
-| Context and models | Capsules, escalation, dependency/decision reports, capability/cost router. | Source selection and default child routing are not connected. |
-| Recovery | Versioned atomic store, reconciliation planner, checkpoints, resume controller. | No production recovery-action executor or resume handler. |
-| Observability | Live agent columns, usage ledger, budget evaluator. | Telemetry does not yet cover every production invocation. |
-
-### P0.1 Production command assembly
-
-Target: design sections 11, 12, 24, 25, 27-29, 33 and 40. Owners: [production runtime](../src/change/dependencies.ts), [dispatcher](../src/change/change-command.ts), [planning](../src/controller/planning.ts), [review](../src/controller/review.ts), [implementation](../src/controller/implement.ts), [verification](../src/controller/verify.ts), [finish](../src/controller/finish.ts).
-
-- [x] **Unwired:** supply production handlers for `propose`, `refine`, `review`, `implement`, `verify`, `finish`, and `resume`. Assemble the existing controllers with real OpenSpec, Git, store, broker, child, and UI dependencies. Do not substitute legacy execution for the new gates.
-- [x] **Partial:** define one command-run context carrying the invocation's repository cwd, resolved planning home, change, worktree, run identity, models, cancellation signal, and output sink. The current factory captures `process.cwd()` and does not receive the Pi command context's cwd.
-- [x] **Gap:** validate explicit change identifiers and resolved paths before filesystem reads or active-change persistence. Cover traversal, absolute paths, invalid slugs, nonexistent changes, and slug collisions. Do not let an invalid invocation overwrite a valid active change.
-- [x] **Partial:** keep read-only `status` free of incidental active-change mutations, or explicitly revise/document that contract. Currently `resolveChangeName(explicit)` writes active state even for status and commands subsequently rejected by prerequisites.
-- [x] **Partial:** allow standalone exploration without requiring a healthy active-change snapshot. Dispatch currently loads the remembered change before invoking explore, so malformed tasks or state can prevent unrelated exploration.
-- [x] **Gap:** make prerequisite guidance name exact missing artifacts, stale digests, unavailable models, or pending checkpoint IDs. Avoid misleading `/implement is not available` wording for a missing `/change implement` handler while a distinct legacy `/implement` is registered.
-- [x] **Acceptance risk:** test default `registerMuster()` dependencies by actually invoking every advertised action. A registration test or an injected handler map is insufficient. Require a persistent success, blocked, cancelled, or failure result for every invocation.
-
-Acceptance: every listed command reaches its intended production controller; errors explain the actual blocker; no missing-handler fallback remains for advertised supported actions.
-
-Validation (2026-09-18): the P0.1 focused suite passes 71 tests, typecheck passes, and strict OpenSpec validation passes. The complete Bun suite passes 311 of 328 tests; 17 existing Windows fixture failures require symlink privileges or use POSIX separator, long-path, or LF-only expectations and are outside this production-command assembly change.
-
 ### P0.2 Visible agent execution and results
 
 Target: design sections 6, 22, 24 and 38, plus the requested Fusion-style multi-column experience. The original design requires observability but does not explicitly mandate columns; visual parity is an additional user requirement.
 
 Evidence: [agent columns](../src/change/ui/agent-columns.ts), [agent progress](../src/change/agent-progress.ts), [child spawn](../src/agents/spawn.ts), [production explore](../src/change/phases/exploration.ts). `/change` exposes only `notify` and `sendMessage`, and explore returns only model/content after awaiting the child.
 
-- [x] **Done:** the agent-column presentation lives in [src/change/ui/agent-columns.ts](../src/change/ui/agent-columns.ts) and `/change` renders it through a shared run observer.
 - [ ] **Gap:** connect child start, tool activity, response deltas, usage, exit, error, and cancellation to the presenter. Expose the active `AgentRun` or equivalent typed events while work is happening, not only after it completes.
 - [ ] **Gap:** show a full-width agent panel for explore and other single-agent stages; responsive columns for simultaneous opinions/readers; a full-width synthesis/review stage where appropriate. Panels must represent agents actually dispatched, not imply simultaneous source writers.
 - [ ] **Gap:** display change, phase, task, role, model, elapsed time, current operation, tokens, and known/unknown cost. Show an immediate starting state and useful progress during slow child startup or OpenSpec calls.
@@ -138,12 +90,11 @@ Acceptance: a two-task real change runs in its intended worktree with one source
 
 ### P1.2 Context, model routing, and compact policies
 
-Target: design sections 14-17, 20-23, 30-32. Evidence: [role sessions](../src/agents/role-runner.ts), [capsule assembler](../src/context/assembler.ts), [escalation](../src/context/escalation.ts), [TDD policy](../src/policies/tdd.ts), [debugging policy](../src/policies/debugging.ts).
+Target: design sections 14-17, 20-23, 30-32. Evidence: [role sessions](../src/agents/role-runner.ts), [TDD policy](../src/policies/tdd.ts), [failure records](../src/execution/recovery.ts).
 
-- [ ] **Unwired:** build context sources from real task-linked requirements/scenarios, design decisions, project rules, relevant code, and accepted dependency reports. The assembler currently consumes supplied slices; it does not discover them or feed production task execution.
-  - Ranking: when this lands, call `rankCapsuleSlices` in [the ranking step](../src/context/ranking.ts) and then `assembleTaskCapsule` with its `ranking`, setting each file-backed slice's `path` so the credential denylist applies. Start with judgment in shadow mode; `reconcileCapsuleEscalations` joins the recorded counterfactual to the escalations that later occur. Ranking has no effect until this wiring exists.
+- [ ] **Unwired:** build context sources from real task-linked requirements/scenarios, design decisions, project rules, relevant code, and accepted dependency reports. The task capsule assembler and its context ranking were removed as unconnected code; if context ranking is wanted it returns with a call site that exists.
 - [ ] **Partial:** include the complete task capsule in the builder prompt. The task pipeline currently supplies a short task description and no dependency reports to `runFreshRoleTask`, despite the role runner supporting them.
-- [ ] **Gap:** add a reachable authorized context-request path to child tooling. Bind requests to parent-owned run/task identity and remaining budget; account cumulatively for returned content. Existing escalation accepts caller-supplied remaining tokens and has no production child integration.
+- [ ] **Gap:** add a reachable authorized context-request path to child tooling. Bind requests to parent-owned run/task identity and remaining budget; account cumulatively for returned content. There is no escalation path today.
 - [ ] **Partial:** estimate the actual serialized prompt, including dependency reports, available references, policy, and system prompt overhead. Do not trust a caller-provided required-token estimate as the full assembled cost; required content must never be silently truncated.
 - [ ] **Unwired:** populate model capabilities from Pi's configured/authenticated model registry and existing Fusion stack, then route all roles consistently. Preserve role quality requirements and fresh/different-model review preference under budget pressure; report no eligible model rather than guessing availability.
 - [ ] **Decision:** reconcile Pi-native `github-copilot` provider support with the router's requirement for a `vscode-copilot` adapter. Explore follows the Pi/Fusion model stack while the new router rejects that provider without the separate adapter. Distinguish provider access through Pi from a future VS Code execution host; confirm supported behavior with a live smoke test.
@@ -185,17 +136,15 @@ Target: design sections 18-19, 26, 29, 32, 35 and 37, plus the later OpenSpec ma
 
 Acceptance: restarting the extension reconstructs the right run, shows pending human work, and safely continues from evidence rather than rerunning accepted writes.
 
-### P1.5 One safety path and legacy migration
+### P1.5 One safety path
 
 Target: design sections 3-6, 19, 24, 29-35. Evidence: [authorization](../src/tools/authorization.ts), [host runner](../src/tools/host-runner.ts), [task broker](../src/agents/task-broker.ts).
 
-- [x] **Done:** `/refine`, `/implement`, `/ship`, `/os-status`, `/init` and every `/fh-*` command are retired. `/change` is the only registered command, with no aliases.
-- [x] **Done:** legacy command-test execution through whitespace-split command strings and direct `runProc` was deleted with the extension.
 - [ ] **Acceptance risk:** preserve one writer/worktree/authorization policy across commands and tools, including architect artifact writes and future Serena mutation. Test canonical/symlink/case boundaries, recursive reads/search results, subprocess mutations, and lease revocation at the actual broker boundary.
 - [ ] **Acceptance risk:** test migration against real structured task artifacts, including older unsupported metadata with actionable remediation. Do not silently accept incomplete metadata or maintain a second durable plan.
 - [ ] **Partial:** retain the honest host-execution security notice. Brokered/audited execution is implemented; operating-system filesystem/network isolation remains deferred below. Neither library coverage nor UI labels establish containment.
 
-Acceptance: aliases have the same durable outcomes and safety gates as `/change`, while diagnostic commands remain explicitly scoped and do not bypass writer coordination.
+Acceptance: every command and tool shares the same writer, worktree and authorization policy, and diagnostic commands do not bypass writer coordination.
 
 ### P1.6 Telemetry and compact run summaries
 
@@ -231,7 +180,6 @@ Target: design sections 6-8, 33, 37, 39 and 40. Evidence: [extension smoke](../t
 - [ ] **Acceptance risk:** verify packaging includes all referenced runtime/schema/license assets and reproducible dependency metadata. Do not infer distribution readiness from source checkout imports.
 - [ ] **Partial:** validate the installed OpenSpec capability contract, supported Pi/Bun/Node versions, cwd semantics, archive behavior, and provider smoke on a clean project. The schema test already invokes the real CLI, but does not prove the whole default workflow.
 - [ ] **Partial:** complete native Linux/macOS/Windows acceptance, including cancellation, subprocess cleanup, paths, symlinks, worktrees, and real command output. Correct platform-dependent fixture assertions and document actual environmental prerequisites rather than declaring a passing matrix from local tests.
-- [x] **Done:** `bun run test` runs the same suite as `bun test` and `bun run ci:test`.
 - [ ] **Partial:** complete OpenSpec tasks 13.4-13.7: hosted matrix confirmation, provider readiness, live acceptance, and final documentation. The provider doctor checks auth/model discovery, not a complete model execution lifecycle.
 - [ ] **Gap:** reconcile checked command/integration tasks with production evidence. In particular, the checked 11.x/12.x items and README describe workflows not available through default handlers. Record corrective OpenSpec work rather than treating all library checkmarks as delivered features.
 - [ ] **Partial:** document installation, schema setup, configuration precedence, supported providers, task metadata, current command availability, output/cancellation behavior, worktree/artifact ownership, recovery, manual checkpoints, security limitations, and unverified savings. Fix the existing documentation fence failure.
@@ -252,21 +200,12 @@ The [later OpenSpec design](../openspec/changes/build-openspec-multi-agent-harne
 
 ### Suggested delivery order
 
-1. Correct availability messaging and add default-wiring tests; expose a shared presenter and make explore visibly useful.
-2. Correct snapshot resolution, fail-closed errors, source/planning digest semantics, and phase prerequisites using real-file/CLI tests.
-3. Complete propose/refine/review with real artifact writes, configured agents, conditional debate, and durable output.
-4. Assemble one bounded implementation workflow with context/routing, worktree handoff, single lease ownership, brokered tests, task review, and persistence.
-5. Complete conflict/repair/debugging/checkpoint/recovery behavior, then final verification and explicit finish.
-6. Complete telemetry and native-platform/live acceptance.
-7. Connect optional integrations and run comparative cost/quality benchmarks.
+1. Visible agent execution and results (P0.2), then real OpenSpec state and freshness (P0.3).
+2. Bounded repair and design-conflict handling (P1.1), context and model routing (P1.2), final verification (P1.3).
+3. Recovery and runtime ownership (P1.4), telemetry (P1.6).
+4. Native-platform and live acceptance, then optional integrations and the comparative cost and quality benchmark (P2).
 
-### Audit evidence and limitations
-
-- Read all 40 sections of the original target and traced the default extension, production factory, dispatch, relevant controllers, child/broker boundary, Fusion UI, and neighboring tests. Graph tools were unavailable; this audit uses direct source evidence. It is not an exhaustive security or performance audit.
-- Ran `bun test tests/commands tests/muster tests/e2e/change-lifecycle.test.ts tests/openspec tests/context tests/agents/model-router.test.ts tests/review/validator.test.ts`: **69 passed, 3 failed** across 17 files. Bun also selected the matching legacy OpenSpec workflow tests. Failures were Windows absolute-path expectations in verify/finish and legacy workflow tests, plus short-vs-canonical temp-path spelling in the real schema test.
-- Fixture lifecycle tests inject handlers, builders, worktree selection, digests, and validator inputs. Their passing state-machine paths do not demonstrate production command or UI completeness.
-- `bun run docs:check` fails on an existing unclosed README code fence before reaching this roadmap. No runtime/source fixes were made by this audit.
-- No authenticated model run, interactive Pi/TUI smoke, hosted platform matrix, archive of a real change, or comparative benchmark was executed. The integration risks above remain explicit acceptance work, not claims of reproduced live failures.
+The simplification series measures its own claim (fewer sessions and tokens for small changes) with the manual acceptance run in [the simplification record](simplification.md), not with this roadmap.
 
 ## Post-beta process and network isolation
 

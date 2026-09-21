@@ -1,47 +1,36 @@
 import { createHash } from "node:crypto";
 import { basename, resolve } from "node:path";
-import { writeFile } from "node:fs/promises";
-import { createDependencyReport } from "../../agents/reports.ts";
 import { implementChange, resumeChange } from "../../controller/implement.ts";
-import { checkpointPlannedManualAction } from "../../controller/manual-checkpoint.ts";
-import { reconcileTaskQualityOutcome } from "../../controller/task-quality.ts";
 import type { RecoveryPlan } from "../../controller/recovery.ts";
 import { compileTaskDag, persistTaskDag } from "../../execution/delegation-dag.ts";
-import { computeDiffDigest, computeIndexDigest, readSourceDigest } from "../../execution/change-digests.ts";
 import { GitAdapter } from "../../execution/git.ts";
 import { loadValidatedTaskDocument } from "../../execution/load-tasks.ts";
-import { affectedTaskBranch, type ChangeTaskExecutionContext } from "../../execution/scheduler.ts";
+import type { RecoveryEnd } from "../../execution/failed-attempt.ts";
+import { RunManifestKeeper } from "../../execution/run-manifest.ts";
+import type { ChangeTaskExecutionContext } from "../../execution/scheduler.ts";
 import type { ValidatedTask } from "../../execution/task-schema.ts";
-import {
-  runTaskPipeline,
-  synchronizeTaskCheckbox,
-  type TaskPipelineBuilderResult,
-  type TaskPipelineReviewResult,
-  type TaskPipelineVerificationResult,
+import type {
+  TaskPipelineBuilderResult,
+  TaskPipelineReviewResult,
+  TaskPipelineVerificationResult,
 } from "../../execution/task-runner.ts";
+import { createUnitRunner, type UnitSteps } from "../../execution/unit-runner.ts";
 import { ensureChangeWorktree, type ChangeWorktree } from "../../execution/worktree.ts";
 import { OpenSpecAdapter } from "../../openspec/adapter.ts";
 import { createJudgmentRuntime, type JudgmentRuntime } from "../../judgment/ask.ts";
-import { listDecisionRecords, reconcileDecisionRecord } from "../../judgment/audit.ts";
-import { modelRoutingDecision } from "../../judgment/gates.ts";
-import type { AtomicJsonStore } from "../../persistence/atomic-json-store.ts";
 import { openChangeRun } from "../../persistence/run-store.ts";
-import {
-  checkpointRecordSchema,
-  reviewRecordSchema,
-  runManifestSchema,
-  taskResultSchema,
-  type RunManifest,
-} from "../../persistence/records.ts";
+import { checkpointRecordSchema } from "../../persistence/records.ts";
 import { discoverReviewedArtifacts, hashReviewedArtifacts } from "../../review/artifact-digest.ts";
-import { HarnessError } from "../../shared/errors.ts";
 import type { CommandOutcome } from "../command.ts";
 import type { AgentRunObserver } from "../agent-progress.ts";
-import { economyBuilderSlot, resolveModelStack, roleModel } from "../models.ts";
+import { economyBuilderSlot, economyReviewerSlot, resolveModelStack, roleModel } from "../models.ts";
 import type { TaskStepContext } from "./task-steps/context.ts";
 import { runBuilderStep } from "./task-steps/builder.ts";
 import { runVerificationStep } from "./task-steps/verification.ts";
 import { runReviewStep } from "./task-steps/review.ts";
+
+/** The scheduler runs a task at most this many times. */
+const MAX_TASK_ATTEMPTS = 2;
 
 export interface ProductionTaskExecutionPorts {
   runBuilder?(
@@ -76,38 +65,6 @@ export interface ProductionImplementationOptions {
   now?: () => Date;
   /** Replaces the runtime built from the environment, as tests do. */
   judgment?: JudgmentRuntime;
-}
-
-/**
- * Measurement only: merges a task's first-attempt outcome into the routing record that attempt
- * wrote, along with the lane it actually ran on. The lane is read off the record: it was the
- * economy lane only when the gate's acting outcome was handed to the builder step, which is
- * enforce mode. A record from before `since` belongs to an earlier run and is left alone, as is
- * one that already holds an outcome, so a later attempt never overwrites the first. A missing
- * record is normal, since routing is usually off, and a failure here must not fail the task.
- */
-async function reconcileTaskRoutingOutcome(input: {
-  store: AtomicJsonStore;
-  changeName: string;
-  taskId: string;
-  status: string;
-  since: string;
-}): Promise<void> {
-  try {
-    const records = (await listDecisionRecords(input.store, input.changeName))
-      .filter((record) =>
-        record.decision === modelRoutingDecision.id &&
-        record.taskId === input.taskId &&
-        record.createdAt >= input.since)
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-    const latest = records.at(-1);
-    if (!latest || latest.observed.outcome !== undefined) return;
-    await reconcileDecisionRecord(input.store, input.changeName, latest.recordId, {
-      observed: { lane: latest.acted ? "economy" : "primary", outcome: input.status },
-    });
-  } catch {
-    // Reconciliation is measurement; the task's own outcome stands without it.
-  }
 }
 
 export async function runProductionImplementation(
@@ -159,56 +116,35 @@ export async function runProductionImplementation(
     onAgentStart: options.onAgentStart,
     judgment: options.judgment ?? createJudgmentRuntime({ env: process.env, store }),
     economyBuilder: economyBuilderSlot(stack),
+    economyReviewer: economyReviewerSlot(stack),
+    routing: new Map(),
   };
-  let manifest: RunManifest;
-  let artifactChanged = false;
-  try {
-    manifest = runManifestSchema.parse(await store.read(runId, "manifest.json"));
-    if (
-      manifest.changeName !== options.changeName ||
-      manifest.repository.id !== selectedWorktree.repositoryId ||
-      resolve(manifest.worktree.path) !== resolve(selectedWorktree.path)
-    ) {
-      throw new HarnessError("RECOVERY_STATE_CONFLICT", "Persisted implementation identity does not match the selected change worktree", {
-        runId,
-        changeName: options.changeName,
-      });
-    }
-    artifactChanged = manifest.artifactDigest !== artifactDigest;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    manifest = runManifestSchema.parse({
-      schemaVersion: 1,
-      runId,
-      changeName: options.changeName,
-      lifecycle: "READY",
-      repository: { id: selectedWorktree.repositoryId, commonDirectory: selectedWorktree.commonDirectory },
-      worktree: {
-        path: selectedWorktree.path,
-        head: head.commit,
-        indexDigest: computeIndexDigest(gitStatus),
-        diffDigest: computeDiffDigest(diff),
-      },
-      artifactDigest,
-      tasks: Object.fromEntries(document.tasks.map((task) => [task.id, task.checked ? "completed" : "ready"])),
+  const now = options.now ?? (() => new Date());
+  const keeper = await RunManifestKeeper.open({
+    store,
+    runId,
+    changeName: options.changeName,
+    worktree: selectedWorktree,
+    artifactDigest,
+    document,
+    creation: {
+      head: head.commit,
+      gitStatus,
+      diff,
       modelAssignments: {
         architect: roleModel(stack, "architect"),
         builder: roleModel(stack, "builder"),
         reviewer: roleModel(stack, "reviewer"),
         validator: roleModel(stack, "validator"),
       },
-      writer: null,
-      checkpoints: [],
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    });
-    await store.write(runId, "manifest.json", manifest);
-  }
+    },
+    now,
+  });
 
   const checkpoints = await changeRun.readRecords("checkpoints", checkpointRecordSchema);
   const pendingCheckpoints = checkpoints.filter((checkpoint) => checkpoint.status === "pending");
   const recovery: RecoveryPlan = {
-    actions: artifactChanged
+    actions: keeper.artifactChanged
       ? [{ type: "invalidate_run" as const, reason: "artifact_digest_changed" as const }]
       : pendingCheckpoints.map((checkpoint) => ({
         type: "restore_checkpoint" as const,
@@ -217,25 +153,45 @@ export async function runProductionImplementation(
       })),
     discrepancies: [],
   };
-  let currentContents = tasksContents;
-
-  const persistManifest = async (taskId: string, state: RunManifest["tasks"][string]): Promise<void> => {
-    manifest = runManifestSchema.parse({
-      ...manifest,
-      lifecycle: state === "awaiting_user" ? "AWAITING_USER" : state === "design_conflict" ? "DESIGN_CONFLICT" : "IMPLEMENTING",
-      tasks: { ...manifest.tasks, [taskId]: state },
-      checkpoints: [...new Set([...manifest.checkpoints, ...pendingCheckpoints.map((checkpoint) => checkpoint.id)])],
-      updatedAt: (options.now ?? (() => new Date()))().toISOString(),
-    });
-    await store.write(runId, "manifest.json", manifest);
+  const state = { contents: tasksContents };
+  const recoveryEnds: RecoveryEnd[] = [];
+  const steps: UnitSteps = {
+    runBuilder: (task, context, signal, attempt) => options.ports?.runBuilder
+      ? options.ports.runBuilder(task, context, signal, attempt)
+      : runBuilderStep(stepContext, task, context, signal, undefined, attempt),
+    runVerification: (task, context, signal) => options.ports?.runVerification
+      ? options.ports.runVerification(task, context, signal)
+      : runVerificationStep(task, context.worktree.path, signal),
+    runReview: (task, builder, verification, context, signal) => options.ports?.runReview
+      ? options.ports.runReview(task, builder, verification, context, signal)
+      : runReviewStep(stepContext, task, context, builder, verification, signal),
   };
+  const execute = createUnitRunner({
+    runId,
+    changeName: options.changeName,
+    planningCwd: options.cwd,
+    store,
+    changeRun,
+    dag,
+    document,
+    tasksPath,
+    state,
+    keeper,
+    pendingCheckpoints,
+    steps,
+    fallbackReviewerModel: stack.architect.model,
+    now,
+    judgment: stepContext.judgment,
+    maxAttempts: MAX_TASK_ATTEMPTS,
+    recoveryEnds,
+  });
 
   const scheduler = {
     runId,
     dag,
     tasks: Object.fromEntries(document.tasks.map((task) => [task.id, {
       mode: task.writes.length > 0 ? "write" as const : "read" as const,
-      maxAttempts: 2,
+      maxAttempts: MAX_TASK_ATTEMPTS,
     }])),
     pendingCheckpoints,
     worktree: {
@@ -247,178 +203,7 @@ export async function runProductionImplementation(
     },
     selectWorktree: async (): Promise<ChangeWorktree> => selectedWorktree,
     signal: options.signal,
-    execute: async (
-      scheduledTask: { id: string },
-      attempt: number,
-      context: ChangeTaskExecutionContext,
-      signal?: AbortSignal,
-    ) => {
-      const task = document.tasks.find((candidate) => candidate.id === scheduledTask.id)!;
-      if (task.manual) {
-        // A planned manual task is the person's step, not a builder's. Once its checkpoint is
-        // confirmed the step is done, so it completes here instead of pausing a second time.
-        const latest = (await changeRun.readRecords("checkpoints", checkpointRecordSchema))
-          .filter((candidate) => candidate.taskId === task.id)
-          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
-        if (latest?.status === "confirmed") {
-          const completedAt = (options.now ?? (() => new Date()))().toISOString();
-          const { sourceDigest } = await readSourceDigest(
-            new GitAdapter(context.worktree.path, undefined, undefined, signal),
-          );
-          const confirmation =
-            `manual checkpoint ${latest.id} confirmed by ${latest.confirmedBy} at ${latest.confirmedAt}: ${task.manual.expectedOutcome}`;
-          await store.write(runId, `task-results/${task.id}.json`, taskResultSchema.parse({
-            schemaVersion: 1,
-            runId,
-            taskId: task.id,
-            outcome: "completed",
-            sourceDigest,
-            verificationEvidence: [confirmation],
-            completedAt,
-          }));
-          await store.write(runId, `reports/${task.id}.json`, createDependencyReport({
-            schemaVersion: 1,
-            runId,
-            taskId: task.id,
-            outcome: "completed",
-            summary: task.description,
-            changedInterfaces: [],
-            evidence: [confirmation],
-            createdAt: completedAt,
-          }));
-          currentContents = synchronizeTaskCheckbox(currentContents, { ...task, metadata: {} }, {
-            status: "completed",
-            taskId: task.id,
-            synchronizeCheckbox: true,
-            invalidatePlanningReview: false,
-            blockAffectedBranch: false,
-          });
-          await writeFile(tasksPath, currentContents, "utf8");
-          await persistManifest(task.id, "completed");
-          return { outcome: "completed" as const };
-        }
-        const checkpoint = await checkpointPlannedManualAction({
-          store,
-          runId,
-          changeName: options.changeName,
-          taskId: task.id,
-          branch: affectedTaskBranch(dag, task.id),
-          manual: task.manual,
-        });
-        pendingCheckpoints.push(checkpoint);
-        await persistManifest(task.id, "awaiting_user");
-        return { outcome: "awaiting_user" as const };
-      }
-
-      // Measurement only: the first attempt's outcome, against whether plan time flagged the task
-      // and against the lane it ran on. An attempt that throws is a first attempt that did not
-      // complete, so it is recorded too.
-      const attemptStartedAt = new Date().toISOString();
-      const recordFirstAttemptOutcome = async (status: string): Promise<void> => {
-        if (attempt !== 1) return;
-        await Promise.all([
-          reconcileTaskQualityOutcome({
-            store,
-            changeName: options.changeName,
-            tasks: document.tasks,
-            taskId: task.id,
-            status,
-          }),
-          reconcileTaskRoutingOutcome({
-            store,
-            changeName: options.changeName,
-            taskId: task.id,
-            status,
-            since: attemptStartedAt,
-          }),
-        ]);
-      };
-      let verificationEvidence: readonly string[] = [];
-      let reviewFindings: readonly string[] = [];
-      const pipeline = await runTaskPipeline({
-        runId,
-        sessionsRoot: resolve(options.cwd, ".fusion", "runs", runId, "sessions"),
-        contents: currentContents,
-        task: {
-          ...task,
-          metadata: {
-            id: task.id,
-            dependsOn: task.dependsOn,
-            role: task.role,
-            reads: task.reads,
-            writes: task.writes,
-            requirements: task.requirements,
-            scenarios: task.scenarios,
-            verify: task.verify,
-            manual: task.manual,
-          },
-        },
-        behaviorChanging: true,
-        requirements: task.requirements,
-        scenarios: task.scenarios,
-        reviewBudgetAvailable: true,
-        runBuilder: () => (options.ports?.runBuilder
-          ? options.ports.runBuilder(task, context, signal, attempt)
-          : runBuilderStep(stepContext, task, context, signal, undefined, attempt)),
-        runVerification: async () => {
-          const result = options.ports?.runVerification
-            ? await options.ports.runVerification(task, context, signal)
-            : await runVerificationStep(task, context.worktree.path, signal);
-          verificationEvidence = result.evidence;
-          return result;
-        },
-        runReview: async ({ builder, verification }) => {
-          const result = options.ports?.runReview
-            ? await options.ports.runReview(task, builder, verification, context, signal)
-            : await runReviewStep(stepContext, task, context, builder, verification, signal);
-          reviewFindings = result.findings;
-          return result;
-        },
-        persistEvidence: async ({ builder }) => {
-          const evidenceGit = new GitAdapter(context.worktree.path, undefined, undefined, signal);
-          const { sourceDigest } = await readSourceDigest(evidenceGit);
-          await store.write(runId, `task-results/${task.id}.json`, taskResultSchema.parse({
-            schemaVersion: 1,
-            runId,
-            taskId: task.id,
-            outcome: "completed",
-            sourceDigest,
-            verificationEvidence,
-            completedAt: (options.now ?? (() => new Date()))().toISOString(),
-          }));
-          await store.write(runId, `reviews/task-${task.id}.json`, reviewRecordSchema.parse({
-            schemaVersion: 1,
-            runId,
-            taskId: task.id,
-            kind: "task",
-            verdict: reviewFindings.length > 0 ? "REVISE" : "APPROVE",
-            artifactDigest: sourceDigest,
-            model: manifest.modelAssignments.reviewer ?? stack.architect.model,
-            findings: reviewFindings,
-            createdAt: (options.now ?? (() => new Date()))().toISOString(),
-          }));
-          if (builder.tddEvidence) await store.write(runId, `tdd/${task.id}.json`, builder.tddEvidence);
-          await store.write(runId, `reports/${task.id}.json`, createDependencyReport({
-            schemaVersion: 1,
-            runId,
-            taskId: task.id,
-            outcome: "completed",
-            summary: task.description,
-            changedInterfaces: [],
-            evidence: [...verificationEvidence],
-            createdAt: (options.now ?? (() => new Date()))().toISOString(),
-          }));
-        },
-      }).catch(async (error: unknown) => {
-        await recordFirstAttemptOutcome("failed");
-        throw error;
-      });
-      currentContents = pipeline.contents;
-      await writeFile(tasksPath, currentContents, "utf8");
-      await persistManifest(task.id, pipeline.outcome.status === "completed" ? "completed" : pipeline.outcome.status);
-      await recordFirstAttemptOutcome(pipeline.outcome.status);
-      return { outcome: pipeline.outcome.status, error: pipeline.outcome.reason };
-    },
+    execute,
   };
 
   const flow = {
@@ -427,7 +212,7 @@ export async function runProductionImplementation(
     executeRecoveryAction: async () => undefined,
     scheduler,
     onDesignConflict: async (taskIds: readonly string[]) => {
-      for (const taskId of taskIds) await persistManifest(taskId, "design_conflict");
+      for (const taskId of taskIds) await keeper.recordTask(taskId, "design_conflict", pendingCheckpoints.map((checkpoint) => checkpoint.id));
     },
   };
   const result = options.checkpointId
@@ -441,26 +226,25 @@ export async function runProductionImplementation(
     })).implementation
     : await implementChange({ changeName: options.changeName, flow });
 
-  const schedulerStates = result.scheduler?.states ?? {};
+  // An escalated task is left ready rather than blocked, so the run records where it can resume.
+  const schedulerStates: Record<string, string> = { ...result.scheduler?.states };
+  for (const end of recoveryEnds) if (end.kind === "escalate") schedulerStates[end.taskId] = "ready";
   const cancelled = Object.values(schedulerStates).some((state) => state === "cancelled");
   if (result.scheduler) {
-    const lifecycle: RunManifest["lifecycle"] = cancelled
-      ? "CANCELLED"
-      : result.status === "completed"
-        ? "VERIFYING"
-        : result.status === "design_conflict"
-          ? "DESIGN_CONFLICT"
-          : result.status === "paused"
-            ? "AWAITING_USER"
-            : "BLOCKED";
-    manifest = runManifestSchema.parse({
-      ...manifest,
-      lifecycle,
-      tasks: { ...manifest.tasks, ...schedulerStates },
-      updatedAt: (options.now ?? (() => new Date()))().toISOString(),
-    });
-    await store.write(runId, "manifest.json", manifest);
+    await keeper.finish(
+      cancelled
+        ? "CANCELLED"
+        : result.status === "completed"
+          ? "VERIFYING"
+          : result.status === "design_conflict"
+            ? "DESIGN_CONFLICT"
+            : result.status === "paused"
+              ? "AWAITING_USER"
+              : "BLOCKED",
+      schedulerStates,
+    );
   }
+  const recoveryEnd = recoveryEnds.at(-1);
   const terminalStatus = cancelled
     ? "cancelled" as const
     : result.status === "completed"
@@ -476,9 +260,15 @@ export async function runProductionImplementation(
     action: options.checkpointId ? "resume" : "implement",
     changeName: options.changeName,
     runId,
-    summary: `Implementation ${cancelled ? "cancelled" : result.status}${pendingIds.length ? `; pending checkpoint(s): ${pendingIds.join(", ")}` : ""}.`,
+    summary: recoveryEnd
+      ? recoveryEnd.kind === "escalate"
+        ? `Implementation blocked: task ${recoveryEnd.taskId} showed the change is larger than planned, so it moved to the ${recoveryEnd.lane} lane (${recoveryEnd.reason}).`
+        : `Implementation blocked: task ${recoveryEnd.taskId} needs a person (${recoveryEnd.reason}); the failure is recorded at ${recoveryEnd.failurePath}.`
+      : `Implementation ${cancelled ? "cancelled" : result.status}${pendingIds.length ? `; pending checkpoint(s): ${pendingIds.join(", ")}` : ""}.`,
     next: cancelled
       ? `/change status ${options.changeName}`
+      : recoveryEnd?.kind === "escalate"
+      ? `/change review ${options.changeName}`
       : result.status === "completed"
       ? `/change verify ${options.changeName}`
       : result.status === "review_required"

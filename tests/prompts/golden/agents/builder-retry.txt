@@ -1,0 +1,20 @@
+Implement task 1.2: Add the search filter to the toolbar
+
+Requirements: ["search: The toolbar filters items"]
+
+Scenarios: ["Typing filters the list"]
+
+Verification: ["bun test tests/search.test.ts"]
+
+Prior failure (attempt 1, blocked):
+- bun test tests/toolbar.test.ts: exit 1
+Reproduce with: bun test tests/toolbar.test.ts (exit 1)
+Output tail:
+Expected 1 result, received 0
+The previous attempt said it changed: Filtered on input
+Paths changed by the previous attempt: src/toolbar.ts
+Address this failure; do not repeat the same approach.
+
+Use the available tools and stay within the declared scopes.
+
+Return exactly one JSON TaskPipelineBuilderResult with claim, implementationPersisted, a one-sentence statedFix saying what you changed, and any reason/conflict/tddEvidence. No markdown fence.

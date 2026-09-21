@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { newRun, runOk, runError } from "../../agents/run-record.ts";
 import { runAgent, type ReadAgentRunner } from "../../agents/spawn.ts";
+import { renderPrompt, type RenderedPrompt } from "../../prompts/render.ts";
 import { explore, type ExploreAgentRequest, type ExploreDependencies } from "../../controller/explore.ts";
 import { HarnessError } from "../../shared/errors.ts";
 import type { AgentRunObserver } from "../agent-progress.ts";
@@ -24,15 +25,16 @@ export function resolveExploreModel(
   return roleModel(resolveModelStack(argv, env), "architect");
 }
 
-export function renderExplorePrompt(request: ExploreAgentRequest): string {
-  const sections = [request.prompt];
-  if (Object.keys(request.authoritativeContext).length > 0) {
-    sections.push(`AUTHORITATIVE CONTEXT\n${JSON.stringify(request.authoritativeContext, null, 2)}`);
-  }
-  if (request.supplementalFacts.length > 0) {
-    sections.push(`SUPPLEMENTAL FACTS\n${JSON.stringify(request.supplementalFacts, null, 2)}`);
-  }
-  return sections.join("\n\n");
+export function renderExplorePrompt(request: ExploreAgentRequest): RenderedPrompt {
+  return renderPrompt("explore", {
+    USER_REQUEST: request.prompt,
+    AUTHORITATIVE_CONTEXT_BLOCK: Object.keys(request.authoritativeContext).length > 0
+      ? renderPrompt("explore-context", { CONTEXT_JSON: JSON.stringify(request.authoritativeContext, null, 2) })
+      : "",
+    SUPPLEMENTAL_FACTS_BLOCK: request.supplementalFacts.length > 0
+      ? renderPrompt("explore-facts", { FACTS_JSON: JSON.stringify(request.supplementalFacts, null, 2) })
+      : "",
+  });
 }
 
 export function createProductionExploreDependencies(

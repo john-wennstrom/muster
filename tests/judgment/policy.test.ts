@@ -11,7 +11,7 @@ function expected(flag?: string, key?: string, mode?: string) {
   if (mode && mode !== "shadow" && mode !== "enforce") {
     return { enabled: false, reason: "invalid_configuration" };
   }
-  return { enabled: true, mode: mode || "shadow", apiKey: key.trim() };
+  return { enabled: true, mode: mode || "enforce", apiKey: key.trim() };
 }
 
 describe("judgment policy", () => {
@@ -27,9 +27,9 @@ describe("judgment policy", () => {
     expect(policy).toMatchObject(expected(flag, key, mode));
   });
 
-  test("defaults to shadow once enabled", () => {
+  test("defaults to enforce once enabled", () => {
     expect(resolveJudgmentPolicy({ MUSTER_JEV: "1", MUSTER_JEV_API_KEY: "k" }))
-      .toEqual({ enabled: true, mode: "shadow", apiKey: "k" });
+      .toEqual({ enabled: true, mode: "enforce", apiKey: "k" });
   });
 
   test("distinguishes disabled from not configured", () => {
@@ -46,15 +46,15 @@ describe("judgment policy", () => {
     })).toMatchObject({ enabled: false, reason: "invalid_configuration" });
   });
 
-  test("a decision's own flag must also be set, in the global mode", () => {
-    const base = { MUSTER_JEV: "1", MUSTER_JEV_API_KEY: "k", MUSTER_JEV_MODE: "enforce" };
-    const options = { decisionFlag: "MUSTER_JEV_TASK_REVIEW_SKIP" };
+  test("shadow is an explicit choice", () => {
+    expect(resolveJudgmentPolicy({ MUSTER_JEV: "1", MUSTER_JEV_API_KEY: "k", MUSTER_JEV_MODE: "shadow" }))
+      .toEqual({ enabled: true, mode: "shadow", apiKey: "k" });
+  });
 
-    expect(resolveJudgmentPolicy(base, options)).toMatchObject({ enabled: false, reason: "disabled" });
-    expect(resolveJudgmentPolicy({ ...base, MUSTER_JEV_TASK_REVIEW_SKIP: "1" }, options))
-      .toEqual({ enabled: true, mode: "enforce", apiKey: "k" });
-    expect(resolveJudgmentPolicy({ MUSTER_JEV_TASK_REVIEW_SKIP: "1" }, options))
-      .toMatchObject({ reason: "disabled" });
+  test("a per-decision variable has no effect", () => {
+    const base = { MUSTER_JEV: "1", MUSTER_JEV_API_KEY: "k" };
+    expect(resolveJudgmentPolicy({ ...base, MUSTER_JEV_REVIEW_TRIAGE: "1", MUSTER_JEV_MODEL_ROUTING: "1" }))
+      .toEqual(resolveJudgmentPolicy(base));
   });
 
   test("does not read the process environment", () => {

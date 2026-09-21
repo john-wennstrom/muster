@@ -11,25 +11,6 @@ const ENTRY_POINTS: readonly string[] = [
   "src/agents/child-broker.ts",
 ];
 
-/**
- * Modules known to be unwired until the named change removes or connects them.
- * One line per entry, naming the change responsible. simplify-07-closeout asserts this is empty.
- */
-const TEMPORARY_ALLOWLIST: Readonly<Record<string, string>> = {
-  "src/context/ranking.ts": "simplify-03-judgment-core",
-  "src/context/escalation.ts": "simplify-03-judgment-core",
-  "src/context/assembler.ts": "simplify-03-judgment-core",
-  "src/judgment/complexity-report.ts": "simplify-03-judgment-core",
-  "src/judgment/model-routing-report.ts": "simplify-03-judgment-core",
-  "src/judgment/preflight-report.ts": "simplify-03-judgment-core",
-  "src/judgment/review-extraction-report.ts": "simplify-03-judgment-core",
-  "src/judgment/review-triage-report.ts": "simplify-03-judgment-core",
-  "src/judgment/task-quality-report.ts": "simplify-03-judgment-core",
-  "src/judgment/task-review-report.ts": "simplify-03-judgment-core",
-  "src/policies/debugging.ts": "simplify-06-lean-execution",
-  "src/policies/repair-progress.ts": "simplify-06-lean-execution",
-};
-
 async function sourceModules(directory: string): Promise<string[]> {
   const found: string[] = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -88,10 +69,9 @@ function unwired(importers: Map<string, Set<string>>): string[] {
 }
 
 describe("source hygiene", () => {
-  test("every source module is reachable from an entry point or has an owner", async () => {
+  test("every source module is reachable from an entry point", async () => {
     const importers = await importersBySourceModule();
-    const offenders = unwired(importers).filter((path) => !(path in TEMPORARY_ALLOWLIST));
-    expect(offenders).toEqual([]);
+    expect(unwired(importers)).toEqual([]);
   });
 
   test("a module no entry point reaches is reported as unwired", async () => {
@@ -108,16 +88,6 @@ describe("source hygiene", () => {
   test("declared entry points exist", async () => {
     const importers = await importersBySourceModule();
     for (const entry of ENTRY_POINTS) expect(importers.has(entry)).toBeTrue();
-  });
-
-  test("the temporary allowlist names its owner and lists only modules that still exist unwired", async () => {
-    const importers = await importersBySourceModule();
-    const currentlyUnwired = new Set(unwired(importers));
-    for (const [path, owner] of Object.entries(TEMPORARY_ALLOWLIST)) {
-      expect(owner).toMatch(/^simplify-\d\d-[a-z-]+$/);
-      expect(importers.has(path)).toBeTrue();
-      expect(currentlyUnwired.has(path)).toBeTrue();
-    }
   });
 
   test("the retired unwired modules are gone", async () => {

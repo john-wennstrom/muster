@@ -5,18 +5,9 @@ import { resolve } from "node:path";
 import { createJudgmentRuntime } from "../../src/judgment/ask.ts";
 import { listDecisionRecords } from "../../src/judgment/audit.ts";
 import type { JudgmentAnswers, JudgmentClient } from "../../src/judgment/client.ts";
-import {
-  TASK_ROUTING_ENABLE_VARIABLE,
-  TASK_ROUTING_MECHANICAL_ABOVE,
-  TASK_ROUTING_REACH_BELOW,
-  TASK_ROUTING_REACH_CONFIDENCE,
-  TASK_ROUTING_RISK_BELOW,
-  judgmentCatalog,
-  modelRoutingDecision,
-  taskRoutingState,
-  validateCatalog,
-  validateDecision,
-} from "../../src/judgment/gates.ts";
+import { TASK_ROUTING_MECHANICAL_ABOVE, TASK_ROUTING_NARROW_BELOW, TASK_ROUTING_REACH_BELOW, TASK_ROUTING_REACH_CONFIDENCE, TASK_ROUTING_RISK_BELOW, modelRoutingDecision, taskRoutingState } from "../../src/judgment/decisions/routing-task-model.ts";
+import { judgmentCatalog, validateCatalog } from "../../src/judgment/catalog.ts";
+import { validateDecision } from "../../src/judgment/decision.ts";
 import {
   TASK_ROUTING_QUESTION_IDS as IDS,
   TASK_ROUTING_REACH_LEVELS,
@@ -48,8 +39,6 @@ describe("routing.task_model decision", () => {
     expect(judgmentCatalog).toContain(modelRoutingDecision);
     expect(() => validateCatalog(judgmentCatalog)).not.toThrow();
     expect(modelRoutingDecision.effects).toEqual(["reduces_work"]);
-    expect(modelRoutingDecision.enabledBy).toBe("MUSTER_JEV_MODEL_ROUTING");
-    expect(TASK_ROUTING_ENABLE_VARIABLE).toBe("MUSTER_JEV_MODEL_ROUTING");
   });
 
   test("asks six yes/no questions and a four-level reach rubric", () => {
@@ -156,6 +145,30 @@ describe("routing.task_model gate", () => {
   });
 });
 
+describe("routing.task_model thinking levels", () => {
+  test("is version 2", () => {
+    expect(modelRoutingDecision.version).toBe(2);
+  });
+
+  test("a narrow, mechanical, risk-free task gets builder low and reviewer medium", () => {
+    const outcome = gate(routable({ [IDS.reach]: scored(0.4, 0.9) }));
+    expect(outcome).toMatchObject({ act: true, value: { builderThinking: "low", reviewerThinking: "medium" } });
+  });
+
+  test("moderate reach gets builder medium and reviewer high", () => {
+    const outcome = gate(routable({ [IDS.reach]: scored(1.0, 0.9) }));
+    expect(outcome).toMatchObject({ act: true, value: { builderThinking: "medium", reviewerThinking: "high" } });
+  });
+
+  test("the narrow bound is strict", () => {
+    expect(gate(routable({ [IDS.reach]: scored(TASK_ROUTING_NARROW_BELOW, 0.9) }))).toMatchObject({ value: { builderThinking: "medium" } });
+  });
+
+  test("an uncertain answer chooses nothing, so the caller keeps configured thinking", () => {
+    expect(gate(routable({ [IDS.deepReasoning]: noul(0.5) })).act).toBe(false);
+  });
+});
+
 describe("routing.task_model state", () => {
   test("holds exactly the task's description, requirements, scenarios, scopes, and verification", () => {
     const state = taskRoutingState({
@@ -207,15 +220,15 @@ describe("routing.task_model enabling flag", () => {
 
   const base = { MUSTER_JEV: "1", MUSTER_JEV_API_KEY: "key", MUSTER_JEV_MODE: "enforce" };
 
-  test("judgment without the routing flag sends nothing", async () => {
-    const result = await run(base);
+  test("without judgment enabled nothing is sent", async () => {
+    const result = await run({ MUSTER_JEV_MODE: "enforce" });
     expect(result.verdict).toEqual({ kind: "fallback", reason: "disabled", recordId: null });
     expect(result.requests).toBe(0);
     expect(result.records).toEqual([]);
   });
 
-  test("with the flag, enforce hands back the acting outcome and records the lane", async () => {
-    const result = await run({ ...base, MUSTER_JEV_MODEL_ROUTING: "1" });
+  test("with judgment enabled, enforce hands back the acting outcome and records the lane", async () => {
+    const result = await run(base);
     expect(result.requests).toBe(1);
     expect(result.verdict.kind).toBe("enforce");
     expect(result.records).toHaveLength(1);
@@ -227,7 +240,7 @@ describe("routing.task_model enabling flag", () => {
   });
 
   test("in shadow mode the lane is recorded and not handed back", async () => {
-    const result = await run({ ...base, MUSTER_JEV_MODE: "shadow", MUSTER_JEV_MODEL_ROUTING: "1" });
+    const result = await run({ ...base, MUSTER_JEV_MODE: "shadow" });
     expect(result.verdict.kind).toBe("shadow");
     expect(result.records[0]!.wouldHaveActed).toBe(true);
     expect(result.records[0]!.acted).toBe(false);

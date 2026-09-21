@@ -1,0 +1,5 @@
+decision: unknown-variable.decision
+questions:
+  - id: one
+    type: noul
+    instructions: "Mentions {{missing}}."

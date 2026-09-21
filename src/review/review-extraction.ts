@@ -1,11 +1,6 @@
-import { JudgmentFixtureMissingError } from "../judgment/replay.ts";
+import { tryJudge } from "../judgment/try.ts";
 import type { JudgmentRuntime } from "../judgment/ask.ts";
-import { reconcileDecisionRecord } from "../judgment/audit.ts";
-import {
-  reviewExtractionDecision,
-  reviewExtractionState,
-  type ReviewExtractionGateValue,
-} from "../judgment/gates.ts";
+import { reviewExtractionDecision, reviewExtractionState, type ReviewExtractionGateValue } from "../judgment/decisions/review-extraction.ts";
 import type { AtomicJsonStore } from "../persistence/atomic-json-store.ts";
 import {
   planningReviewSubmissionSchema,
@@ -212,28 +207,22 @@ export async function attemptReviewExtraction(
   response: string,
   signal?: AbortSignal,
 ): Promise<ExtractionAttempt> {
-  if (!judgment.runtime.enabled) return declined();
   const parsed = parseReviewCandidates(response);
   if (parsed.skipped || parsed.candidates.length === 0) return declined();
 
   const input = { response, candidates: parsed.candidates };
-  try {
-    const verdict = await judgment.runtime.judge(reviewExtractionDecision, {
-      input,
-      changeName,
-      phase: "planning",
-      state: reviewExtractionState(input),
-      signal,
-    });
-    if (verdict.kind !== "enforce" || !verdict.outcome.act) return declined(verdict.recordId);
-    const assembled = assembleReviewSubmission(parsed.candidates, verdict.outcome.value);
-    if (!assembled.ok || verdict.recordId === null) return declined(verdict.recordId);
-    return { accepted: true, submission: assembled.submission, mark: { recordId: verdict.recordId } };
-  } catch (error) {
-    // A missing recording is a test failure, not an outage; converting it would hide it.
-    if (error instanceof JudgmentFixtureMissingError) throw error;
-    return declined();
-  }
+  const verdict = await tryJudge(judgment.runtime, reviewExtractionDecision, {
+    input,
+    changeName,
+    phase: "planning",
+    state: reviewExtractionState(input),
+    signal,
+  });
+  if (!verdict) return declined();
+  if (verdict.kind !== "enforce" || !verdict.outcome.act) return declined(verdict.recordId);
+  const assembled = assembleReviewSubmission(parsed.candidates, verdict.outcome.value);
+  if (!assembled.ok || verdict.recordId === null) return declined(verdict.recordId);
+  return { accepted: true, submission: assembled.submission, mark: { recordId: verdict.recordId } };
 }
 
 /**
@@ -247,22 +236,17 @@ export async function reconcileReviewExtraction(
   recordId: string | null,
   retried: PlanningReviewSubmission,
 ): Promise<void> {
-  if (!recordId) return;
-  try {
-    const result = await reconcileDecisionRecord(judgment.store, changeName, recordId, {
-      observed: {
-        retryVerdict: retried.verdict,
-        retryBlocking: retried.criticalFindings.length + retried.requiredChanges.length,
-      },
-    });
-    const gate = result.found ? result.record.gate : null;
-    if (!gate?.act) return;
-    const judged = (gate.value as { verdict?: unknown } | null)?.verdict;
-    if (judged !== "approve" && judged !== "revise") return;
-    await reconcileDecisionRecord(judgment.store, changeName, recordId, {
-      agreed: judged === (retried.verdict === "APPROVE" ? "approve" : "revise"),
-    });
-  } catch {
-    // Reconciliation is measurement; the retry's review stands without it.
-  }
+  const record = await judgment.runtime.reconcile(changeName, recordId, {
+    observed: {
+      retryVerdict: retried.verdict,
+      retryBlocking: retried.criticalFindings.length + retried.requiredChanges.length,
+    },
+  });
+  const gate = record?.gate;
+  if (!gate?.act) return;
+  const judged = (gate.value as { verdict?: unknown } | null)?.verdict;
+  if (judged !== "approve" && judged !== "revise") return;
+  await judgment.runtime.reconcile(changeName, recordId, {
+    agreed: judged === (retried.verdict === "APPROVE" ? "approve" : "revise"),
+  });
 }

@@ -6,7 +6,10 @@ import {
   changeUsage,
   renderChangeStatus,
 } from "../../src/change/change-command.ts";
+import { changeCommands } from "../../src/change/commands.ts";
+import { judgmentCatalog } from "../../src/judgment/catalog.ts";
 import { HOST_EXECUTION_SECURITY_NOTICE } from "../../src/tools/command-profile.ts";
+import { documentationCurrencyFailures } from "./currency.ts";
 
 const root = resolve(import.meta.dir, "../..");
 const docsDirectory = resolve(root, "docs");
@@ -182,5 +185,13 @@ validateSecuritySurface("/change status", renderChangeStatus({
 const roadmap = sources.get(resolve(docsDirectory, "roadmap.md"))!;
 assertCondition(roadmap.includes("non-blocking post-beta hardening backlog"), "roadmap must keep isolation non-blocking and post-beta");
 assertCondition(roadmap.includes("behind the command-runner interface"), "roadmap must keep isolation behind the command-runner interface");
+
+const currency = documentationCurrencyFailures({
+  securityMarkdown: sources.get(resolve(docsDirectory, "security.md"))!,
+  flowMarkdown: sources.get(resolve(docsDirectory, "command-flow.md"))!,
+  actions: Object.keys(changeCommands),
+  decisionIds: judgmentCatalog.map((decision) => decision.id),
+});
+assertCondition(currency.length === 0, currency.join("\n"));
 
 console.log(`Documentation check passed: ${discoveredFiles.length} files, ${linkCount} links, ${exampleCount} command examples.`);

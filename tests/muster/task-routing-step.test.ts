@@ -67,7 +67,7 @@ const execution: ChangeTaskExecutionContext = {
   writerLease: null,
 };
 
-const enforcing = { MUSTER_JEV: "1", MUSTER_JEV_API_KEY: "key", MUSTER_JEV_MODE: "enforce", MUSTER_JEV_MODEL_ROUTING: "1" };
+const enforcing = { MUSTER_JEV: "1", MUSTER_JEV_API_KEY: "key", MUSTER_JEV_MODE: "enforce" };
 
 type Reply = JudgmentAnswers | JudgmentUnavailableReason;
 
@@ -133,14 +133,15 @@ describe("task routing in the builder step", () => {
     expect(usage.filter((record) => record.role === "builder").map((record) => record.model)).toEqual(["economy"]);
   });
 
-  test("the lane differs from the primary builder only in the model", async () => {
+  test("the lane differs from the primary builder only in the model and the thinking chosen for the task", async () => {
     const economy = await fixture();
     await economy.run(1);
     const primary = await fixture({ reply: notRoutable });
     await primary.run(1);
     const [routed, plain] = [economy.seen[0]!, primary.seen[0]!];
     expect(plain.model).toBe("provider/primary");
-    expect({ ...routed, model: undefined, run: undefined }).toEqual({ ...plain, model: undefined, run: undefined });
+    expect({ ...routed, model: undefined, thinking: undefined, run: undefined }).toEqual({ ...plain, model: undefined, thinking: undefined, run: undefined });
+    expect([routed.thinking, plain.thinking]).toEqual(["low", "high"]);
     expect({ ...(routed.run as object), model: undefined }).toEqual({ ...(plain.run as object), model: undefined });
   });
 
@@ -212,20 +213,20 @@ describe("task routing in the builder step", () => {
     expect(subject.seen[0]!.model).toBe("provider/economy");
   });
 
-  test("without the routing flag, no request is sent", async () => {
-    const { MUSTER_JEV_MODEL_ROUTING: _flag, ...withoutFlag } = enforcing;
-    const subject = await fixture({ env: withoutFlag });
+  test("without judgment enabled, no request is sent", async () => {
+    const subject = await fixture({ env: {} });
     await subject.run(1);
     expect(subject.requests).toHaveLength(0);
     expect(subject.seen[0]!.model).toBe("provider/primary");
     expect(await listDecisionRecords(subject.step.store, "add-search")).toEqual([]);
   });
 
-  test("without an economy lane, no request is sent", async () => {
+  test("without an economy lane the primary model runs, at the thinking chosen for the task", async () => {
     const subject = await fixture({ lane: false });
     await subject.run(1);
-    expect(subject.requests).toHaveLength(0);
+    expect(subject.requests).toHaveLength(1);
     expect(subject.seen[0]!.model).toBe("provider/primary");
+    expect(subject.seen[0]!.thinking).toBe("low");
   });
 
   test("with judgment disabled or absent, no request is sent and no record is written", async () => {
@@ -249,6 +250,6 @@ describe("task routing in the builder step", () => {
       writes: ["src/cli.ts"],
       verify: ["bun test tests/cli.test.ts"],
     });
-    expect(subject.requests[0]!.decision).toEqual({ id: "routing.task_model", version: 1 });
+    expect(subject.requests[0]!.decision).toEqual({ id: "routing.task_model", version: 2 });
   });
 });

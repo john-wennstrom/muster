@@ -74,6 +74,58 @@ function input(overrides: Partial<ChangeSnapshotInput> = {}): ChangeSnapshotInpu
   };
 }
 
+describe("a lint approval", () => {
+  const lintApproval = () => ({
+    observedAt,
+    artifact: createReviewArtifact({
+      schemaVersion: 1,
+      mode: "lint",
+      round: 1,
+      reviewedAt: observedAt,
+      model: "lint",
+      artifactDigest,
+      requestedVerdict: "APPROVE",
+      criticalFindings: [],
+      requiredChanges: [],
+      recommendations: [],
+      lint: { checks: ["artifacts exist and parse"], semanticCheck: "ran", answers: [] },
+    }),
+  });
+
+  test("is current on the small lane while the digest matches", () => {
+    const snapshot = createChangeSnapshot(input({ review: lintApproval(), lane: { lane: "small", source: "judgment", escalations: 0 } }));
+    expect(snapshot.freshness.review).toBe("current");
+    expect(snapshot.lifecycle).not.toBe("REVIEW_REQUIRED");
+  });
+
+  test("goes stale when the change is escalated, so review is required again", () => {
+    for (const lane of ["medium", "large"] as const) {
+      const snapshot = createChangeSnapshot(input({ review: lintApproval(), lane: { lane, source: "judgment", escalations: 1 } }));
+      expect(snapshot.freshness.review).toBe("stale");
+      expect(snapshot.lifecycle).toBe("REVIEW_REQUIRED");
+    }
+  });
+
+  test("is stale on a change with no lane record, which reads as medium", () => {
+    expect(createChangeSnapshot(input({ review: lintApproval() })).lifecycle).toBe("REVIEW_REQUIRED");
+  });
+
+  test("still goes stale when the artifact digest changes on the small lane", () => {
+    const snapshot = createChangeSnapshot(input({
+      review: lintApproval(),
+      lane: { lane: "small", source: "user", escalations: 0 },
+      openSpec: { ...input().openSpec, artifactDigest: "d".repeat(64) },
+    }));
+    expect(snapshot.freshness.review).toBe("stale");
+  });
+
+  test("a reviewer approval is unaffected by the lane", () => {
+    for (const lane of ["small", "medium", "large"] as const) {
+      expect(createChangeSnapshot(input({ lane: { lane, source: "user", escalations: 0 } })).freshness.review).toBe("current");
+    }
+  });
+});
+
 describe("change lifecycle state machine", () => {
   test("invalidates a stale approval before implementation", () => {
     const staleReview = input().review!;

@@ -1,15 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { JudgmentAnswers } from "../../src/judgment/client.ts";
-import {
-  TASK_FOCUS_CATALOGUE,
-  TASK_FOCUS_MAX_ITEMS,
-  judgmentCatalog,
-  reviewTaskFocusDecision,
-  taskFocusState,
-  validateCatalog,
-  validateDecision,
-} from "../../src/judgment/gates.ts";
-import { TASK_FOCUS_QUESTION_IDS as IDS, taskFocusQuestions } from "../../src/judgment/questions.ts";
+import { TASK_FOCUS_CATALOGUE, TASK_FOCUS_MAX_ITEMS, reviewTaskFocusDecision, taskFocusState } from "../../src/judgment/decisions/review-task-focus.ts";
+import { judgmentCatalog, validateCatalog } from "../../src/judgment/catalog.ts";
+import { validateDecision } from "../../src/judgment/decision.ts";
+import { TASK_FOCUS_QUESTION_IDS as IDS } from "../../src/judgment/questions.ts";
+import { loadQuestions } from "../../src/prompts/questions.ts";
+
+const taskFocusQuestions = loadQuestions("review.task_focus");
 
 const gate = reviewTaskFocusDecision.gate;
 const noul = (value: number) => ({ type: "noul" as const, noul: value });
@@ -17,7 +14,7 @@ const scored = (score: number, confidence: number) => ({
   type: "score" as const,
   score,
   probabilities: { "0": 1 - confidence },
-  confidence,
+  confidence
 });
 
 /** Every check passes: good changes answer yes to the first four, no to the last two. */
@@ -28,7 +25,7 @@ const passing = (): JudgmentAnswers => ({
   [IDS.testFirstConsistency]: noul(0.95),
   [IDS.stubOrHardcoded]: noul(0.05),
   [IDS.securityBoundary]: noul(0.05),
-  [IDS.reach]: scored(0.2, 0.9),
+  [IDS.reach]: scored(0.2, 0.9)
 });
 
 /** The single answer that makes each catalogue entry speak. */
@@ -39,7 +36,7 @@ const triggers: Record<string, JudgmentAnswers> = {
   [IDS.scenarioCoverage]: { [IDS.scenarioCoverage]: noul(0.1) },
   [IDS.testFirstConsistency]: { [IDS.testFirstConsistency]: noul(0.1) },
   [IDS.stubOrHardcoded]: { [IDS.stubOrHardcoded]: noul(0.9) },
-  [IDS.reach]: { [IDS.reach]: scored(2.4, 0.8) },
+  [IDS.reach]: { [IDS.reach]: scored(2.4, 0.8) }
 };
 
 const valueOf = (answers: JudgmentAnswers) => {
@@ -58,8 +55,9 @@ describe("review.task_focus questions", () => {
     expect(reach.type === "score" ? reach.criteria : []).toHaveLength(4);
   });
 
-  test("declares that it only adds advice", () => {
-    expect(reviewTaskFocusDecision.effects).toEqual(["adds_advice"]);
+  test("declares that it adds advice and can reduce work, at version 2", () => {
+    expect(reviewTaskFocusDecision.effects).toEqual(["adds_advice", "reduces_work"]);
+    expect(reviewTaskFocusDecision.version).toBe(2);
     expect(reviewTaskFocusDecision.id).toBe("review.task_focus");
   });
 
@@ -86,9 +84,39 @@ describe("review.task_focus gate", () => {
     expect(Object.keys(triggers).sort()).toEqual(TASK_FOCUS_CATALOGUE.map((entry) => entry.id).sort());
   });
 
-  test("a change whose every check passes yields no item", () => {
-    const outcome = gate(passing());
-    expect(outcome.act).toBeFalse();
+  test("a change whose every check passes yields no item and asks to skip the review", () => {
+    expect(gate(passing())).toEqual({ act: true, value: { items: [], skip: true } });
+  });
+
+  test("the skip needs every question confidently good, so one uncertain answer refuses it", () => {
+    const uncertain: JudgmentAnswers[] = [
+      { [IDS.scopeContainment]: noul(0.5) },
+      { [IDS.contractMatch]: noul(0.5) },
+      { [IDS.scenarioCoverage]: noul(0.5) },
+      { [IDS.testFirstConsistency]: noul(0.5) },
+      { [IDS.stubOrHardcoded]: noul(0.5) },
+      { [IDS.securityBoundary]: noul(0.5) },
+      { [IDS.reach]: scored(0.2, 0.5) },
+    ];
+    for (const change of uncertain) expect(gate({ ...passing(), ...change })).toEqual({ act: false, reason: "no check crossed its threshold" });
+  });
+
+  test("a missing answer refuses the skip", () => {
+    for (const id of Object.values(IDS)) {
+      const { [id]: _removed, ...without } = passing();
+      expect(gate(without).act).toBeFalse();
+    }
+  });
+
+  test("the skip bands are inclusive at the confident edges", () => {
+    expect(gate({ ...passing(), [IDS.contractMatch]: noul(0.7), [IDS.securityBoundary]: noul(0.3) })).toMatchObject({ value: { skip: true } });
+    expect(gate({ ...passing(), [IDS.reach]: scored(1.99, 0.7) })).toMatchObject({ value: { skip: true } });
+  });
+
+  test("a change with a speaking item never skips", () => {
+    for (const trigger of Object.values(triggers)) {
+      expect(gate({ ...passing(), ...trigger })).toMatchObject({ value: { skip: false } });
+    }
   });
 
   test("uncertain answers yield no item, including at the band edges", () => {

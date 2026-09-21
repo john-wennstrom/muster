@@ -64,9 +64,31 @@ export const reviewCarryForwardMarkSchema = z
 
 export type ReviewCarryForwardMark = z.infer<typeof reviewCarryForwardMarkSchema>;
 
+/**
+ * What a lint approval records instead of a reviewer's reading: the deterministic checks that
+ * ran, whether the semantic check ran, and its answers, one line each. Present only on a review
+ * whose mode is lint.
+ */
+export const reviewLintRecordSchema = z
+  .object({
+    checks: z.array(singleLine).min(1),
+    /** `ran`, or why it did not: the service was unavailable, or the plan was too large to ask about. */
+    semanticCheck: z.enum(["ran", "unavailable", "skipped"]),
+    answers: z.array(singleLine),
+  })
+  .strict();
+
+export type ReviewLintRecord = z.infer<typeof reviewLintRecordSchema>;
+
+/** Who approved the plan: an independent reviewer model, or the deterministic lint (small lane only). */
+export const REVIEW_MODES = ["reviewer", "lint"] as const;
+export type ReviewMode = (typeof REVIEW_MODES)[number];
+
 export const planningReviewArtifactSchema = z
   .object({
     schemaVersion: z.literal(1),
+    /** A review file written before modes existed has none, and is a reviewer review. */
+    mode: z.enum(REVIEW_MODES).default("reviewer"),
     round: z.number().int().positive(),
     reviewedAt: z.string().datetime({ offset: true }),
     model: singleLine,
@@ -77,9 +99,22 @@ export const planningReviewArtifactSchema = z
     recommendations: z.array(singleLine),
     extraction: reviewExtractionMarkSchema.optional(),
     carriedForward: reviewCarryForwardMarkSchema.optional(),
+    lint: reviewLintRecordSchema.optional(),
   })
   .strict()
   .superRefine(refineVerdictConsistency)
+  .superRefine((review, context) => {
+    if (review.mode === "lint") {
+      if (!review.lint) context.addIssue({ code: "custom", path: ["lint"], message: "A lint review must record its checks" });
+      if (review.model !== "lint") context.addIssue({ code: "custom", path: ["model"], message: "A lint review names lint as its model" });
+      if (review.verdict !== "APPROVE") context.addIssue({ code: "custom", path: ["verdict"], message: "A lint review only ever approves" });
+      if (review.extraction || review.carriedForward) {
+        context.addIssue({ code: "custom", path: ["mode"], message: "A lint review has no reviewer to extract from or carry forward" });
+      }
+    } else if (review.lint) {
+      context.addIssue({ code: "custom", path: ["lint"], message: "Only a lint review records lint checks" });
+    }
+  })
   .superRefine((review, context) => {
     if (review.carriedForward && review.extraction) {
       context.addIssue({
@@ -113,7 +148,9 @@ export const planningReviewSubmissionSchema = z
 
 export type PlanningReviewSubmission = z.infer<typeof planningReviewSubmissionSchema>;
 
-export interface CreateReviewArtifactInput extends Omit<PlanningReviewArtifact, "verdict"> {
+export interface CreateReviewArtifactInput extends Omit<PlanningReviewArtifact, "verdict" | "mode"> {
+  /** A reviewer review when omitted. */
+  mode?: ReviewMode;
   requestedVerdict: PlanningReviewArtifact["verdict"];
 }
 
@@ -156,6 +193,7 @@ export function createReviewArtifact(
   const blocking = input.criticalFindings.length > 0 || input.requiredChanges.length > 0;
   return validateReview({
     schemaVersion: input.schemaVersion,
+    ...(input.mode ? { mode: input.mode } : {}),
     round: input.round,
     reviewedAt: input.reviewedAt,
     model: input.model,
@@ -166,6 +204,7 @@ export function createReviewArtifact(
     recommendations: input.recommendations,
     ...(input.extraction ? { extraction: input.extraction } : {}),
     ...(input.carriedForward ? { carriedForward: input.carriedForward } : {}),
+    ...(input.lint ? { lint: input.lint } : {}),
   }, "review.md");
 }
 
@@ -179,11 +218,13 @@ export function renderReviewArtifact(review: PlanningReviewArtifact): string {
     "# Planning Review",
     "",
     `- Schema version: \`${valid.schemaVersion}\``,
+    `- Mode: \`${valid.mode}\``,
     `- Round: \`${valid.round}\``,
     `- Reviewed at: \`${valid.reviewedAt}\``,
     `- Model: \`${valid.model}\``,
     `- Artifact digest: \`${valid.artifactDigest}\``,
     `- Verdict: \`${valid.verdict}\``,
+    ...(valid.lint ? [`- Semantic check: \`${valid.lint.semanticCheck}\``] : []),
     ...(valid.extraction ? [`- Extraction record: \`${valid.extraction.recordId}\``] : []),
     ...(valid.carriedForward
       ? [
@@ -207,6 +248,18 @@ export function renderReviewArtifact(review: PlanningReviewArtifact): string {
     "",
     ...(valid.carriedForward
       ? ["## Carry-Forward Evidence", "", renderList(valid.carriedForward.evidence), ""]
+      : []),
+    ...(valid.lint
+      ? [
+        "## Lint Checks",
+        "",
+        renderList(valid.lint.checks),
+        "",
+        "## Semantic Check Answers",
+        "",
+        renderList(valid.lint.answers),
+        "",
+      ]
       : []),
   ].join("\n");
 }
@@ -259,6 +312,18 @@ function carryForwardMark(lines: readonly string[], path: string): ReviewCarryFo
   };
 }
 
+const LINT_CHECKS_HEADING = "## Lint Checks";
+
+/** The lint record of a lint review, or undefined for a reviewer review. */
+function lintRecord(lines: readonly string[], path: string): ReviewLintRecord | undefined {
+  if (!lines.includes(LINT_CHECKS_HEADING)) return undefined;
+  return {
+    checks: sectionValues(lines, LINT_CHECKS_HEADING, path),
+    semanticCheck: metadataValue(lines, "Semantic check", path) as ReviewLintRecord["semanticCheck"],
+    answers: sectionValues(lines, "## Semantic Check Answers", path),
+  };
+}
+
 function sectionValues(lines: readonly string[], heading: string, path: string): string[] {
   const indexes = lines.flatMap((line, index) => line === heading ? [index] : []);
   if (indexes.length !== 1) {
@@ -289,8 +354,11 @@ export function parseReviewArtifact(contents: string, path: string): PlanningRev
 
   const extractionRecord = optionalMetadataValue(lines, "Extraction record", path);
   const carriedForward = carryForwardMark(lines, path);
+  const mode = optionalMetadataValue(lines, "Mode", path);
+  const lint = lintRecord(lines, path);
   return validateReview({
     schemaVersion: Number(metadataValue(lines, "Schema version", path)),
+    ...(mode === undefined ? {} : { mode }),
     round: Number(metadataValue(lines, "Round", path)),
     reviewedAt: metadataValue(lines, "Reviewed at", path),
     model: metadataValue(lines, "Model", path),
@@ -301,6 +369,7 @@ export function parseReviewArtifact(contents: string, path: string): PlanningRev
     recommendations: sectionValues(lines, "## Recommendations", path),
     ...(extractionRecord === undefined ? {} : { extraction: { recordId: extractionRecord } }),
     ...(carriedForward === undefined ? {} : { carriedForward }),
+    ...(lint === undefined ? {} : { lint }),
   }, path);
 }
 

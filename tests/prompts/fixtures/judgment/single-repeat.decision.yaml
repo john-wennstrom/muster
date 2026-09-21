@@ -1,0 +1,6 @@
+decision: single-repeat.decision
+questions:
+  - repeat: lines
+    id: "line_{{index}}"
+    type: noul
+    instructions: "Is {{text}} a finding?"
