@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
-import { newRun, runError, runOk, resolveChildRuntime } from "../../../../extensions/fusion-harness/modules/runtime.ts";
-import { runLegacyReadOnlyChild } from "../../../agents/legacy-adapter.ts";
+import { resolveChildRuntime } from "../../../agents/child-runtime.ts";
+import { newRun, runError, runOk } from "../../../agents/run-record.ts";
+import { runAgent, type ReadAgentRunner } from "../../../agents/spawn.ts";
 import { readSourceDigest } from "../../../execution/change-digests.ts";
 import { GitAdapter } from "../../../execution/git.ts";
 import type { ChangeTaskExecutionContext } from "../../../execution/scheduler.ts";
@@ -142,7 +143,7 @@ export async function runReviewStep(
   builder: TaskPipelineBuilderResult,
   verification: TaskPipelineVerificationResult,
   signal?: AbortSignal,
-  runChild: typeof runLegacyReadOnlyChild = runLegacyReadOnlyChild,
+  runChild: ReadAgentRunner = runAgent,
 ): Promise<TaskPipelineReviewResult> {
   const git = new GitAdapter(execution.worktree.path, undefined, undefined, signal);
   const { diff, sourceDigest } = await readSourceDigest(git);
@@ -170,6 +171,7 @@ export async function runReviewStep(
       const run = newRun("REVIEWER", request.model, step.stack.slots.find((slot) => slot.model === request.model));
       try {
         await runChild({
+          access: "read",
           run,
           modelStack: step.stack,
           onAgentStart: step.onAgentStart,

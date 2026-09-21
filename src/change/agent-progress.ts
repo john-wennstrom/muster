@@ -1,6 +1,6 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { AgentGrid, fitLines, liveColumn } from "../../extensions/fusion-harness/modules/tui.ts";
-import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import { AgentGrid, fitLines, liveColumn } from "./ui/agent-columns.ts";
+import type { AgentRun } from "../agents/run-record.ts";
 import { musterWidgetKey } from "./branding.ts";
 
 export type AgentRunObserver = (run: AgentRun) => void;

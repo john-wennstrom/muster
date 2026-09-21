@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import type { BrokerChildRole } from "./child-runner.ts";
+import type { BrokerChildRole } from "./broker-server.ts";
 import {
   dependencyReportSchema,
   renderDependencyReports,

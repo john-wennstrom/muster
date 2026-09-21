@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import type { CollaborationTask } from "../../extensions/fusion-harness/modules/collaboration-graph.ts";
-import { createLegacyTaskBroker } from "../../src/agents/legacy-adapter.ts";
+import type { CollaborationTask } from "../../src/execution/collaboration-task.ts";
+import { createTaskBroker } from "../../src/agents/task-broker.ts";
 import type { JudgmentRuntime, JudgmentVerdict } from "../../src/judgment/ask.ts";
 import { abstain, act, type CommandGateValue } from "../../src/judgment/gates.ts";
 import { runProcess } from "../../src/shared/process.ts";
@@ -12,7 +12,7 @@ import { runAuditedHostCommand } from "../../src/tools/host-runner.ts";
 
 /**
  * The adversarial broker and host-runner scenarios of broker-host-adversarial.test.ts, run
- * end to end through the legacy broker, once without judgment and once under each judgment
+ * end to end through the task broker, once without judgment and once under each judgment
  * double. Judgment can add a stop and can never remove one, so no scenario may end up more
  * permitted than it is without judgment.
  */
@@ -127,7 +127,7 @@ async function run(name: string, judgment: Double | null): Promise<Outcome> {
   const options: CommandJudgmentOptions | undefined = judgment
     ? { runtime: judgment.runtime, changeName: "add-search", taskId: task.id }
     : undefined;
-  const broker = await createLegacyTaskBroker({
+  const broker = await createTaskBroker({
     cwd: root,
     runId: "run-1",
     childId: "child-1",

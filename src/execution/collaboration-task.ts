@@ -1,5 +1,18 @@
-import type { CollaborationTask } from "../../extensions/fusion-harness/modules/collaboration-graph.ts";
 import type { ValidatedTask } from "./task-schema.ts";
+
+export type CollaborationTaskMode = "read" | "write";
+
+/** The task shape the child broker scopes its tools against. */
+export interface CollaborationTask {
+  id: string;
+  assignee: string;
+  description: string;
+  depends_on: string[];
+  outputs: string[];
+  mode: CollaborationTaskMode;
+  reads: string[];
+  writes: string[];
+}
 
 /** Adapts a validated task into the collaboration task shape the child broker scopes against. */
 export function collaborationTask(task: ValidatedTask): CollaborationTask {

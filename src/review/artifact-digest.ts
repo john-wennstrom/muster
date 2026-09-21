@@ -84,6 +84,16 @@ export async function discoverReviewedArtifacts(
     .sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0);
 }
 
+/** The change's own task list, not a file that happens to share the name inside a specification. */
+function isTaskList(relativePath: string): boolean {
+  return /(?:^|\/)tasks\.md$/.test(relativePath) && !relativePath.includes("/specs/");
+}
+
+/** Shows every ticked task checkbox as open, so task progress never changes the digest. */
+export function normalizeTaskProgress(contents: string): string {
+  return contents.replace(/^([ \t]*[-*+][ \t]+)\[[xX]\]/gm, "$1[ ]");
+}
+
 function lengthFrame(length: number): Buffer {
   if (!Number.isSafeInteger(length) || length < 0) {
     invalidArtifact("Reviewed artifact length is invalid", { length });
@@ -130,10 +140,18 @@ export async function hashReviewedArtifacts(
       hash.update(lengthFrame(before.size));
 
       let bytesRead = 0;
-      for await (const chunk of file.createReadStream({ autoClose: false })) {
-        const bytes = chunk as Buffer;
-        bytesRead += bytes.byteLength;
-        hash.update(bytes);
+      if (isTaskList(artifact.relativePath)) {
+        // Ticking a checkbox is progress, not a change to what was reviewed, so it must not
+        // move the digest. Replacing one ASCII character with another keeps the length.
+        const contents = await file.readFile();
+        bytesRead = contents.byteLength;
+        hash.update(Buffer.from(normalizeTaskProgress(contents.toString("utf8")), "utf8"));
+      } else {
+        for await (const chunk of file.createReadStream({ autoClose: false })) {
+          const bytes = chunk as Buffer;
+          bytesRead += bytes.byteLength;
+          hash.update(bytes);
+        }
       }
       const after = await file.stat();
       if (bytesRead !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {

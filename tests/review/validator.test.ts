@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { DependencyReport } from "../../src/agents/reports.ts";
 import type { GitWorktree } from "../../src/execution/git.ts";
 import type {
+  CheckpointRecord,
   ReviewRecord,
   RunManifest,
   TaskResultRecord,
@@ -256,5 +257,68 @@ describe("final validator", () => {
     const result = await runFinalValidation(options(dependencies([])));
 
     expect(finalValidationResultSchema.safeParse({ ...result, transcript: "not allowed" }).success).toBeFalse();
+  });
+});
+describe("final validator and planned manual tasks", () => {
+  const manualTask = {
+    id: "1.1",
+    done: true,
+    requirements: ["search: Query support"],
+    scenarios: ["Search succeeds"],
+    verify: ["bun test tests/feature.test.ts"],
+    manual: true,
+  };
+  const confirmed: CheckpointRecord = {
+    schemaVersion: 1,
+    id: "checkpoint-1",
+    runId: "run-1",
+    changeName: "add-search",
+    taskId: "1.1",
+    branch: ["1.1"],
+    category: "design_decision",
+    reason: "The owner must confirm the wording",
+    instructions: ["Confirm the labels"],
+    createdAt: timestamp,
+    status: "confirmed",
+    resumeTarget: "1.1",
+    confirmedAt: timestamp,
+    confirmedBy: "owner",
+  };
+  const manualResult: TaskResultRecord = {
+    ...taskResult,
+    verificationEvidence: ["manual checkpoint checkpoint-1 confirmed by owner"],
+  };
+
+  const withManual = (checkpoints: readonly CheckpointRecord[]): FinalValidatorDependencies => ({
+    ...dependencies([]),
+    readTasks: async () => [manualTask],
+    readEvidence: async () => ({ manifest, taskResults: [manualResult], reviews: [], checkpoints }),
+  });
+
+  test("a confirmed checkpoint stands in for the builder's review", async () => {
+    const result = await runFinalValidation(options(withManual([confirmed])));
+    expect(result.checks.find((check) => check.gate === "evidence")).toMatchObject({ status: "PASS" });
+    expect(result.result).toBe("PASS");
+  });
+
+  test("a manual task with no confirmed checkpoint fails the evidence gate", async () => {
+    const result = await runFinalValidation(options(withManual([])));
+    const evidence = result.checks.find((check) => check.gate === "evidence");
+    expect(evidence).toMatchObject({ status: "FAIL" });
+    expect(evidence?.summary).toContain("Manual task 1.1 has no confirmed checkpoint");
+  });
+
+  test("a pending checkpoint does not count", async () => {
+    const { confirmedAt: _at, confirmedBy: _by, ...rest } = confirmed;
+    const result = await runFinalValidation(options(withManual([{ ...rest, status: "pending" }])));
+    expect(result.checks.find((check) => check.gate === "evidence")).toMatchObject({ status: "FAIL" });
+  });
+
+  test("a builder task still needs its approved review", async () => {
+    const result = await runFinalValidation(options({
+      ...withManual([confirmed]),
+      readTasks: async () => [{ ...manualTask, manual: false }],
+    }));
+    expect(result.checks.find((check) => check.gate === "evidence")).toMatchObject({ status: "FAIL" });
   });
 });

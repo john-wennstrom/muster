@@ -18,7 +18,7 @@ import { runChild, runProc } from "./child-runner.ts";
 import { validateCollaborationPlan, type CollaborationTask, type ValidatedCollaborationPlan } from "./collaboration-graph.ts";
 import { renderDelegationPlan } from "./collaboration-render.ts";
 import { renderTaskboard, type CollaborationTaskState } from "./collaboration-taskboard.ts";
-import { orderedSlots, slotId } from "./model-stack.ts";
+import { orderedSlots, slotId } from "../../../src/agents/model-stack.ts";
 import {
 	builderPrompt,
 	collabCoordinatePrompt,
@@ -35,21 +35,8 @@ import {
 	validatorPrompt,
 	validatorSystem,
 } from "./prompt-library.ts";
-import {
-	clampCount,
-	CUSTOM_TYPE,
-	DETAIL_SNIPPET_MAX,
-	GATE_TIMEOUT_MS,
-	newRun,
-	runError,
-	runOk,
-	toStat,
-	truncateChars,
-	type AgentStat,
-	type FhDetails,
-	type HarnessDeps,
-	type Role,
-} from "./runtime.ts";
+import { newRun, runError, runOk, toStat, type AgentStat, type Role } from "../../../src/agents/run-record.ts";
+import { clampCount, CUSTOM_TYPE, DETAIL_SNIPPET_MAX, GATE_TIMEOUT_MS, truncateChars, type FhDetails, type HarnessDeps } from "./runtime.ts";
 import { acquireWriterLease, type WriterLease } from "./writer-lease.ts";
 
 // ═══ /fh-collaborate ═════════════════════════════════════════════════════════

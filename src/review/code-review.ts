@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { z } from "zod";
-import { READONLY_TOOLS } from "../../extensions/fusion-harness/modules/runtime.ts";
+import { READONLY_TOOLS } from "../agents/child-runtime.ts";
 import { createFreshRoleSession } from "../agents/role-runner.ts";
 import { HarnessError } from "../shared/errors.ts";
 import type { ReviewModelCandidate } from "./planning-reviewer.ts";

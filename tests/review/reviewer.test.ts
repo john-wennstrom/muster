@@ -7,7 +7,7 @@ import {
   runBrokeredPlanningReviewer,
   type PlanningReviewerRunner,
 } from "../../src/review/planning-reviewer.ts";
-import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import type { AgentRun } from "../../src/agents/run-record.ts";
 import { createReviewArtifact } from "../../src/review/review-artifact.ts";
 import { HarnessError } from "../../src/shared/errors.ts";
 import { createJudgmentRuntime, type JudgmentRuntime } from "../../src/judgment/ask.ts";

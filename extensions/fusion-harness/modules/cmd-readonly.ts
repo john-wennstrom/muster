@@ -12,9 +12,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { runLegacyReadOnlyChild } from "../../../src/agents/legacy-adapter.ts";
-import { orderedSlots } from "./model-stack.ts";
+import { orderedSlots } from "../../../src/agents/model-stack.ts";
 import { debateClosingPrompt, debateOpeningPrompt, debateRebuttalPrompt, opinionPrompt } from "./prompt-library.ts";
-import { clampCount, CUSTOM_TYPE, runError, runOk, toStat, type AgentRun, type HarnessDeps } from "./runtime.ts";
+import { runError, runOk, toStat, type AgentRun } from "../../../src/agents/run-record.ts";
+import { clampCount, CUSTOM_TYPE, type HarnessDeps } from "./runtime.ts";
 
 const ROUNDS_DEFAULT = 3;
 

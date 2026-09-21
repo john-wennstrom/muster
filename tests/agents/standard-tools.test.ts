@@ -3,9 +3,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { synthesizeLegacyStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
-import { newRun } from "../../extensions/fusion-harness/modules/runtime.ts";
-import { runBrokeredChild, standardChildRuntime } from "../../src/agents/child-runner.ts";
+import { synthesizeLegacyStack } from "../../src/agents/model-stack.ts";
+import { newRun } from "../../src/agents/run-record.ts";
+import { runProcess } from "../../src/shared/process.ts";
+import { runAgent, standardChildRuntime } from "../../src/agents/spawn.ts";
 import { registerChildBrokerTools, type ChildBrokerConfiguration } from "../../src/agents/child-broker.ts";
 
 const directories: string[] = [];
@@ -63,6 +64,7 @@ describe("standard agent tools", () => {
   test("spawn defaults to native tools and preserves explicit brokered mode", async () => {
     const root = await mkdtemp(resolve(tmpdir(), "muster-standard-tools-"));
     directories.push(root);
+    expect((await runProcess("git", ["init"], { cwd: root, timeoutMs: 10_000 })).exitCode).toBe(0);
     const entry = resolve(root, "child.mjs");
     await writeFile(entry, `console.log(JSON.stringify({type: "message_end", message: {role: "assistant", stopReason: "stop", content: [{type: "text", text: JSON.stringify({args: process.argv.slice(2), mode: process.env.MUSTER_TOOL_MODE})}]}}));`);
     const originalEntry = process.argv[1];
@@ -72,7 +74,30 @@ describe("standard agent tools", () => {
         const modelStack = stack();
         modelStack.child = { extensions: ["configured.ts"], tools: { read: ["lookup"] } };
         const run = newRun("BUILDER", modelStack.primaryBuilder.model, modelStack.primaryBuilder);
-        await runBrokeredChild({ run, modelStack, toolMode, role: "builder", prompt: "inspect", runId: "test", childId: "child", taskId: "task", handleRequest: async () => null, thinking: "high", sessionDir: root, cwd: root, timeoutMs: 5_000 });
+        await runAgent({
+          access: "write",
+          run,
+          modelStack,
+          toolMode,
+          role: "builder",
+          prompt: "inspect",
+          runId: "test",
+          childId: "child",
+          task: {
+            id: "1.1",
+            assignee: "builder",
+            description: "inspect",
+            depends_on: [],
+            outputs: [],
+            mode: "write",
+            reads: ["**"],
+            writes: ["src/**"],
+          },
+          thinking: "high",
+          sessionDir: resolve(root, "sessions"),
+          cwd: root,
+          timeoutMs: 5_000,
+        });
         expect(run.status).toBe("done");
         const result = JSON.parse(run.text) as { args: string[]; mode: string };
         const tools = result.args[result.args.indexOf("--tools") + 1]!.split(",");

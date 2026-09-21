@@ -14,6 +14,7 @@ import { affectedTaskBranch, type ChangeTaskExecutionContext } from "../../execu
 import type { ValidatedTask } from "../../execution/task-schema.ts";
 import {
   runTaskPipeline,
+  synchronizeTaskCheckbox,
   type TaskPipelineBuilderResult,
   type TaskPipelineReviewResult,
   type TaskPipelineVerificationResult,
@@ -254,6 +255,48 @@ export async function runProductionImplementation(
     ) => {
       const task = document.tasks.find((candidate) => candidate.id === scheduledTask.id)!;
       if (task.manual) {
+        // A planned manual task is the person's step, not a builder's. Once its checkpoint is
+        // confirmed the step is done, so it completes here instead of pausing a second time.
+        const latest = (await changeRun.readRecords("checkpoints", checkpointRecordSchema))
+          .filter((candidate) => candidate.taskId === task.id)
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+        if (latest?.status === "confirmed") {
+          const completedAt = (options.now ?? (() => new Date()))().toISOString();
+          const { sourceDigest } = await readSourceDigest(
+            new GitAdapter(context.worktree.path, undefined, undefined, signal),
+          );
+          const confirmation =
+            `manual checkpoint ${latest.id} confirmed by ${latest.confirmedBy} at ${latest.confirmedAt}: ${task.manual.expectedOutcome}`;
+          await store.write(runId, `task-results/${task.id}.json`, taskResultSchema.parse({
+            schemaVersion: 1,
+            runId,
+            taskId: task.id,
+            outcome: "completed",
+            sourceDigest,
+            verificationEvidence: [confirmation],
+            completedAt,
+          }));
+          await store.write(runId, `reports/${task.id}.json`, createDependencyReport({
+            schemaVersion: 1,
+            runId,
+            taskId: task.id,
+            outcome: "completed",
+            summary: task.description,
+            changedInterfaces: [],
+            evidence: [confirmation],
+            createdAt: completedAt,
+          }));
+          currentContents = synchronizeTaskCheckbox(currentContents, { ...task, metadata: {} }, {
+            status: "completed",
+            taskId: task.id,
+            synchronizeCheckbox: true,
+            invalidatePlanningReview: false,
+            blockAffectedBranch: false,
+          });
+          await writeFile(tasksPath, currentContents, "utf8");
+          await persistManifest(task.id, "completed");
+          return { outcome: "completed" as const };
+        }
         const checkpoint = await checkpointPlannedManualAction({
           store,
           runId,

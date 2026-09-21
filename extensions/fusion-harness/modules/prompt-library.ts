@@ -12,8 +12,9 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { CollaborationTask } from "./collaboration-graph.ts";
-import { orderedSlots, type ModelSlot, type ModelStack } from "./model-stack.ts";
-import { runOk, runError, shortModel, truncateChars, type AgentRun } from "./runtime.ts";
+import { orderedSlots, type ModelSlot, type ModelStack } from "../../../src/agents/model-stack.ts";
+import { runOk, runError, type AgentRun } from "../../../src/agents/run-record.ts";
+import { shortModel, truncateChars } from "./runtime.ts";
 
 export const HANDOFF_MAX = 60_000; // chars of one agent's answer injected into another's prompt
 

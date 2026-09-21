@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import { resolve } from "node:path";import type { AgentRun } from "../agents/run-record.ts";
 import { createChangeSnapshot, type ChangeSnapshot } from "../controller/change-snapshot.ts";
 import {
   computeDiffDigest,

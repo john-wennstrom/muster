@@ -71,7 +71,7 @@ Planning reads opinions and debate from it, replacing `orchestrationPolicy`. Opt
 
 ### 6. The user override
 
-`/change propose <change> [--lane <lane>] <goal>` and the same for refine. The flag is parsed out of the argument words in the handler, validated against the three names, and never sent to a model. An invalid value blocks with the usage line. An explicit lane is recorded with source `user` and skips the triage call entirely, since its answer would not be used, saving a request. Disposition then falls to the agent, as when judgment is unavailable.
+`/change propose <change> [lane=<lane>] <goal>` and the same for refine. The lane is a plain argument word, not a flag, and it is recognised only as the word immediately after the change name, so a goal that happens to start with the word small is never misread. The handler removes it from the prompt text, validates it against the three names, and never sends it to a model. An invalid value blocks with the usage line. An explicit lane is recorded with source `user` and skips the triage call entirely, since its answer would not be used, saving a request. Disposition then falls to the agent, as when judgment is unavailable.
 
 ### 7. Shadow mode
 
@@ -80,7 +80,7 @@ In shadow mode triage is asked and recorded, the pattern lane is used, and the r
 ## Risks / Trade-offs
 
 - **A wrong small lane skips a check that mattered** -> Small is unreachable without confident answers to every risk and reach, and later changes only reduce LLM steps, never deterministic gates. Escalation is one way and is triggered by lint, task outcome and recovery decisions.
-- **Candidate paths undercount a change's reach** -> They are a floor on files, and the risk questions and reach carry the rest. A user can override upward with `--lane large`.
+- **Candidate paths undercount a change's reach** -> They are a floor on files, and the risk questions and reach carry the rest. A user can override upward with `lane=large`.
 - **Pattern regexes misfire** -> They can only raise the lane, never lower it, and judged answers replace them one input at a time when confident.
 - **Small and medium are identical for a while** -> The lane and its audit trail exist and accumulate shadow data before behavior depends on them.
 

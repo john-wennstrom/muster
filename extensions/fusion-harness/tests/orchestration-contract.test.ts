@@ -7,6 +7,8 @@ const root = join(import.meta.dir, "..");
 // contracts below are about the WHOLE extension, so assert against the concatenation.
 const sourceFiles = [
   join(root, "fusion-harness.ts"),
+  join(root, "../../src/agents/child-runtime.ts"),
+  join(root, "../../src/agents/run-record.ts"),
   ...readdirSync(join(root, "modules"))
     .filter((file) => file.endsWith(".ts"))
     .map((file) => join(root, "modules", file)),

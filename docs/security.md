@@ -4,7 +4,7 @@ Muster is a correctness-ready beta. Standard agent tools run directly on the hos
 
 ## Trust boundary
 
-Child agents default to the original fusion-harness tool sets: `read`, `grep`, `find`, and `ls` for read-only tasks; writers also get `bash`, `edit`, and `write`; validators get the read tools plus `write`. Global and per-slot child extension/tool configuration is honored. These standard tools execute directly in the child. Declared task paths are included in the prompt, but the broker does not enforce those paths for standard tools. Writer leases still serialize writing tasks.
+Child agents default to the standard Pi tool sets: `read`, `grep`, `find`, and `ls` for read-only tasks; writers also get `bash`, `edit`, and `write`; validators get the read tools plus `write`. Global and per-slot child extension/tool configuration is honored. These standard tools execute directly in the child. Declared task paths are included in the prompt, but the broker does not enforce those paths for standard tools. Writer leases still serialize writing tasks.
 
 The parent controller retains lifecycle and evidence checks. `muster_submit_scope` and `muster_submit_gate` submit structured evidence through the broker. Internal callers can explicitly select `toolMode: "brokered"` to use the restricted filesystem/command replacements.
 

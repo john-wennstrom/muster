@@ -3,14 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import {
+  confirmManualCheckpoint,
   createManualCheckpoint,
   loadManualCheckpoint,
 } from "../../src/controller/manual-checkpoint.ts";
-import {
-  handleManualResumeCommand,
-  renderManualCheckpointStatus,
-  restoreManualCheckpointNotifications,
-} from "../../src/change/manual-ui.ts";
 import { AtomicJsonStore } from "../../src/persistence/atomic-json-store.ts";
 
 const temporaryDirectories: string[] = [];
@@ -40,41 +36,17 @@ async function fixture() {
 }
 
 describe("manual checkpoint resume", () => {
-  test("restores a prominent notification without auto-confirming", async () => {
+  test("stays pending until explicitly confirmed and records audit metadata", async () => {
     const { store, checkpoint } = await fixture();
-    const notifications: Array<{ message: string; level?: string }> = [];
 
-    const restored = restoreManualCheckpointNotifications({
-      checkpoints: [checkpoint],
-      ui: {
-        notify: (message, level) => notifications.push({ message, level }),
-      },
-    });
-    const persisted = await loadManualCheckpoint(store, "run-1", checkpoint.id);
-
-    expect(restored).toEqual([checkpoint.id]);
-    expect(persisted.status).toBe("pending");
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0]?.level).toBe("warning");
-    expect(notifications[0]?.message).toContain("ACTION REQUIRED");
-    expect(notifications[0]?.message).toContain("add-search");
-    expect(notifications[0]?.message).toContain("Task: 9.1");
-    expect(notifications[0]?.message).toContain(
-      `/change resume add-search ${checkpoint.id}`,
-    );
-  });
-
-  test("confirms only an explicit resume command and records audit metadata", async () => {
-    const { store, checkpoint } = await fixture();
-    const notifications: string[] = [];
-
-    const confirmed = await handleManualResumeCommand({
-      args: `resume add-search ${checkpoint.id}`,
-      runId: "run-1",
-      confirmedBy: "local-user",
+    expect((await loadManualCheckpoint(store, "run-1", checkpoint.id)).status).toBe("pending");
+    const confirmed = await confirmManualCheckpoint({
       store,
+      runId: "run-1",
+      changeName: "add-search",
+      checkpointId: checkpoint.id,
+      confirmedBy: "local-user",
       now: () => new Date("2026-09-12T13:00:00.000Z"),
-      ui: { notify: (message) => notifications.push(message) },
     });
     const persisted = await loadManualCheckpoint(store, "run-1", checkpoint.id);
 
@@ -85,30 +57,21 @@ describe("manual checkpoint resume", () => {
       confirmedAt: "2026-09-12T13:00:00.000Z",
       resumeTarget: "9.1",
     });
-    expect(notifications[0]).toContain("confirmed");
-    expect(renderManualCheckpointStatus(confirmed)).toContain("Confirmed by local-user");
   });
 
-  test("rejects implicit, mismatched, and repeated confirmation", async () => {
+  test("rejects mismatched and repeated confirmation", async () => {
     const { store, checkpoint } = await fixture();
     const options = {
+      store,
       runId: "run-1",
       confirmedBy: "local-user",
-      store,
-      ui: { notify: () => undefined },
+      checkpointId: checkpoint.id,
     };
 
-    await expect(handleManualResumeCommand({ ...options, args: `add-search ${checkpoint.id}` }))
-      .rejects.toMatchObject({ code: "MANUAL_RESUME_INVALID" });
-    await expect(handleManualResumeCommand({ ...options, args: `resume other ${checkpoint.id}` }))
+    await expect(confirmManualCheckpoint({ ...options, changeName: "other" }))
       .rejects.toMatchObject({ code: "MANUAL_CHECKPOINT_MISMATCH" });
-    await handleManualResumeCommand({
-      ...options,
-      args: `resume add-search ${checkpoint.id}`,
-    });
-    await expect(handleManualResumeCommand({
-      ...options,
-      args: `resume add-search ${checkpoint.id}`,
-    })).rejects.toMatchObject({ code: "MANUAL_CHECKPOINT_CONFIRMED" });
+    await confirmManualCheckpoint({ ...options, changeName: "add-search" });
+    await expect(confirmManualCheckpoint({ ...options, changeName: "add-search" }))
+      .rejects.toMatchObject({ code: "MANUAL_CHECKPOINT_CONFIRMED" });
   });
 });

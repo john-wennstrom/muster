@@ -2,7 +2,7 @@ import { connect, type Socket } from "node:net";
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { BrokerClient, type BrokerTransport } from "./broker-client.ts";
-import type { BrokerChildRole } from "./child-runner.ts";
+import type { BrokerChildRole } from "./broker-server.ts";
 import type { BrokerMessage, BrokerPeerIdentity } from "../tools/protocol.ts";
 
 export interface ChildBrokerConfiguration extends BrokerPeerIdentity {

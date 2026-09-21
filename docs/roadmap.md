@@ -20,7 +20,7 @@ The default [production dependency factory](../src/change/dependencies.ts) suppl
 | `/change status <change>` | Reads a snapshot and usage, then displays a transient notification. | Persistent output, incomplete-change handling, run/task details. |
 | `/change resume <change> <checkpoint-id>` | Syntax and lifecycle checks exist; no production handler. | Assemble checkpoint confirmation and interrupted-run recovery. |
 
-Missing handlers report "not available in this build" if dispatch reaches them; lifecycle checks may reject the command first. [Muster registration](../src/muster/index.ts) also loads Fusion Harness, so working legacy commands do not establish that their `/change` equivalents work.
+Missing handlers report "not available in this build" if dispatch reaches them; lifecycle checks may reject the command first. [Muster registration](../src/muster/index.ts) registers only `/change` and the flags it reads.
 
 ### How to use this audit
 
@@ -42,7 +42,7 @@ These are implemented building blocks, not a greenfield backlog:
 
 | Area | Existing implementation | Completion caveat |
 | --- | --- | --- |
-| Extension distribution | One Pi entry point loading Fusion and `/change`. | Most default handlers are absent. |
+| Extension distribution | One Pi entry point registering `/change`. | Most default handlers are absent. |
 | OpenSpec boundary | Typed CLI adapter, handshake, payload validation, packaged schema. | Production snapshot bypasses resolved artifact locations and hides some failures. |
 | Planning review | Artifact hashing, binary verdicts, fresh reviewer selection, brokered reviewer runner. | No production command assembly. |
 | Lifecycle | Snapshot derivation, precedence, command prerequisites, transition rules. | Collector and real-file lifecycle interactions need correction. |
@@ -51,7 +51,7 @@ These are implemented building blocks, not a greenfield backlog:
 | Engineering gates | TDD evidence policy, debugging state, task review, completion pipeline, final validation. | Several dependencies remain callbacks; real evidence collection is not assembled. |
 | Context and models | Capsules, escalation, dependency/decision reports, capability/cost router. | Source selection and default child routing are not connected. |
 | Recovery | Versioned atomic store, reconciliation planner, checkpoints, resume controller. | No production recovery-action executor or resume handler. |
-| Observability | Fusion live columns/taskboard, usage ledger, budget evaluator, report generator. | `/change` does not share Fusion's live presentation or complete telemetry path. |
+| Observability | Live agent columns, usage ledger, budget evaluator. | Telemetry does not yet cover every production invocation. |
 
 ### P0.1 Production command assembly
 
@@ -73,19 +73,19 @@ Validation (2026-09-18): the P0.1 focused suite passes 71 tests, typecheck passe
 
 Target: design sections 6, 22, 24 and 38, plus the requested Fusion-style multi-column experience. The original design requires observability but does not explicitly mandate columns; visual parity is an additional user requirement.
 
-Evidence: [Fusion runtime and widget starters](../extensions/fusion-harness/fusion-harness.ts), [brokered child runner](../src/agents/child-runner.ts), [production explore](../src/change/phases/exploration.ts), [manual UI](../src/change/manual-ui.ts). Fusion owns private `startSoloWidget`, `startGridWidget`, `liveRuns`, final panels, and Escape handling. `/change` exposes only `notify` and `sendMessage`, and explore returns only model/content after awaiting the child.
+Evidence: [agent columns](../src/change/ui/agent-columns.ts), [agent progress](../src/change/agent-progress.ts), [child spawn](../src/agents/spawn.ts), [production explore](../src/change/phases/exploration.ts). `/change` exposes only `notify` and `sendMessage`, and explore returns only model/content after awaiting the child.
 
-- [ ] **Unwired:** extract or expose reusable Fusion presentation machinery behind a shared run observer/presenter. Preserve its existing visual language; do not implement a separate web dashboard or a second orchestration engine.
+- [x] **Done:** the agent-column presentation lives in [src/change/ui/agent-columns.ts](../src/change/ui/agent-columns.ts) and `/change` renders it through a shared run observer.
 - [ ] **Gap:** connect child start, tool activity, response deltas, usage, exit, error, and cancellation to the presenter. Expose the active `AgentRun` or equivalent typed events while work is happening, not only after it completes.
 - [ ] **Gap:** show a full-width agent panel for explore and other single-agent stages; responsive columns for simultaneous opinions/readers; a full-width synthesis/review stage where appropriate. Panels must represent agents actually dispatched, not imply simultaneous source writers.
 - [ ] **Gap:** display change, phase, task, role, model, elapsed time, current operation, tokens, and known/unknown cost. Show an immediate starting state and useful progress during slow child startup or OpenSpec calls.
 - [ ] **Unwired:** connect the scheduler to a taskboard showing pending, dependency-blocked, running, reviewing, debugging, awaiting-user, completed, failed, and cancelled states, including the current writer/worktree.
 - [ ] **Partial:** post status, planning outcomes, review findings, verification evidence, errors, and checkpoint instructions to persistent transcript output. Explore already does this; status and manual UI still rely on transient notifications. Use notifications for short alerts only.
 - [ ] **Gap:** carry per-command cancellation through OpenSpec, scheduling, child processes, and host commands. Connect Escape and session shutdown; clean up subscriptions, tickers, children, and leases in `finally`; retain a stopped-run summary and partial evidence.
-- [ ] **Gap:** share ownership of active-run displays and lifecycle-changing commands so concurrent legacy/new commands cannot overwrite widgets or race state. Do not let Fusion's hidden-by-default model bar and removal of Pi's footer leave `/change` without progress.
+- [ ] **Gap:** share ownership of active-run displays and lifecycle-changing commands so concurrent `/change` commands cannot overwrite widgets or race state.
 - [ ] **Acceptance risk:** test wide and narrow terminals, resizing, long output, missing TUI APIs/headless operation, startup failure, cancellation, restart, and repeated commands. Verify persistent output remains visible after temporary widgets disappear. Keep display-only telemetry out of model context where supported and redact secrets before rendering/persistence.
 
-Acceptance: `/change explore` visibly starts, streams activity, can be stopped, and retains a final result. Multi-agent stages show the same quality of columns as Fusion; no command appears to hang silently.
+Acceptance: `/change explore` visibly starts, streams activity, can be stopped, and retains a final result. Multi-agent stages show the agent columns; no command appears to hang silently.
 
 ### P0.3 Real OpenSpec state and freshness
 
@@ -121,11 +121,11 @@ Acceptance: a new change can be created and refined into valid executable tasks,
 
 ### P1.1 Worktree and execution pipeline
 
-Target: design sections 13-19, 25-26, 29, 32 and 35. Evidence: [worktree manager](../src/execution/worktree.ts), [scheduler](../src/execution/scheduler.ts), [implementation flow](../src/execution/implementation-flow.ts), [task pipeline](../src/execution/task-runner.ts), [legacy broker adapter](../src/agents/legacy-adapter.ts).
+Target: design sections 13-19, 25-26, 29, 32 and 35. Evidence: [worktree manager](../src/execution/worktree.ts), [scheduler](../src/execution/scheduler.ts), [implementation flow](../src/execution/implementation-flow.ts), [task pipeline](../src/execution/task-runner.ts), [child spawn](../src/agents/spawn.ts), [task broker](../src/agents/task-broker.ts).
 
 - [ ] **Unwired:** implement the production preparation sequence: OpenSpec status/apply instructions, current review verdict/digest, validated task metadata and scenario links, DAG compilation, persisted manifest/DAG, recovery reconciliation, worktree selection, then scheduling.
 - [ ] **Acceptance risk:** define the planning-to-worktree artifact handoff. A new worktree starts at planning HEAD and does not contain uncommitted planning artifacts. Ensure agents see the reviewed artifacts without silently committing, copying unrelated dirty files, or establishing two authoritative task checklists.
-- [ ] **Acceptance risk:** establish one writer-lease owner. The new scheduler acquires a lease; `createLegacyTaskBroker` independently acquires one for write tasks. Reusing the adapter unchanged can double-acquire. Pass/validate the existing lease or choose a single owner and verify release/revocation under failure.
+- [ ] **Acceptance risk:** establish one writer-lease owner. The new scheduler acquires a lease; `createTaskBroker` independently acquires one for write tasks. Reusing the adapter unchanged can double-acquire. Pass/validate the existing lease or choose a single owner and verify release/revocation under failure.
 - [ ] **Unwired:** implement a real `runBuilder` using brokered fresh task sessions, validated scopes, model routing, task capsule, compact policies, and structured outcomes. A generated session ID or an `execute` callback does not itself launch an isolated agent.
 - [ ] **Unwired:** implement trusted `runVerification`, `runReview`, and `persistEvidence` dependencies. Invoke real commands through structured audited profiles, use the task code-review dispatcher with a real read-only child, and derive acceptance from actual outputs/digests.
 - [ ] **Gap:** persist blocked, awaiting-user, design-conflict, failed-test, and rejected-review evidence as well as success. `runTaskPipeline` currently bypasses `persistEvidence` on those exits and treats non-completed builder outcomes as `evidencePersisted: true` without persisting them there.
@@ -138,7 +138,7 @@ Acceptance: a two-task real change runs in its intended worktree with one source
 
 ### P1.2 Context, model routing, and compact policies
 
-Target: design sections 14-17, 20-23, 30-32. Evidence: [role sessions](../src/agents/role-runner.ts), [capsule assembler](../src/context/assembler.ts), [escalation](../src/context/escalation.ts), [model router](../src/agents/model-router.ts), [TDD policy](../src/policies/tdd.ts), [debugging policy](../src/policies/debugging.ts).
+Target: design sections 14-17, 20-23, 30-32. Evidence: [role sessions](../src/agents/role-runner.ts), [capsule assembler](../src/context/assembler.ts), [escalation](../src/context/escalation.ts), [TDD policy](../src/policies/tdd.ts), [debugging policy](../src/policies/debugging.ts).
 
 - [ ] **Unwired:** build context sources from real task-linked requirements/scenarios, design decisions, project rules, relevant code, and accepted dependency reports. The assembler currently consumes supplied slices; it does not discover them or feed production task execution.
   - Ranking: when this lands, call `rankCapsuleSlices` in [the ranking step](../src/context/ranking.ts) and then `assembleTaskCapsule` with its `ranking`, setting each file-backed slice's `path` so the credential denylist applies. Start with judgment in shadow mode; `reconcileCapsuleEscalations` joins the recorded counterfactual to the escalations that later occur. Ranking has no effect until this wiring exists.
@@ -187,12 +187,11 @@ Acceptance: restarting the extension reconstructs the right run, shows pending h
 
 ### P1.5 One safety path and legacy migration
 
-Target: design sections 3-6, 19, 24, 29-35. Evidence: [legacy OpenSpec commands](../extensions/fusion-harness/modules/openspec-workflow.ts), [new authorization](../src/tools/authorization.ts), [host runner](../src/tools/host-runner.ts), [broker adapter](../src/agents/legacy-adapter.ts).
+Target: design sections 3-6, 19, 24, 29-35. Evidence: [authorization](../src/tools/authorization.ts), [host runner](../src/tools/host-runner.ts), [task broker](../src/agents/task-broker.ts).
 
-- [ ] **Partial:** migrate `/refine`, `/implement`, and `/ship` to aliases of the canonical production handlers once those handlers are accepted. Today they share only the initial lifecycle check, then execute separate legacy workflows with different parsing, verification, output, and persistence.
-- [ ] **Gap:** remove legacy command-test execution through whitespace-split command strings and direct `runProc` from migrated paths. Preserve quoted paths/arguments using validated structured profiles and the audited host runner.
+- [x] **Done:** `/refine`, `/implement`, `/ship`, `/os-status`, `/init` and every `/fh-*` command are retired. `/change` is the only registered command, with no aliases.
+- [x] **Done:** legacy command-test execution through whitespace-split command strings and direct `runProc` was deleted with the extension.
 - [ ] **Acceptance risk:** preserve one writer/worktree/authorization policy across commands and tools, including architect artifact writes and future Serena mutation. Test canonical/symlink/case boundaries, recursive reads/search results, subprocess mutations, and lease revocation at the actual broker boundary.
-- [ ] **Partial:** keep legacy expert commands available for diagnostics without advertising them as equivalent to the new reviewed lifecycle. Do not retire the working path or steer users to unavailable replacements before production acceptance.
 - [ ] **Acceptance risk:** test migration against real structured task artifacts, including older unsupported metadata with actionable remediation. Do not silently accept incomplete metadata or maintain a second durable plan.
 - [ ] **Partial:** retain the honest host-execution security notice. Brokered/audited execution is implemented; operating-system filesystem/network isolation remains deferred below. Neither library coverage nor UI labels establish containment.
 
@@ -200,7 +199,7 @@ Acceptance: aliases have the same durable outcomes and safety gates as `/change`
 
 ### P1.6 Telemetry and compact run summaries
 
-Target: design sections 2, 18, 21-23, 32 and 38. Evidence: [usage records](../src/telemetry/usage.ts), [change usage store](../src/persistence/change-usage-store.ts), [budgets](../src/telemetry/budget.ts), [reports](../src/telemetry/report.ts), [production runtime](../src/change/dependencies.ts).
+Target: design sections 2, 18, 21-23, 32 and 38. Evidence: [usage records](../src/telemetry/usage.ts), [change usage store](../src/persistence/change-usage-store.ts), [budgets](../src/telemetry/budget.ts), [production runtime](../src/change/dependencies.ts).
 
 - [ ] **Partial:** instrument every production invocation, including explore, opinions, debate, synthesis, builder retries, task reviews, final validator, failures, and cancellations. Explore currently discards its `AgentRun` usage when returning model/content; legacy recording is only a partial path.
 - [ ] **Partial:** preserve provider input/cache-read/cache-write/output/cost fields at event ingestion. The legacy aggregate adapter cannot recover cache fields and treats zero cost as unknown. Distinguish exact zero, unavailable cost, estimated cost, and partial totals.
@@ -213,7 +212,7 @@ Acceptance: visible and persisted totals reconcile to actual invocations across 
 
 ### P2 Optional integrations and cost validation
 
-Target: design sections 20-23, 30-31, 33 and 38-40. Evidence: [optional adapters](../src/integrations/optional-adapters.ts), [telemetry report](../src/telemetry/report.ts), [later design decisions](../openspec/changes/build-openspec-multi-agent-harness/design.md).
+Target: design sections 20-23, 30-31, 33 and 38-40. Evidence: [optional adapters](../src/integrations/optional-adapters.ts), [later design decisions](../openspec/changes/build-openspec-multi-agent-harness/design.md).
 
 - [ ] **Unwired:** provide actual capability probes and read providers for configured Serena/Hindsight services. Current adapters accept supplied callbacks; core production does not discover/connect these services. Missing optional services must not block startup.
 - [ ] **Unwired:** prefer authorized symbolic/relevant Serena context when configured; route its writes through the same lease and path enforcement. Test attempted scope/role bypasses at the provider integration boundary.
@@ -229,10 +228,10 @@ Target: design sections 6-8, 33, 37, 39 and 40. Evidence: [extension smoke](../t
 - [ ] **Gap:** add default-production assembly tests, keeping mocking at external process/model boundaries rather than replacing controllers/handlers. Fail when any advertised action lacks its real handler; test real artifacts and changing digests.
 - [ ] **Gap:** implement the live acceptance entry point referenced by OpenSpec task 13.6. `acceptance:live` is not a current package script. Exercise installed extension -> real Pi child -> broker -> real Git/worktree/OpenSpec -> verification, with no automatic commit/archive.
 - [ ] **Partial:** expand installation smoke beyond command registration/help to schema availability, child broker loading, configured provider selection, tool authorization, durable output, and absence of reliance on a sibling checkout.
-- [ ] **Acceptance risk:** verify packaging includes all referenced runtime/schema/license assets and reproducible dependency metadata. Verify import provenance after modified Fusion modules; do not infer distribution readiness from source checkout imports.
+- [ ] **Acceptance risk:** verify packaging includes all referenced runtime/schema/license assets and reproducible dependency metadata. Do not infer distribution readiness from source checkout imports.
 - [ ] **Partial:** validate the installed OpenSpec capability contract, supported Pi/Bun/Node versions, cwd semantics, archive behavior, and provider smoke on a clean project. The schema test already invokes the real CLI, but does not prove the whole default workflow.
 - [ ] **Partial:** complete native Linux/macOS/Windows acceptance, including cancellation, subprocess cleanup, paths, symlinks, worktrees, and real command output. Correct platform-dependent fixture assertions and document actual environmental prerequisites rather than declaring a passing matrix from local tests.
-- [ ] **Gap:** make the normal test command's scope explicit. `bun run test` currently runs only imported Fusion tests, while `bun test`/`ci:test` covers the repository; prevent contributors from mistaking the former for full harness acceptance.
+- [x] **Done:** `bun run test` runs the same suite as `bun test` and `bun run ci:test`.
 - [ ] **Partial:** complete OpenSpec tasks 13.4-13.7: hosted matrix confirmation, provider readiness, live acceptance, and final documentation. The provider doctor checks auth/model discovery, not a complete model execution lifecycle.
 - [ ] **Gap:** reconcile checked command/integration tasks with production evidence. In particular, the checked 11.x/12.x items and README describe workflows not available through default handlers. Record corrective OpenSpec work rather than treating all library checkmarks as delivered features.
 - [ ] **Partial:** document installation, schema setup, configuration precedence, supported providers, task metadata, current command availability, output/cancellation behavior, worktree/artifact ownership, recovery, manual checkpoints, security limitations, and unverified savings. Fix the existing documentation fence failure.
@@ -249,7 +248,7 @@ The [later OpenSpec design](../openspec/changes/build-openspec-multi-agent-harne
 | Generic future host adapters. | Pi is the execution host; a separate VS Code Copilot adapter is deferred. | Do not conflate that host adapter with a provider already accessible through Pi. |
 | Cost reduction as final success criterion. | Correctness-ready beta with savings still a hypothesis. | Keep comparative benchmarking open without making unsupported savings claims. |
 | General finish/branch-completion semantics. | Explicit finish delegates archive only, with no automatic merge/push/delete. | Preserve explicit boundaries; any additional branch workflow needs its own approved contract. |
-| Compact observability summary. | Fusion already has responsive agent columns, but `/change` does not use them. | Deliver the requested UI parity as an explicit acceptance requirement. |
+| Compact observability summary. | `/change` renders responsive agent columns while agents run. | Deliver the requested UI parity as an explicit acceptance requirement. |
 
 ### Suggested delivery order
 
@@ -258,7 +257,7 @@ The [later OpenSpec design](../openspec/changes/build-openspec-multi-agent-harne
 3. Complete propose/refine/review with real artifact writes, configured agents, conditional debate, and durable output.
 4. Assemble one bounded implementation workflow with context/routing, worktree handoff, single lease ownership, brokered tests, task review, and persistence.
 5. Complete conflict/repair/debugging/checkpoint/recovery behavior, then final verification and explicit finish.
-6. Migrate legacy aliases only after equivalent production workflows pass; complete telemetry and native-platform/live acceptance.
+6. Complete telemetry and native-platform/live acceptance.
 7. Connect optional integrations and run comparative cost/quality benchmarks.
 
 ### Audit evidence and limitations

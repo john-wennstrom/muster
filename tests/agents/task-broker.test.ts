@@ -2,12 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import type { CollaborationTask } from "../../extensions/fusion-harness/modules/collaboration-graph.ts";
-import {
-  createLegacyTaskBroker,
-  planLegacyWriteTask,
-  validateLegacyScopePlan,
-} from "../../src/agents/legacy-adapter.ts";
+import type { CollaborationTask } from "../../src/execution/collaboration-task.ts";
+import { createTaskBroker } from "../../src/agents/task-broker.ts";
 import { runProcess } from "../../src/shared/process.ts";
 import { createInertJudgmentRuntime, type JudgmentRuntime, type JudgmentVerdict } from "../../src/judgment/ask.ts";
 import { abstain, act, type CommandGateValue } from "../../src/judgment/gates.ts";
@@ -21,7 +17,7 @@ afterEach(async () => {
 });
 
 async function fixture() {
-  const root = await mkdtemp(resolve(tmpdir(), "muster-legacy-adapter-"));
+  const root = await mkdtemp(resolve(tmpdir(), "muster-task-broker-"));
   temporaryDirectories.push(root);
   await mkdir(resolve(root, "src"));
   await writeFile(resolve(root, "src", "file.ts"), "before\n");
@@ -58,11 +54,11 @@ function request(tool: string, input: unknown) {
   };
 }
 
-describe("legacy task broker adapter", () => {
+describe("task broker", () => {
   test("scope evidence retains its tool identity alongside standard tools", async () => {
     const { root, task } = await fixture();
     const submitted: string[] = [];
-    const broker = await createLegacyTaskBroker({
+    const broker = await createTaskBroker({
       cwd: root, runId: "scope", childId: "planner", role: "architect",
       task: { ...task, mode: "read", writes: [] },
       persistEvidence: async (tool) => { submitted.push(tool); return { accepted: true }; },
@@ -83,7 +79,7 @@ describe("legacy task broker adapter", () => {
       await writeFile(resolve(root, directory, "noise.txt"), "skill should not appear\n");
     }
     await writeFile(resolve(root, "src", "untracked.ts"), "skill marker\n");
-    const broker = await createLegacyTaskBroker({
+    const broker = await createTaskBroker({
       cwd: root, runId: "search", childId: "architect", role: "architect",
       task: { ...task, mode: "read", reads: ["**"], writes: [] },
     });
@@ -99,31 +95,12 @@ describe("legacy task broker adapter", () => {
     }
   });
 
-  test("validates a bounded read-only scope-planning result", async () => {
-    const task = await planLegacyWriteTask({
-      id: "1.scope",
-      assignee: "main",
-      description: "update the parser",
-      depends_on: [],
-      outputs: [],
-      mode: "write",
-    }, async (prompt) => {
-      expect(prompt).toContain("Never use writes:[\"**\"]");
-      return { reads: ["src/**", "tests/**"], writes: ["src/parser.ts", "tests/parser.test.ts"] };
-    });
-
-    expect(task.reads).toEqual(["src/**", "tests/**"]);
-    expect(task.writes).toEqual(["src/parser.ts", "tests/parser.test.ts"]);
-    expect(() => validateLegacyScopePlan({ reads: ["**"], writes: ["**"] })).toThrow(/repository-wide/);
-    expect(() => validateLegacyScopePlan({ reads: ["src/**"], writes: ["src/**"], extra: true })).toThrow(/unknown fields/);
-  });
-
   test("derives repository identity, scopes writes, and holds an identity-aware lease", async () => {
     const { root, task } = await fixture();
     const lockDirectory = resolve(root, ".locks");
-    const broker = await createLegacyTaskBroker({
+    const broker = await createTaskBroker({
       cwd: root,
-      runId: "legacy-run-1",
+      runId: "broker-run-1",
       childId: "child-1",
       role: "builder",
       task,
@@ -133,7 +110,7 @@ describe("legacy task broker adapter", () => {
     expect(broker.writerLease).toMatchObject({
       repositoryId: broker.repositoryId,
       worktreePath: broker.worktreePath,
-      runId: "legacy-run-1",
+      runId: "broker-run-1",
       taskId: "1.a",
     });
     await broker.handleRequest(request("write_file", { path: "src/file.ts", content: "after\n" }));
@@ -144,9 +121,9 @@ describe("legacy task broker adapter", () => {
     }))).rejects.toThrow(/outside declared write scopes/);
     expect(await readFile(resolve(root, "README.md"), "utf8")).toBe("before\n");
 
-    await expect(createLegacyTaskBroker({
+    await expect(createTaskBroker({
       cwd: root,
-      runId: "legacy-run-2",
+      runId: "broker-run-2",
       childId: "child-2",
       role: "builder",
       task: { ...task, id: "1.b" },
@@ -155,11 +132,11 @@ describe("legacy task broker adapter", () => {
     await broker.close();
   });
 
-  test("does not issue a writer lease for a read-only legacy task", async () => {
+  test("does not issue a writer lease for a read-only task", async () => {
     const { root, task } = await fixture();
-    const broker = await createLegacyTaskBroker({
+    const broker = await createTaskBroker({
       cwd: root,
-      runId: "legacy-run-1",
+      runId: "broker-run-1",
       childId: "child-1",
       role: "architect",
       task: { ...task, mode: "read", writes: [] },
@@ -177,9 +154,9 @@ describe("legacy task broker adapter", () => {
   test("routes validator gate evidence to the parent without a writer lease", async () => {
     const { root, task } = await fixture();
     let submitted: Readonly<Record<string, unknown>> | undefined;
-    const broker = await createLegacyTaskBroker({
+    const broker = await createTaskBroker({
       cwd: root,
-      runId: "legacy-run-1",
+      runId: "broker-run-1",
       childId: "validator-1",
       role: "validator",
       task: { ...task, mode: "read", writes: [] },
@@ -199,7 +176,7 @@ describe("legacy task broker adapter", () => {
   });
 });
 
-describe("legacy broker command judgment", () => {
+describe("task broker command judgment", () => {
   function judged(verdict: JudgmentVerdict<CommandGateValue>) {
     const calls: unknown[] = [];
     const runtime = {
@@ -222,7 +199,7 @@ describe("legacy broker command judgment", () => {
       outcome: act({ category: "external_side_effect", confidence: 0.5 }),
       recordId: "record-1",
     });
-    const broker = await createLegacyTaskBroker({
+    const broker = await createTaskBroker({
       cwd: root, runId: "judged", childId: "builder", role: "builder", task,
       judgment: { runtime, changeName: "add-search", taskId: task.id },
     });
@@ -239,7 +216,7 @@ describe("legacy broker command judgment", () => {
   test("a command judged none runs as it does without judgment", async () => {
     const { root, task } = await fixture();
     const { runtime, calls } = judged({ kind: "enforce", outcome: abstain("none"), recordId: null });
-    const broker = await createLegacyTaskBroker({
+    const broker = await createTaskBroker({
       cwd: root, runId: "none", childId: "builder", role: "builder", task,
       judgment: { runtime, changeName: "add-search", taskId: task.id },
     });
@@ -254,7 +231,7 @@ describe("legacy broker command judgment", () => {
 
   test("an adapter without a runtime behaves as before", async () => {
     const { root, task } = await fixture();
-    const broker = await createLegacyTaskBroker({
+    const broker = await createTaskBroker({
       cwd: root, runId: "plain", childId: "builder", role: "builder", task,
     });
     try {
@@ -270,7 +247,7 @@ describe("legacy broker command judgment", () => {
     const inert = createInertJudgmentRuntime();
     let asked = 0;
     const spied = { ...inert, async judge(...args: Parameters<JudgmentRuntime["judge"]>) { asked += 1; return inert.judge(...args); } } as JudgmentRuntime;
-    const broker = await createLegacyTaskBroker({
+    const broker = await createTaskBroker({
       cwd: root, runId: "disabled", childId: "builder", role: "builder", task,
       judgment: { runtime: spied, changeName: "add-search", taskId: task.id },
     });
@@ -286,7 +263,7 @@ describe("legacy broker command judgment", () => {
   test("a rule-denied brokered command is never judged", async () => {
     const { root, task } = await fixture();
     const { runtime, calls } = judged({ kind: "enforce", outcome: abstain("none"), recordId: null });
-    const broker = await createLegacyTaskBroker({
+    const broker = await createTaskBroker({
       cwd: root, runId: "rules", childId: "builder", role: "builder", task,
       judgment: { runtime, changeName: "add-search", taskId: task.id },
     });

@@ -30,12 +30,12 @@ The command flow document SHALL mention every action in the command table and ev
 
 ### Requirement: Documentation describes lanes and the retired surface
 
-The README SHALL describe the three lanes, the lane option and the small-lane path, and SHALL state which commands were retired. No documentation SHALL describe a retired command as available.
+The README SHALL describe the three lanes, the `lane=` argument and the small-lane path, and SHALL state which commands were retired. No documentation SHALL describe a retired command as available.
 
 #### Scenario: The README describes lanes
 
 - **WHEN** the README is read
-- **THEN** it explains small, medium and large lanes, the lane option and that small changes are approved by lint
+- **THEN** it explains small, medium and large lanes, the `lane=` argument and that small changes are approved by lint
 
 #### Scenario: No retired command is described as available
 

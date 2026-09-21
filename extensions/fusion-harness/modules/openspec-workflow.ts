@@ -14,9 +14,10 @@ import { runProc } from "./child-runner.ts";
 import { validateCollaborationPlan, type CollaborationTask, type ValidatedCollaborationPlan } from "./collaboration-graph.ts";
 import { renderDelegationPlan } from "./collaboration-render.ts";
 import { renderTaskboard, type CollaborationTaskState } from "./collaboration-taskboard.ts";
-import { slotId, type ModelSlot } from "./model-stack.ts";
+import { slotId, type ModelSlot } from "../../../src/agents/model-stack.ts";
 import { collabExecutePrompt, collabProposePrompt, contractSystemPrompt, openSpecArtifactPrompt, openSpecCollaboratePrompt, openSpecDebatePrompt, openSpecDesignPrompt, openSpecTasksPrompt, parseStrictJsonObject } from "./prompt-library.ts";
-import { CUSTOM_TYPE, newRun, runError, runOk, toStat, type AgentRun, type HarnessDeps } from "./runtime.ts";
+import { newRun, runError, runOk, toStat, type AgentRun } from "../../../src/agents/run-record.ts";
+import { CUSTOM_TYPE, type HarnessDeps } from "./runtime.ts";
 import { acquireWriterLease, type WriterLease } from "./writer-lease.ts";
 
 export interface OpenSpecArtifact { name: string; path: string; content?: string; contextFiles: string[]; }

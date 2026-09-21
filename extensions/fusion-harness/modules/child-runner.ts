@@ -12,7 +12,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
-import { briefArg, runOk, type AgentRun, type ChildAccess, type ResolvedChildRuntime } from "./runtime.ts";
+import { type ChildAccess, type ResolvedChildRuntime } from "../../../src/agents/child-runtime.ts";
+import { runOk, type AgentRun } from "../../../src/agents/run-record.ts";
+import { briefArg } from "./runtime.ts";
 
 const KILL_GRACE_MS = 5_000; // SIGTERM → SIGKILL escalation window
 

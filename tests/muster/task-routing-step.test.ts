@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { synthesizeLegacyStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
+import { synthesizeLegacyStack } from "../../src/agents/model-stack.ts";
 import { economyBuilderSlot } from "../../src/change/models.ts";
 import { builderPrompt, runBuilderStep } from "../../src/change/phases/task-steps/builder.ts";
 import type { TaskStepContext } from "../../src/change/phases/task-steps/context.ts";

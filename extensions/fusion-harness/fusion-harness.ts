@@ -61,30 +61,12 @@ import {
 	type ModelSlot,
 	type ModelStack,
 	type Thinking,
-} from "./modules/model-stack.ts";
-import {
-	ANSWER_MAX_BYTES,
-	BOOT_TYPE,
-	CUSTOM_TYPE,
-	FULL_TOOLS,
-	fmtSecs,
-	modelTag,
-	newRun,
-	fgHex,
-	resolveChildRuntime as resolveConfiguredChildRuntime,
-	ROLE_COLOR,
-	runError,
-	runOk,
-	THINKING_SHORT,
-	toStat,
-	truncateBytes,
-	type AgentRun,
-	type FhDetails,
-	type HarnessDeps,
-	type Role,
-	type SpawnIdentity,
-} from "./modules/runtime.ts";
-import { AgentGrid, cellStr, FullWidth, liveColumn, renderFhPanel, TwoCol } from "./modules/tui.ts";
+} from "../../src/agents/model-stack.ts";
+import { FULL_TOOLS, resolveChildRuntime as resolveConfiguredChildRuntime } from "../../src/agents/child-runtime.ts";
+import { newRun, runError, runOk, toStat, type AgentRun, type Role } from "../../src/agents/run-record.ts";
+import { ANSWER_MAX_BYTES, BOOT_TYPE, CUSTOM_TYPE, fmtSecs, modelTag, fgHex, ROLE_COLOR, THINKING_SHORT, truncateBytes, type FhDetails, type HarnessDeps, type SpawnIdentity } from "./modules/runtime.ts";
+import { AgentGrid, liveColumn } from "../../src/change/ui/agent-columns.ts";
+import { cellStr, FullWidth, renderFhPanel, TwoCol } from "./modules/tui.ts";
 import { acquireWriterLease, type WriterLease } from "./modules/writer-lease.ts";
 
 // ═══ 1. Defaults ═════════════════════════════════════════════════════════════

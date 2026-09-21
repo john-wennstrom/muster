@@ -43,7 +43,7 @@ Tasks are routed to the lane only when `MUSTER_JEV_MODEL_ROUTING=1` is set along
 
 ## Security boundary
 
-Agents use the standard Pi tools by default: `read`, `grep`, `find`, and `ls` for read-only work; writers also receive `bash`, `edit`, and `write`. Validators additionally receive `write`, as in fusion-harness. Global and per-slot `child.extensions` and `child.tools` settings apply. Scope and gate submission remain harness tools.
+Agents use the standard Pi tools by default: `read`, `grep`, `find`, and `ls` for read-only work; writers also receive `bash`, `edit`, and `write`. Validators additionally receive `write`. Global and per-slot `child.extensions` and `child.tools` settings apply. Scope and gate submission remain harness tools.
 
 Standard agent tools run directly on the host. Profiled host commands are brokered and audited; these controls do not provide operating-system process or network isolation. Standard tool operations do not pass through the broker's per-operation path and command checks. Writer leases still serialize writing tasks. See the [security model](docs/security.md) for details.
 
@@ -57,14 +57,6 @@ bun run docs:check
 
 The complete local and cross-platform checks are in the [testing guide](docs/testing.md).
 
-## Legacy command migration
+## Retired commands
 
-The compatibility commands remain available during the beta and display migration guidance when invoked. When controller state is configured, they use the same lifecycle prerequisite checks as their preferred equivalents before starting work.
-
-| Compatibility command | Preferred command |
-| --- | --- |
-| `/refine <change>` | `/change refine <change>` |
-| `/implement <change> [next\|phase]` | `/change implement <change>` |
-| `/ship <change>` | `/change finish <change>` |
-
-Low-level `/fh-*` diagnostics and orchestration commands remain available; use `/change status <change>` to inspect the controller-derived lifecycle before migrating a workflow.
+`/change` is the only command family. The commands `/refine`, `/implement`, `/ship`, `/os-status`, `/init` and every `/fh-*` command were removed and are not aliased. Use `/change refine`, `/change implement`, `/change finish` and `/change status` for the lifecycle, and `/change explore` for read-only investigation. Model selection that `/fh-model` and `/fh-only` offered is configured through the model-stack YAML (`--fh-config`) and the `--architect` and `--builder` flags, which keep their names.

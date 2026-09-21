@@ -106,8 +106,9 @@ async function verificationState(options: ProductionVerificationOptions) {
       requirements: task.requirements,
       scenarios: task.scenarios,
       verify: task.verify,
+      manual: task.manual !== null,
     })),
-    readEvidence: async () => ({ manifest, taskResults, reviews }),
+    readEvidence: async () => ({ manifest, taskResults, reviews, checkpoints }),
     runTests: async () => {
       const evidence = await collectCommands();
       return { focused: evidence.slice(0, -1), fullSuite: evidence.at(-1) ?? null };

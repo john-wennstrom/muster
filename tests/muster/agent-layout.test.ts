@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeAgentGridLayout } from "../modules/agent-layout.ts";
+import { computeAgentGridLayout } from "../../src/change/ui/agent-columns.ts";
 
 describe("AgentGrid layout", () => {
   test("never allocates columns beyond widths 40-300", () => {

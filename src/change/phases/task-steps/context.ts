@@ -1,4 +1,4 @@
-import type { ModelSlot, ModelStack } from "../../../../extensions/fusion-harness/modules/model-stack.ts";
+import type { ModelSlot, ModelStack } from "../../../agents/model-stack.ts";
 import type { AtomicJsonStore } from "../../../persistence/atomic-json-store.ts";
 import type { JudgmentRuntime } from "../../../judgment/ask.ts";
 import { HarnessError } from "../../../shared/errors.ts";

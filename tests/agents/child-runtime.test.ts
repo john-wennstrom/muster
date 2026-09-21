@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { resolveChildRuntime } from "../modules/runtime.ts";
-import { synthesizeLegacyStack, type ModelSlot, type ModelStack } from "../modules/model-stack.ts";
+import { resolveChildRuntime } from "../../src/agents/child-runtime.ts";
+import { synthesizeLegacyStack, type ModelSlot, type ModelStack } from "../../src/agents/model-stack.ts";
 
 function stackWithChildConfig(): { stack: ModelStack; architect: ModelSlot; main: ModelSlot } {
   const stack = synthesizeLegacyStack({

@@ -1,13 +1,4 @@
 import { createServer, type Socket } from "node:net";
-import { fileURLToPath } from "node:url";
-import { runChild } from "../../extensions/fusion-harness/modules/child-runner.ts";
-import { resolveChildRuntime } from "../../extensions/fusion-harness/modules/runtime.ts";
-import type { ModelStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
-import type {
-  AgentRun,
-  ChildAccess,
-  ResolvedChildRuntime,
-} from "../../extensions/fusion-harness/modules/runtime.ts";
 import {
   BROKER_PROTOCOL_VERSION,
   BrokerProtocolError,
@@ -42,78 +33,6 @@ export interface ChildBrokerServer {
   environment: NodeJS.ProcessEnv;
   port: number;
   close(): Promise<void>;
-}
-
-export interface RunBrokeredChildOptions {
-  /** Standard Pi tools are the default; brokered filesystem tools are opt-in. */
-  toolMode?: "standard" | "brokered";
-  modelStack?: Pick<ModelStack, "child">;
-  run: AgentRun;
-  prompt: string;
-  systemPrompt?: string;
-  appendSystemPrompts?: string[];
-  role: BrokerChildRole;
-  evidenceEnabled?: boolean;
-  writeEnabled?: boolean;
-  runId: string;
-  childId: string;
-  taskId: string;
-  handleRequest: ChildBrokerServerOptions["handleRequest"];
-  maxRequests?: number;
-  thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-  sessionDir: string;
-  sessionId?: string;
-  fork?: string;
-  resume?: string;
-  cwd: string;
-  timeoutMs: number;
-  signal?: AbortSignal;
-}
-
-const CHILD_BROKER_EXTENSION = fileURLToPath(new URL("./child-broker.ts", import.meta.url));
-
-export function brokeredToolNames(
-  role: BrokerChildRole,
-  writeEnabled = role === "builder",
-  evidenceEnabled = false,
-): string[] {
-  const tools = ["muster_read", "muster_search"];
-  if (evidenceEnabled && role === "architect") tools.push("muster_submit_scope");
-  if (evidenceEnabled && role === "validator") tools.push("muster_submit_gate");
-  if (writeEnabled && role !== "reviewer" && role !== "validator") {
-    tools.push("muster_write", "muster_command");
-  }
-  return tools;
-}
-
-export function brokeredChildRuntime(
-  role: BrokerChildRole,
-  writeEnabled = role === "builder",
-  evidenceEnabled = false,
-): ResolvedChildRuntime {
-  return {
-    extensions: [CHILD_BROKER_EXTENSION],
-    tools: brokeredToolNames(role, writeEnabled, evidenceEnabled),
-  };
-}
-
-function accessForRole(role: BrokerChildRole, writeEnabled = role === "builder"): ChildAccess {
-  if (role === "reviewer") return "read";
-  if (role === "validator") return "validator";
-  return writeEnabled ? "write" : "read";
-}
-
-export function standardChildRuntime(options: Pick<RunBrokeredChildOptions, "role" | "evidenceEnabled" | "writeEnabled" | "run" | "modelStack">): ResolvedChildRuntime {
-  const runtime = resolveChildRuntime(
-    options.modelStack ?? {}, options.run.slot ?? {}, accessForRole(options.role, options.writeEnabled),
-  );
-  const evidenceTools = !options.evidenceEnabled ? []
-    : options.role === "architect" ? ["muster_submit_scope"]
-    : options.role === "validator" ? ["muster_submit_gate"] : [];
-  return {
-    extensions: [...new Set([...runtime.extensions, ...(evidenceTools.length ? [CHILD_BROKER_EXTENSION] : [])])],
-    tools: [...new Set([...runtime.tools, ...evidenceTools])],
-  };
 }
 
 function send(socket: Socket, message: BrokerMessage): void {
@@ -252,40 +171,4 @@ export async function startChildBrokerServer(
       });
     },
   };
-}
-
-export async function runBrokeredChild(options: RunBrokeredChildOptions): Promise<AgentRun> {
-  const toolMode = options.toolMode ?? "standard";
-  const writeEnabled = options.writeEnabled ?? options.role === "builder";
-  const childRuntime = toolMode === "brokered"
-    ? brokeredChildRuntime(options.role, writeEnabled, options.evidenceEnabled)
-    : standardChildRuntime(options);
-  const broker = toolMode === "brokered" || options.evidenceEnabled
-    ? await startChildBrokerServer(options) : undefined;
-  try {
-    return await runChild({
-      run: options.run,
-      prompt: options.prompt,
-      systemPrompt: options.systemPrompt,
-      appendSystemPrompts: options.appendSystemPrompts,
-      access: accessForRole(options.role, options.writeEnabled),
-      childRuntime,
-      thinking: options.thinking,
-      sessionDir: options.sessionDir,
-      sessionId: options.sessionId,
-      fork: options.fork,
-      resume: options.resume,
-      cwd: options.cwd,
-      timeoutMs: options.timeoutMs,
-      signal: options.signal,
-      environment: {
-        ...broker?.environment,
-        MUSTER_TOOL_MODE: toolMode,
-        MUSTER_BROKER_ROLE: options.role,
-        MUSTER_BROKER_WRITE_ENABLED: writeEnabled ? "1" : "0",
-      },
-    });
-  } finally {
-    await broker?.close();
-  }
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import { newRun, runOk, runError } from "../../../extensions/fusion-harness/modules/runtime.ts";
-import { runLegacyReadOnlyChild } from "../../agents/legacy-adapter.ts";
+import { newRun, runOk, runError } from "../../agents/run-record.ts";
+import { runAgent, type ReadAgentRunner } from "../../agents/spawn.ts";
 import { explore, type ExploreAgentRequest, type ExploreDependencies } from "../../controller/explore.ts";
 import { HarnessError } from "../../shared/errors.ts";
 import type { AgentRunObserver } from "../agent-progress.ts";
@@ -41,7 +41,7 @@ export function createProductionExploreDependencies(
   options: {
     argv?: readonly string[];
     onAgentStart?: AgentRunObserver;
-    runChild?: typeof runLegacyReadOnlyChild;
+    runChild?: ReadAgentRunner;
   } = {},
 ): ExploreDependencies {
   return {
@@ -51,7 +51,8 @@ export function createProductionExploreDependencies(
       const model = slot.model;
       const run = newRun("ARCHITECT", model, { ...slot, model });
       const runId = `explore-${randomUUID()}`;
-      await (options.runChild ?? runLegacyReadOnlyChild)({
+      await (options.runChild ?? runAgent)({
+        access: "read",
         run,
         modelStack: stack,
         onAgentStart: options.onAgentStart,

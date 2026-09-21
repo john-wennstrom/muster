@@ -30,12 +30,17 @@ A lane SHALL only move upward, from small to medium or large and from medium to 
 
 ### Requirement: The user may choose the lane
 
-Propose and refine SHALL accept a lane option naming small, medium or large. An explicit lane SHALL override triage, SHALL be recorded with source user, and SHALL cause no triage request to be sent. An unrecognized lane value SHALL block the command with its usage line and SHALL NOT be sent to any model.
+Propose and refine SHALL accept a lane argument naming small, medium or large, written as the word `lane=` followed by the name, immediately after the change name. It SHALL be an ordinary command argument and SHALL NOT be a launch flag. An explicit lane SHALL override triage, SHALL be recorded with source user, and SHALL cause no triage request to be sent. An unrecognized lane value SHALL block the command with its usage line and SHALL NOT be sent to any model.
 
 #### Scenario: An explicit lane overrides triage
 
-- **WHEN** propose is invoked with the lane option small
+- **WHEN** propose is invoked with the argument `lane=small` after the change name
 - **THEN** the lane is small with source user and no triage request is sent
+
+#### Scenario: A goal that starts with a lane name is not a lane
+
+- **WHEN** propose is invoked with a goal beginning with the word small and no `lane=` argument
+- **THEN** the goal is passed through unchanged and triage chooses the lane
 
 #### Scenario: An invalid lane is rejected
 

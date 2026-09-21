@@ -3,10 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  brokeredChildRuntime,
-  startChildBrokerServer,
-} from "../../src/agents/child-runner.ts";
+import { startChildBrokerServer } from "../../src/agents/broker-server.ts";
+import { brokeredChildRuntime } from "../../src/agents/spawn.ts";
 import {
   registerChildBrokerTools,
   requestChildBroker,

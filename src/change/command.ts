@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readdir, realpath } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import type { AgentRun } from "../agents/run-record.ts";
 import type { ChangeAction } from "../controller/action-resolver.ts";
 import type { ChangeSnapshot } from "../controller/change-snapshot.ts";
 import type { ChangeUsageSummary } from "../persistence/change-usage-store.ts";

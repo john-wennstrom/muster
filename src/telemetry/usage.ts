@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import type { AgentRun } from "../agents/run-record.ts";
 
 export type UsagePhase = "planning" | "implementation" | "validation";
 export type UsageRole =

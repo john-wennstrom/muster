@@ -7,7 +7,6 @@ import {
   guardRuntimeManualAction,
   loadManualCheckpoint,
 } from "../../src/controller/manual-checkpoint.ts";
-import { restoreManualCheckpointNotifications } from "../../src/change/manual-ui.ts";
 import { AtomicJsonStore } from "../../src/persistence/atomic-json-store.ts";
 import type {
   CheckpointRecord,
@@ -115,15 +114,10 @@ describe("manual checkpoint end-to-end flow", () => {
     const restored = await Promise.all(checkpoints.map((checkpoint) =>
       loadManualCheckpoint(restartedStore, "run-1", checkpoint.id)
     ));
-    const notifications: string[] = [];
-    expect(restoreManualCheckpointNotifications({
-      checkpoints: restored,
-      ui: { notify: (message) => notifications.push(message) },
-    })).toHaveLength(5);
+    expect(restored).toHaveLength(5);
     expect(restored.every((checkpoint) => checkpoint.status === "pending")).toBeTrue();
 
     const persistedContents = (await readAllFiles(root)).join("\n");
     expect(persistedContents).not.toContain(fixture.secret);
-    expect(notifications.join("\n")).not.toContain(fixture.secret);
   });
 });

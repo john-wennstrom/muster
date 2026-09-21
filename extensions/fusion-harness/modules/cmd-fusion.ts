@@ -12,7 +12,7 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { runLegacyBrokeredChild, runLegacyReadOnlyChild, runLegacyScopePlannerChild } from "../../../src/agents/legacy-adapter.ts";
 import { runChild } from "./child-runner.ts";
-import { orderedSlots } from "./model-stack.ts";
+import { orderedSlots } from "../../../src/agents/model-stack.ts";
 import {
 	contractSystemPrompt,
 	defaultFusionPrompt,
@@ -21,19 +21,8 @@ import {
 	parseFusionArgs,
 	workerPrompt,
 } from "./prompt-library.ts";
-import {
-	CUSTOM_TYPE,
-	newRun,
-	runError,
-	runOk,
-	splitUtf8,
-	toStat,
-	type AgentRun,
-	type FhDetails,
-	type HarnessDeps,
-	type Role,
-	type SpawnIdentity,
-} from "./runtime.ts";
+import { newRun, runError, runOk, toStat, type AgentRun, type Role } from "../../../src/agents/run-record.ts";
+import { CUSTOM_TYPE, splitUtf8, type FhDetails, type HarnessDeps, type SpawnIdentity } from "./runtime.ts";
 import { acquireWriterLease, type WriterLease } from "./writer-lease.ts";
 
 export function registerFusionCommand(pi: ExtensionAPI, h: HarnessDeps): void {

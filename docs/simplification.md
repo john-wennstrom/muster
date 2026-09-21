@@ -36,7 +36,7 @@ Move the size decision to the front of `propose`, make it one Jev call, and let 
 ```mermaid
 flowchart TD
   a(["/change propose change goal"]) --> r["retrieveCandidates<br/>code search, up to 10 files, no LLM"]
-  r --> ov{"--lane given<br/>by the user?"}
+  r --> ov{"lane= given<br/>by the user?"}
   ov -- yes --> lane
   ov -- no --> t["Jev change.triage - new<br/>replaces preflight and complexity:<br/>disposition, risk booleans, narrow reach"]
   t --> pat["pattern triage as the floor<br/>may escalate, never reduces"]
@@ -80,7 +80,7 @@ flowchart TD
 Rules that keep it safe:
 
 - **Deterministic gates never depend on the lane.** TDD evidence, focused verification, digest freshness, the writer lease, manual checkpoints, the credential-file denylist and the nine final gates stay as they are. A lane removes LLM sessions, not checks. `orchestrationPolicy` should split its `mandatory` block into checks that are always on and reviews that depend on the lane.
-- **Only the expensive direction is guarded.** The complexity decision already declares `effects: ["adds_caution", "reduces_work"]`, and a confident enforce-mode answer is the only thing allowed to reduce work. Keep that. Without Jev, pattern triage can hold at medium or escalate to large, and small is reachable only through an explicit `--lane small`.
+- **Only the expensive direction is guarded.** The complexity decision already declares `effects: ["adds_caution", "reduces_work"]`, and a confident enforce-mode answer is the only thing allowed to reduce work. Keep that. Without Jev, pattern triage can hold at medium or escalate to large, and small is reachable only through an explicit `lane=small`.
 - **Shadow first.** In `shadow` mode, record the lane that would have been chosen and route nothing, exactly as model routing does today. Compare records against how the changes actually went before enforcing.
 - **Escalation is one-way and mid-flight.** A design conflict, a write outside the declared scopes, or two failed attempts stops the small lane and promotes the change to medium. The lane is stored in the run manifest so the final gates know which checks apply.
 - **One Jev call, not two.** `planning.preflight` and `planning.complexity` become one decision with one egress. That also removes the largest single planning egress from a second request.
@@ -127,7 +127,7 @@ Seven OpenSpec changes, in order. Each has a proposal, design, specs and a task 
 | 1 | [simplify-01-retire-legacy-surface](../openspec/changes/simplify-01-retire-legacy-surface/proposal.md) | Removes the old extension and every legacy command, moves shared runtime into `src/`, collapses four spawn layers into one, deletes four unwired modules, adds a guard against unwired code. |
 | 2 | [simplify-02-prompt-files](../openspec/changes/simplify-02-prompt-files/proposal.md) | Moves every agent prompt and every Jev question into template files with declared variables, proved byte-identical by goldens. |
 | 3 | [simplify-03-judgment-core](../openspec/changes/simplify-03-judgment-core/proposal.md) | One module per decision, one call-site helper, a scripted client instead of fixtures, enforce by default, no per-decision flags, capsule ranking and seven report modules deleted. |
-| 4 | [simplify-04-triage-lanes](../openspec/changes/simplify-04-triage-lanes/proposal.md) | Lanes, a merged Jev triage decision that runs before any agent, `--lane`, a declared lane policy table. |
+| 4 | [simplify-04-triage-lanes](../openspec/changes/simplify-04-triage-lanes/proposal.md) | Lanes, a merged Jev triage decision that runs before any agent, the `lane=` argument, a declared lane policy table. |
 | 5 | [simplify-05-structured-planning](../openspec/changes/simplify-05-structured-planning/proposal.md) | A typed plan validated and rendered by code, no preflight session, plan lint, the small lane approved without a reviewer when nothing is wrong. |
 | 6 | [simplify-06-lean-execution](../openspec/changes/simplify-06-lean-execution/proposal.md) | Task merging, review skipping, thinking per task, failure records with a retry, escalate or stop decision, verification reuse, a split implementation phase. |
 | 7 | [simplify-07-closeout](../openspec/changes/simplify-07-closeout/proposal.md) | Empty allowlists, size and session budgets as tests, documentation checks, refreshed docs and the end-to-end job. |

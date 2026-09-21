@@ -1,9 +1,6 @@
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
-import {
-  validateCollaborationPlan,
-  type CollaborationTask,
-} from "../../extensions/fusion-harness/modules/collaboration-graph.ts";
+import type { CollaborationTask } from "../execution/collaboration-task.ts";
 import { GitAdapter } from "../execution/git.ts";
 import {
   acquireWriterLease,
@@ -11,6 +8,7 @@ import {
   type WriterLease,
   type WriterLeaseRecord,
 } from "../execution/writer-lease.ts";
+import { runProcess } from "../shared/process.ts";
 import {
   authorizeToolRequest,
   type AgentRole,
@@ -21,16 +19,9 @@ import {
   runAuditedHostCommand,
   type StructuredCommandRequest,
 } from "../tools/host-runner.ts";
-import type { BrokerRequestContext } from "./child-runner.ts";
-import {
-  runBrokeredChild,
-  type BrokerChildRole,
-  type RunBrokeredChildOptions,
-} from "./child-runner.ts";
-import { createFreshRoleSession } from "./role-runner.ts";
-import { runProcess } from "../shared/process.ts";
+import type { BrokerRequestContext } from "./broker-server.ts";
 
-export interface LegacyTaskBrokerOptions {
+export interface TaskBrokerOptions {
   cwd: string;
   runId: string;
   childId: string;
@@ -49,90 +40,12 @@ export interface LegacyTaskBrokerOptions {
   judgment?: CommandJudgmentOptions;
 }
 
-export interface LegacyTaskBroker {
+export interface TaskBroker {
   repositoryId: string;
   worktreePath: string;
   writerLease: WriterLeaseRecord | null;
   handleRequest(request: BrokerRequestContext): Promise<unknown>;
   close(): Promise<void>;
-}
-
-export interface RunLegacyBrokeredChildOptions extends Omit<
-  RunBrokeredChildOptions,
-  "handleRequest" | "taskId" | "writeEnabled"
-> {
-  onAgentStart?: (run: RunBrokeredChildOptions["run"]) => void;
-  task: CollaborationTask;
-  lease?: LegacyTaskBrokerOptions["lease"];
-  existingWriterLease?: WriterLeaseRecord;
-  persistEvidence?: LegacyTaskBrokerOptions["persistEvidence"];
-  judgment?: LegacyTaskBrokerOptions["judgment"];
-  continueTaskSession?: boolean;
-}
-
-export interface RunLegacyScopePlannerOptions extends Omit<
-  RunLegacyBrokeredChildOptions,
-  "persistEvidence" | "prompt" | "role" | "task"
-> {
-  description: string;
-  plannedTaskId: string;
-  plannedAssignee: string;
-}
-
-export interface RunLegacyReadOnlyChildOptions extends Omit<
-  RunLegacyBrokeredChildOptions,
-  "lease" | "persistEvidence" | "task"
-> {
-  taskId: string;
-  description: string;
-  assignee: string;
-  readScopes?: readonly string[];
-}
-
-export interface LegacyScopePlan {
-  reads: string[];
-  writes: string[];
-}
-
-export type LegacyScopePlanner = (prompt: string) => Promise<unknown>;
-
-export function legacyScopePlanningPrompt(description: string): string {
-  return [
-    "Plan the minimum repository scopes needed for this legacy writer.",
-    "Call muster_submit_scope exactly once with string arrays reads and writes.",
-    "Use repository-relative paths or narrow /** globs. Never use writes:[\"**\"].",
-    `Task: ${description}`,
-  ].join("\n");
-}
-
-export function validateLegacyScopePlan(input: unknown): LegacyScopePlan {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new Error("Legacy scope plan must be a JSON object");
-  }
-  const value = input as Record<string, unknown>;
-  const unknownFields = Object.keys(value).filter((field) => field !== "reads" && field !== "writes");
-  if (unknownFields.length > 0) throw new Error(`Legacy scope plan has unknown fields: ${unknownFields.join(", ")}`);
-  const task = validateCollaborationPlan({
-    tasks: [{
-      id: "1.scope",
-      assignee: "scope-planner",
-      description: "legacy scope plan",
-      depends_on: [],
-      outputs: [],
-      mode: "write",
-      reads: value.reads,
-      writes: value.writes,
-    }],
-  }, ["scope-planner"]).tasks[0]!;
-  return { reads: task.reads, writes: task.writes };
-}
-
-export async function planLegacyWriteTask(
-  task: Omit<CollaborationTask, "reads" | "writes">,
-  planner: LegacyScopePlanner,
-): Promise<CollaborationTask> {
-  const plan = validateLegacyScopePlan(await planner(legacyScopePlanningPrompt(task.description)));
-  return { ...task, mode: "write", ...plan };
 }
 
 function requestObject(input: unknown): Record<string, unknown> {
@@ -189,9 +102,9 @@ async function searchFiles(
   return results;
 }
 
-export async function createLegacyTaskBroker(
-  options: LegacyTaskBrokerOptions,
-): Promise<LegacyTaskBroker> {
+export async function createTaskBroker(
+  options: TaskBrokerOptions,
+): Promise<TaskBroker> {
   const identity = await new GitAdapter(options.cwd).identity();
   const worktreePath = identity.root;
   let lease: WriterLease | null = null;
@@ -213,7 +126,7 @@ export async function createLegacyTaskBroker(
           worktreePath,
           runId: options.runId,
           taskId: options.task.id,
-          command: `legacy:${options.role}`,
+          command: `agent:${options.role}`,
         },
         ...options.lease,
       });
@@ -295,113 +208,4 @@ export async function createLegacyTaskBroker(
       lease = null;
     },
   };
-}
-
-export async function runLegacyBrokeredChild(
-  options: RunLegacyBrokeredChildOptions,
-) {
-  options.onAgentStart?.(options.run);
-  let broker: LegacyTaskBroker | undefined;
-  try {
-    broker = await createLegacyTaskBroker({
-      cwd: options.cwd,
-      runId: options.runId,
-      childId: options.childId,
-      role: options.role,
-      task: options.task,
-      lease: options.lease,
-      existingWriterLease: options.existingWriterLease,
-      persistEvidence: options.persistEvidence,
-      judgment: options.judgment,
-    });
-    const freshSession = createFreshRoleSession(
-      options.sessionDir,
-      options.runId,
-      options.task.id,
-      options.role,
-    );
-    const session = options.continueTaskSession
-      ? { sessionDir: options.sessionDir, sessionId: options.sessionId, resume: options.resume, fork: options.fork }
-      : freshSession;
-    return await runBrokeredChild({
-      ...options,
-      ...session,
-      evidenceEnabled: Boolean(options.persistEvidence),
-      prompt: [
-        options.prompt,
-        `Task mode: ${options.task.mode}. Declared read scopes: ${JSON.stringify(options.task.reads)}. Declared write scopes: ${JSON.stringify(options.task.writes)}.`,
-        options.task.mode === "read" ? "Do not modify repository files." : "Keep repository changes within the declared write scopes.",
-      ].join("\n\n"),
-      fork: options.continueTaskSession ? options.fork : undefined,
-      resume: options.continueTaskSession ? options.resume : undefined,
-      taskId: options.task.id,
-      writeEnabled: options.task.mode === "write",
-      handleRequest: broker.handleRequest,
-    });
-  } catch (error) {
-    options.run.status = options.signal?.aborted ? "aborted" : "failed";
-    options.run.errorMessage = error instanceof Error ? error.message : String(error);
-    options.run.exitCode = options.signal?.aborted ? 130 : 1;
-    options.run.endedAt = Date.now();
-    throw error;
-  } finally {
-    await broker?.close();
-  }
-}
-
-export async function runLegacyScopePlannerChild(
-  options: RunLegacyScopePlannerOptions,
-): Promise<{ run: Awaited<ReturnType<typeof runBrokeredChild>>; task: CollaborationTask }> {
-  let scopes: LegacyScopePlan | undefined;
-  const planningTask: CollaborationTask = {
-    id: `${options.plannedTaskId}.scope`,
-    assignee: options.plannedAssignee,
-    description: `Plan scopes for ${options.description}`,
-    depends_on: [],
-    outputs: [],
-    mode: "read",
-    reads: ["**"],
-    writes: [],
-  };
-  const run = await runLegacyBrokeredChild({
-    ...options,
-    prompt: legacyScopePlanningPrompt(options.description),
-    role: "architect",
-    task: planningTask,
-    persistEvidence: async (tool, input) => {
-      if (tool !== "submit_scope") throw new Error("Scope planner submitted unsupported evidence");
-      scopes = validateLegacyScopePlan(input);
-      return { accepted: true, scopes };
-    },
-  });
-  if (!scopes) throw new Error("Legacy scope planner did not submit a valid scope plan");
-  return {
-    run,
-    task: {
-      id: options.plannedTaskId,
-      assignee: options.plannedAssignee,
-      description: options.description,
-      depends_on: [],
-      outputs: [],
-      mode: "write",
-      reads: scopes.reads,
-      writes: scopes.writes,
-    },
-  };
-}
-
-export function runLegacyReadOnlyChild(options: RunLegacyReadOnlyChildOptions) {
-  return runLegacyBrokeredChild({
-    ...options,
-    task: {
-      id: options.taskId,
-      assignee: options.assignee,
-      description: options.description,
-      depends_on: [],
-      outputs: [],
-      mode: "read",
-      reads: [...(options.readScopes ?? ["**"])],
-      writes: [],
-    },
-  });
 }

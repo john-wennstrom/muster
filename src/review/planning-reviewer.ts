@@ -1,10 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import { newRun, READONLY_TOOLS, type AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
-import {
-  runLegacyReadOnlyChild,
-  type RunLegacyReadOnlyChildOptions,
-} from "../agents/legacy-adapter.ts";
+import { READONLY_TOOLS } from "../agents/child-runtime.ts";
+import { newRun, type AgentRun } from "../agents/run-record.ts";
+import { runAgent, type ReadAgentRunner } from "../agents/spawn.ts";
 import { HarnessError } from "../shared/errors.ts";
 import {
   planningReviewSubmissionSchema,
@@ -90,9 +88,7 @@ export interface PlanningReviewDispatchResult {
   extraction?: ReviewExtractionMark;
 }
 
-export type PlanningReviewerChildRunner = (
-  options: RunLegacyReadOnlyChildOptions,
-) => Promise<AgentRun>;
+export type PlanningReviewerChildRunner = ReadAgentRunner;
 
 // Reviewers sometimes burn their whole turn on reasoning and never emit the
 // JSON object, or wrap it in a fence despite being told not to. Both are
@@ -112,7 +108,7 @@ function tryParseReviewerJson(text: string): { success: true; value: unknown } |
 
 export async function runBrokeredPlanningReviewer(
   request: PlanningReviewerRequest,
-  childRunner: PlanningReviewerChildRunner = runLegacyReadOnlyChild,
+  childRunner: PlanningReviewerChildRunner = runAgent,
 ): Promise<PlanningReviewerResponse> {
   let correction: string | undefined;
   // The record of an extraction that did not replace the retry, to compare with the retry's result.
@@ -120,6 +116,7 @@ export async function runBrokeredPlanningReviewer(
   for (let attempt = 1; attempt <= MAX_REVIEW_ATTEMPTS; attempt += 1) {
     const run = newRun("REVIEWER", request.model);
     await childRunner({
+      access: "read",
       run,
       prompt: [
         request.prompt,

@@ -3,8 +3,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { synthesizeLegacyStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
-import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import { synthesizeLegacyStack } from "../../src/agents/model-stack.ts";
+import type { AgentRun } from "../../src/agents/run-record.ts";
 import {
   FOCUS_DIFF_LIMIT_BYTES,
   changedPathsOfDiff,

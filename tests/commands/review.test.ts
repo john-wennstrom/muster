@@ -15,7 +15,7 @@ import {
 } from "../../src/review/artifact-digest.ts";
 import { createReviewArtifact, parseReviewArtifact } from "../../src/review/review-artifact.ts";
 import { runBrokeredPlanningReviewer, type PlanningReviewerRunner } from "../../src/review/planning-reviewer.ts";
-import type { AgentRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import type { AgentRun } from "../../src/agents/run-record.ts";
 import { createJudgmentRuntime } from "../../src/judgment/ask.ts";
 import { listDecisionRecords } from "../../src/judgment/audit.ts";
 import type { JudgmentAnswers } from "../../src/judgment/client.ts";

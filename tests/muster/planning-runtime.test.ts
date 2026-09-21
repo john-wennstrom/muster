@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { synthesizeLegacyStack } from "../../extensions/fusion-harness/modules/model-stack.ts";
+import { synthesizeLegacyStack } from "../../src/agents/model-stack.ts";
 import {
   parsePreflight,
   preflightPrompt,

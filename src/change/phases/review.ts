@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
-import type { ModelStack } from "../../../extensions/fusion-harness/modules/model-stack.ts";
-import { resolveChildRuntime } from "../../../extensions/fusion-harness/modules/runtime.ts";
-import { runLegacyReadOnlyChild } from "../../agents/legacy-adapter.ts";
+import type { ModelStack } from "../../agents/model-stack.ts";
+import { resolveChildRuntime } from "../../agents/child-runtime.ts";
+import { runAgent } from "../../agents/spawn.ts";
 import { reviewChange } from "../../controller/review.ts";
 import { currentTaskQualityNotes } from "../../controller/task-quality.ts";
 import { createJudgmentRuntime, type JudgmentRuntime } from "../../judgment/ask.ts";
@@ -45,7 +45,7 @@ export async function runProductionReview(options: ProductionReviewOptions): Pro
   const runner = options.runner ?? ((request) => runBrokeredPlanningReviewer(request, async (childOptions) => {
     try {
       childOptions.run.slot = stack.slots.find((slot) => slot.model === childOptions.run.model);
-      return await runLegacyReadOnlyChild({ ...childOptions, modelStack: stack, onAgentStart: options.onAgentStart });
+      return await runAgent({ ...childOptions, access: "read", modelStack: stack, onAgentStart: options.onAgentStart });
     } finally {
       await recordChangeUsage(store, options.changeName, [
         usageFromLegacyRun(runId, "planning", childOptions.run, "planning.review"),

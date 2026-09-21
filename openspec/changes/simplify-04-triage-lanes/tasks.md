@@ -32,7 +32,7 @@
 
 ## 3. Wire the front of planning
 
-- [ ] 3.1 Parse the lane option in the propose and refine handlers: accept `--lane <small|medium|large>` anywhere among the argument words, remove it from the prompt text, validate the value, and on an invalid value return a blocked outcome with the usage line without starting any agent or judgment request. Update the usage strings in `src/change/commands.ts` and `src/change/parse.ts` to `/change propose <change> [--lane small|medium|large] <goal>` and the refine equivalent, and pass the parsed lane into the planning phase options. Add handler tests for valid, invalid and absent values.
+- [ ] 3.1 Parse the lane argument in the propose and refine handlers: accept `lane=<small|medium|large>` only as the word immediately after the change name (not a flag, and not registered as a launch flag), remove it from the prompt text, validate the value, and on an invalid value return a blocked outcome with the usage line without starting any agent or judgment request. A goal that merely begins with the word small, medium or large is left alone. Update the usage strings in `src/change/commands.ts` and `src/change/parse.ts` to `/change propose <change> [lane=small|medium|large] <goal>` and the refine equivalent, and pass the parsed lane into the planning phase options. Add handler tests for valid, invalid, absent and goal-starts-with-a-lane-name cases.
 
   ```yaml harness-task
   id: "3.1"
@@ -41,7 +41,7 @@
   reads: ["src/change/**", "tests/**"]
   writes: ["src/change/handlers/propose.ts", "src/change/handlers/refine.ts", "src/change/commands.ts", "src/change/parse.ts", "tests/muster/lane-option.test.ts"]
   requirements: ["change-lanes: The user may choose the lane"]
-  scenarios: ["An explicit lane overrides triage", "An invalid lane is rejected"]
+  scenarios: ["An explicit lane overrides triage", "A goal that starts with a lane name is not a lane", "An invalid lane is rejected"]
   verify: ["bun test tests/muster/lane-option.test.ts", "bun run typecheck"]
   manual: null
   ```
@@ -94,7 +94,7 @@
 
 ## 6. Documentation
 
-- [ ] 6.1 Update the call-site table in `docs/security.md`: remove the `planning.complexity` and `planning.preflight` rows and add one `change.triage` row stating that it sends, once per propose or refine without an explicit lane, the effective request text (including the previous review's required changes on refinement), the phase, and up to ten candidate files retrieved by code with path and an excerpt of at most 600 bytes, that it is the largest planning egress, and which files are never candidates. Update the README's planning cost section to mention lanes and `--lane`. Run `bun run docs:check`.
+- [ ] 6.1 Update the call-site table in `docs/security.md`: remove the `planning.complexity` and `planning.preflight` rows and add one `change.triage` row stating that it sends, once per propose or refine without an explicit lane, the effective request text (including the previous review's required changes on refinement), the phase, and up to ten candidate files retrieved by code with path and an excerpt of at most 600 bytes, that it is the largest planning egress, and which files are never candidates. Update the README's planning cost section to mention lanes and the `lane=` argument. Run `bun run docs:check`.
 
   ```yaml harness-task
   id: "6.1"

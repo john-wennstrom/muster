@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadModelStack, orderedSlots, synthesizeLegacyStack } from "../modules/model-stack.ts";
+import { loadModelStack, orderedSlots, synthesizeLegacyStack } from "../../src/agents/model-stack.ts";
 
 const dirs: string[] = [];
 afterEach(() => { while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true }); });

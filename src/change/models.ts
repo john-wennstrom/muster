@@ -3,7 +3,7 @@ import {
   synthesizeLegacyStack,
   type ModelSlot,
   type ModelStack,
-} from "../../extensions/fusion-harness/modules/model-stack.ts";
+} from "../agents/model-stack.ts";
 import { readCliFlag } from "../shared/cli-flags.ts";
 
 export type ModelRole = "architect" | "builder" | "reviewer" | "validator";

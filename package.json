@@ -18,7 +18,6 @@
     ]
   },
   "files": [
-    "extensions",
     "schemas",
     "src",
     "THIRD_PARTY_NOTICES.md"
@@ -32,9 +31,7 @@
     "test:extension-smoke": "bun test tests/extension/install-smoke.test.ts",
     "test:git-worktree": "bun test tests/execution/git.test.ts tests/execution/worktree.test.ts",
     "test:host-runner": "bun test tests/tools/host-runner.test.ts tests/security/broker-host-adversarial.test.ts",
-    "verify:import": "bun run extensions/fusion-harness/verify-import.ts",
-    "test": "bun test extensions/fusion-harness/tests",
-    "test:fusion-harness": "bun test extensions/fusion-harness/tests",
+    "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { newRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import { newRun } from "../../src/agents/run-record.ts";
 import { createAgentProgress, agentUsageLine } from "../../src/change/agent-progress.ts";
 import { MUSTER_CUSTOM_TYPE, musterWidgetKey } from "../../src/change/branding.ts";
 import { registerChangeCommand } from "../../src/change/change-command.ts";

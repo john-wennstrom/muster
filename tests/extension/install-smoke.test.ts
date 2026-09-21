@@ -12,7 +12,7 @@ interface RegisteredCommand {
 const root = resolve(import.meta.dir, "../..");
 
 describe("muster extension installation", () => {
-  test("discovers one extension that registers compatibility and change commands", async () => {
+  test("discovers one extension that registers only the change command and its flags", async () => {
     const packageJson = JSON.parse(
       await readFile(resolve(root, "package.json"), "utf8"),
     ) as { pi?: { extensions?: string[] } };
@@ -23,9 +23,9 @@ describe("muster extension installation", () => {
       resolve(root, packageJson.pi!.extensions![0]!),
     ).href;
     const extensionModule = await import(extensionUrl);
-    expect(extensionModule.registerFusionHarness).toBeFunction();
 
     const commands = new Map<string, RegisteredCommand>();
+    const flags = new Map<string, unknown>();
     const api = {
       getFlag: () => undefined,
       on: () => undefined,
@@ -33,32 +33,24 @@ describe("muster extension installation", () => {
         if (commands.has(name)) throw new Error(`duplicate command: ${name}`);
         commands.set(name, command);
       },
-      registerFlag: () => undefined,
+      registerFlag: (name: string, flag: unknown) => {
+        if (flags.has(name)) throw new Error(`duplicate flag: ${name}`);
+        flags.set(name, flag);
+      },
       registerMessageRenderer: () => undefined,
     } as unknown as ExtensionAPI;
 
     extensionModule.default(api);
 
-    for (const command of [
-      "change",
-      "fh",
-      "fh-auto-validate",
-      "fh-collaborate",
-      "fh-debate",
-      "fh-fusion",
-      "fh-model",
-      "fh-only",
-      "fh-opinion",
-      "fh-reset",
-      "fh-system-prompt",
-      "implement",
-      "init",
-      "os-status",
-      "refine",
-      "ship",
-    ]) {
-      expect(commands.has(command), `missing /${command}`).toBeTrue();
-    }
+    expect([...commands.keys()]).toEqual(["change"]);
+    expect([...flags.keys()].sort()).toEqual([
+      "architect",
+      "builder",
+      "fh-config",
+      "planning-max-cost",
+      "planning-max-tokens",
+    ]);
+    expect(extensionModule.registerFusionHarness).toBeUndefined();
 
     const notifications: string[] = [];
     await commands.get("change")!.handler("", {
@@ -67,5 +59,22 @@ describe("muster extension installation", () => {
     expect(notifications).toHaveLength(1);
     expect(notifications[0]).toContain("explore");
     expect(notifications[0]).toContain("resume");
+  });
+
+  test("no retired command is registered and no migration stub exists", async () => {
+    const commands = new Set<string>();
+    const api = {
+      getFlag: () => undefined,
+      on: () => undefined,
+      registerCommand: (name: string) => commands.add(name),
+      registerFlag: () => undefined,
+      registerMessageRenderer: () => undefined,
+    } as unknown as ExtensionAPI;
+    (await import(pathToFileURL(resolve(root, "src/muster/index.ts")).href)).default(api);
+
+    for (const retired of ["refine", "implement", "ship", "os-status", "init", "fh", "fh-opinion", "fh-fusion"]) {
+      expect(commands.has(retired), `/${retired} must not be registered`).toBeFalse();
+    }
+    expect([...commands].filter((name) => name.startsWith("fh"))).toEqual([]);
   });
 });

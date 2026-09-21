@@ -43,7 +43,7 @@ Of the nine `/change` commands, `verify`, `finish` and `status` spend no tokens.
 
 ## 1. Command surface
 
-`registerMuster` in [src/muster/index.ts](../src/muster/index.ts) registers the Fusion Harness commands and the `/change` command from one entry point.
+`registerMuster` in [src/muster/index.ts](../src/muster/index.ts) registers the `/change` command and the flags it reads from one entry point.
 
 ```mermaid
 flowchart LR
@@ -633,7 +633,7 @@ The call sites, in the order they fire during a change:
 
 ## 13. Legacy and Fusion commands
 
-The deprecated aliases and the OpenSpec helpers live in [openspec-workflow.ts](../extensions/fusion-harness/modules/openspec-workflow.ts). The `/fh-*` commands are the original Fusion Harness orchestration surface and stay available for diagnostics.
+These commands were retired and are no longer registered. The diagram below is kept until the documentation refresh in the last change of the simplification series replaces it.
 
 ```mermaid
 flowchart TD

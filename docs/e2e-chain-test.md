@@ -131,9 +131,10 @@ Then run the same steps. Expected:
 
 1. `/change implement` completes `1.1` and `1.2`, then stops. The outcome is blocked with a pending checkpoint, `/change status` shows `Lifecycle: AWAITING_USER` and lists the checkpoint id, and the checkpoint instructions contain no secrets.
 2. `/change implement minding-reading-time` is now refused with the pending checkpoint id, because only `resume` is allowed.
-3. `/change resume minding-reading-time <checkpoint-id>` records who confirmed the checkpoint and runs the flow again.
+3. `/change resume minding-reading-time <checkpoint-id>` records who confirmed the checkpoint and runs the flow again. Task `1.3` completes from the confirmation instead of pausing a second time: its checkbox is ticked, its task result records the checkpoint id and the person who confirmed it, and the change reaches `VERIFYING`. The checkpoint record ends as `confirmed`, and no new one is created.
+4. `/change verify minding-reading-time` passes the evidence gate for `1.3` because a confirmed checkpoint stands in for a builder run and a review, which a person's step never has.
 
-Step 3 is where I expect trouble. On resume the scheduler runs task `1.3` again, and the execute callback in [implementation.ts](../src/change/phases/implementation.ts) checkpoints any task that has a `manual` block without first checking for a confirmed checkpoint. From reading the code, that creates a new pending checkpoint and pauses again, so a planned manual task never completes through `resume`. The existing tests replace the scheduler with doubles and do not cover this. If step 3 pauses again with a new checkpoint id, that confirms it.
+Two problems used to make this variant fail, and both are fixed. The execute step in [implementation.ts](../src/change/phases/implementation.ts) checkpointed any task with a `manual` block without first looking for a confirmed checkpoint, so resuming paused again. And the artifact digest covered the raw bytes of `tasks.md`, so ticking a checkbox after the first task changed the digest and made the next `implement` or `resume` treat the run as invalidated. The digest now treats task progress as not a change, while any edit to what a task says still changes it. Tests: `tests/muster/implementation-manual-resume.test.ts`, `tests/review/digest.test.ts` and `tests/review/validator.test.ts`.
 
 ## Cleaning up
 

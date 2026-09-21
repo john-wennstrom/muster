@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { newRun } from "../../extensions/fusion-harness/modules/runtime.ts";
+import { newRun } from "../../src/agents/run-record.ts";
 import type { ChangeSnapshot } from "../../src/controller/change-snapshot.ts";
 import type { ChangeCommandContext } from "../../src/change/change-command.ts";
 import { changeCommands } from "../../src/change/commands.ts";

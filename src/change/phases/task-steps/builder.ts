@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { z } from "zod";
-import type { ModelSlot } from "../../../../extensions/fusion-harness/modules/model-stack.ts";
-import { newRun, runError, runOk } from "../../../../extensions/fusion-harness/modules/runtime.ts";
-import { runLegacyBrokeredChild } from "../../../agents/legacy-adapter.ts";
+import type { ModelSlot } from "../../../agents/model-stack.ts";
+import { newRun, runError, runOk } from "../../../agents/run-record.ts";
+import { runAgent, type WriteAgentRunner } from "../../../agents/spawn.ts";
 import { collaborationTask } from "../../../execution/collaboration-task.ts";
 import type { ChangeTaskExecutionContext } from "../../../execution/scheduler.ts";
 import type { ValidatedTask } from "../../../execution/task-schema.ts";
@@ -91,7 +91,7 @@ export async function runBuilderStep(
   task: ValidatedTask,
   execution: ChangeTaskExecutionContext,
   signal?: AbortSignal,
-  runChild: typeof runLegacyBrokeredChild = runLegacyBrokeredChild,
+  runChild: WriteAgentRunner = runAgent,
   attempt: number = 1,
 ): Promise<TaskPipelineBuilderResult> {
   const slot = await chooseBuilderSlot(step, task, attempt, signal);
@@ -99,6 +99,7 @@ export async function runBuilderStep(
   const childId = `builder-${task.id}-${randomUUID()}`;
   try {
     await runChild({
+      access: "write",
       run,
       modelStack: step.stack,
       onAgentStart: step.onAgentStart,

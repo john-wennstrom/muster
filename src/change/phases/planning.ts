@@ -6,9 +6,9 @@ import {
   type ModelSlot,
   type ModelStack,
   type Thinking,
-} from "../../../extensions/fusion-harness/modules/model-stack.ts";
-import { newRun, runError, runOk } from "../../../extensions/fusion-harness/modules/runtime.ts";
-import { runLegacyReadOnlyChild } from "../../agents/legacy-adapter.ts";
+} from "../../agents/model-stack.ts";
+import { newRun, runError, runOk } from "../../agents/run-record.ts";
+import { runAgent as runChildAgent } from "../../agents/spawn.ts";
 import {
   propose,
   refine,
@@ -589,7 +589,8 @@ export async function runProductionPlanning(options: ProductionPlanningOptions):
     const run = newRun(input.slot.architect ? "ARCHITECT" : "BUILDER", input.slot.model, input.slot);
     const childId = `${input.stage}-${randomUUID()}`;
     try {
-      await runLegacyReadOnlyChild({
+      await runChildAgent({
+        access: "read",
         run,
         modelStack: stack,
         onAgentStart: options.onAgentStart,

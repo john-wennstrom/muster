@@ -3,6 +3,7 @@ import { createFreshRoleSession } from "../agents/role-runner.ts";
 import type { DependencyReport } from "../agents/reports.ts";
 import type { GitStatusEntry, GitWorktree } from "../execution/git.ts";
 import type {
+  CheckpointRecord,
   ReviewRecord,
   RunManifest,
   TaskResultRecord,
@@ -94,6 +95,8 @@ export interface FinalValidationTask {
   requirements: readonly string[];
   scenarios: readonly string[];
   verify: readonly string[];
+  /** A planned manual step: a person does it, so a confirmed checkpoint stands in for a builder and a review. */
+  manual?: boolean;
 }
 
 export interface CommandEvidence {
@@ -112,6 +115,7 @@ export interface PersistedEvidenceInput {
   manifest: RunManifest;
   taskResults: readonly TaskResultRecord[];
   reviews: readonly ReviewRecord[];
+  checkpoints?: readonly CheckpointRecord[];
 }
 
 export interface TestValidationInput {
@@ -254,6 +258,15 @@ function evaluateEvidence(input: CollectedInputs): ValidationCheck {
     const result = latestTaskResult(input, task.id);
     if (!result || result.outcome !== "completed" || result.verificationEvidence.length === 0) {
       reasons.push(`Task ${task.id} lacks completed persisted evidence`);
+      continue;
+    }
+    if (task.manual) {
+      const confirmed = (input.evidence.checkpoints ?? []).some((checkpoint) =>
+        checkpoint.runId === manifest.runId &&
+        checkpoint.taskId === task.id &&
+        checkpoint.status === "confirmed"
+      );
+      if (!confirmed) reasons.push(`Manual task ${task.id} has no confirmed checkpoint`);
       continue;
     }
     const approved = reviews.some((review) =>
